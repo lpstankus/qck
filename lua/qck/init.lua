@@ -1,6 +1,8 @@
 ---@class qck
 local qck = {}
 
+local qck_group = vim.api.nvim_create_augroup("QCK", {})
+
 local cur_buf = nil
 local cur_win = nil
 
@@ -33,7 +35,7 @@ function SpawnTerm()
   cur_buf = vim.api.nvim_create_buf(true, true)
   if cur_buf == 0 then
     cur_buf = nil
-    vim.notify("Qck: failed to spawn new buffer")
+    vim.notify("QCK: failed to spawn new buffer", vim.log.levels.ERROR)
     return
   end
 
@@ -42,6 +44,18 @@ function SpawnTerm()
   vim.api.nvim_win_set_buf(win, cur_buf)
   vim.cmd("terminal")
   vim.cmd("q")
+
+  vim.api.nvim_create_autocmd(
+    { "BufDelete" },
+    {
+      group = qck_group,
+      buffer = cur_buf,
+      callback = function(_)
+        cur_buf = nil
+        cur_win = nil
+      end
+    }
+  )
 end
 
 function ToggleWindow()
