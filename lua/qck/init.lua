@@ -82,7 +82,7 @@ function ToggleWindow()
     true,
     {
       title = { { "┤ qck terminal ├", "Normal" } },
-      relative = 'win', border = "single", style = "minimal",
+      relative = 'editor', border = "single", style = "minimal",
       width = win_width, height = win_height, col = off_width, row = off_height,
     }
   )
