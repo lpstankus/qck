@@ -46,7 +46,7 @@ function SpawnTerm()
   vim.cmd("q")
 
   vim.api.nvim_create_autocmd(
-    { "BufDelete" },
+    { "BufDelete", "QuitPre" },
     {
       group = qck_group,
       buffer = cur_buf,
