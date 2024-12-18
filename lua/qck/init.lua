@@ -6,32 +6,7 @@ local qck_group = vim.api.nvim_create_augroup("QCK", {})
 local cur_buf = nil
 local cur_win = nil
 
-function qck.new()
-  if cur_buf then qck.kill() end
-  SpawnTerm()
-  ToggleWindow()
-end
-
-function qck.toggle()
-  if not cur_buf then
-    qck.new()
-    return
-  end
-  ToggleWindow()
-end
-
-function qck.kill()
-  if cur_win then
-    vim.api.nvim_win_close(cur_win, false)
-    cur_win = nil
-  end
-  if cur_buf then
-    vim.cmd("bdelete! " .. cur_buf)
-    cur_buf = nil
-  end
-end
-
-function SpawnTerm()
+local function spawn_term()
   cur_buf = vim.api.nvim_create_buf(true, true)
   if cur_buf == 0 then
     cur_buf = nil
@@ -58,7 +33,7 @@ function SpawnTerm()
   )
 end
 
-function ToggleWindow()
+local function toggle_window()
   if not cur_buf then return end
 
   if cur_win then
@@ -88,6 +63,31 @@ function ToggleWindow()
   )
 
   vim.cmd("startinsert")
+end
+
+function qck.new()
+  if cur_buf then qck.kill() end
+  spawn_term()
+  toggle_window()
+end
+
+function qck.toggle()
+  if not cur_buf then
+    qck.new()
+    return
+  end
+  toggle_window()
+end
+
+function qck.kill()
+  if cur_win then
+    vim.api.nvim_win_close(cur_win, false)
+    cur_win = nil
+  end
+  if cur_buf then
+    vim.cmd("bdelete! " .. cur_buf)
+    cur_buf = nil
+  end
 end
 
 return qck
