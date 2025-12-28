@@ -56,7 +56,7 @@ local function toggle_window()
     cur_buf,
     true,
     {
-      title = { { "┤ qck terminal ├", "Normal" } },
+      title = { { "┤ qck terminal ├", "FloatBorder" } },
       relative = 'editor', border = "single", style = "minimal",
       width = win_width, height = win_height, col = off_width, row = off_height,
     }
