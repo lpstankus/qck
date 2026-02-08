@@ -11,6 +11,11 @@ vim.api.nvim_set_hl(0, "QckTabbarCurrent", { reverse = true, default = true })
 local bufnr = nil
 local winid = nil
 local watched_term_win = nil
+local actions = {
+  open = function(_) end,
+  delete = function(_) end,
+  focus_current = function() end,
+}
 
 local function is_valid_buf(buf)
   return buf and vim.api.nvim_buf_is_valid(buf)
@@ -50,6 +55,65 @@ local function ensure_buf()
   vim.bo[bufnr].swapfile = false
   vim.bo[bufnr].modifiable = false
   vim.bo[bufnr].readonly = true
+  vim.bo[bufnr].filetype = "qck-tabbar"
+
+  local function selected_id()
+    if not is_valid_win(winid) then
+      return nil
+    end
+
+    local line = vim.api.nvim_win_get_cursor(winid)[1]
+    local ids = state.live_ids()
+    if line < 1 or line > #ids then
+      return nil
+    end
+
+    return ids[line]
+  end
+
+  local function move_cursor(delta)
+    if not is_valid_win(winid) then
+      return
+    end
+
+    local total = #state.live_ids()
+    if total == 0 then
+      return
+    end
+
+    local line = vim.api.nvim_win_get_cursor(winid)[1]
+    local next_line = line + delta
+    if next_line < 1 then
+      next_line = total
+    elseif next_line > total then
+      next_line = 1
+    end
+    vim.api.nvim_win_set_cursor(winid, { next_line, 0 })
+  end
+
+  vim.keymap.set("n", "j", function()
+    move_cursor(1)
+  end, { buffer = bufnr, noremap = true, silent = true })
+  vim.keymap.set("n", "k", function()
+    move_cursor(-1)
+  end, { buffer = bufnr, noremap = true, silent = true })
+  vim.keymap.set("n", "<CR>", function()
+    local id = selected_id()
+    if not id then
+      return
+    end
+    actions.open(id)
+    actions.focus_current()
+  end, { buffer = bufnr, noremap = true, silent = true })
+  vim.keymap.set("n", "dd", function()
+    local id = selected_id()
+    if not id then
+      return
+    end
+    actions.delete(id)
+    actions.focus_current()
+  end, { buffer = bufnr, noremap = true, silent = true })
+
   return bufnr
 end
 
@@ -104,6 +168,39 @@ function tabbar.hide()
   vim.api.nvim_clear_autocmds({ group = watch_group })
 end
 
+---@param fns? { open?: fun(id: number), delete?: fun(id: number), focus_current?: fun() }
+function tabbar.set_actions(fns)
+  if type(fns) ~= "table" then
+    return
+  end
+  if type(fns.open) == "function" then
+    actions.open = fns.open
+  end
+  if type(fns.delete) == "function" then
+    actions.delete = fns.delete
+  end
+  if type(fns.focus_current) == "function" then
+    actions.focus_current = fns.focus_current
+  end
+end
+
+---@return number?
+function tabbar.get_winid()
+  if not is_valid_win(winid) then
+    return nil
+  end
+  return winid
+end
+
+---@return boolean
+function tabbar.is_focused()
+  local tab_win = tabbar.get_winid()
+  if not tab_win then
+    return false
+  end
+  return vim.api.nvim_get_current_win() == tab_win
+end
+
 function tabbar.render(current_id)
   if not is_valid_win(winid) then
     return
@@ -119,6 +216,7 @@ function tabbar.render(current_id)
   local lines = {}
   local current_idx = nil
   local width = math.max(1, vim.api.nvim_win_get_width(winid))
+  local current_line = vim.api.nvim_win_get_cursor(winid)[1]
 
   for i, id in ipairs(ids) do
     lines[i] = center_text(tostring(id), width)
@@ -140,6 +238,14 @@ function tabbar.render(current_id)
   end
   vim.bo[buf].modifiable = false
   vim.bo[buf].readonly = true
+
+  if #lines > 0 then
+    local target_line = current_line
+    if target_line < 1 or target_line > #lines then
+      target_line = current_idx or 1
+    end
+    vim.api.nvim_win_set_cursor(winid, { target_line, 0 })
+  end
 end
 
 function tabbar.show_for_terminal(rec, current_id)
@@ -168,7 +274,7 @@ function tabbar.show_for_terminal(rec, current_id)
     height = term_height,
     style = "minimal",
     border = "single",
-    focusable = false,
+    focusable = true,
   }
 
   local buf = ensure_buf()
