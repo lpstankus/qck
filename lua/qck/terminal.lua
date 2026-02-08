@@ -6,10 +6,82 @@ local terminal = {}
 
 ---@type table?
 local snacks = nil
+local user_mappings = {}
+local mapping_lhs = {}
+local previous_mapping_lhs = {}
+local deleting_ids = {}
 
 ---@param snacks_impl table
 function terminal.set_snacks(snacks_impl)
   snacks = snacks_impl
+end
+
+---@param rec qck.TerminalRecord?
+---@return number?
+local function terminal_bufnr(rec)
+  if not rec or not rec.win then
+    return nil
+  end
+
+  if type(rec.win.buf) == "number" and vim.api.nvim_buf_is_valid(rec.win.buf) then
+    return rec.win.buf
+  end
+
+  if type(rec.win.buf) == "function" then
+    local ok, bufnr = pcall(function() return rec.win:buf() end)
+    if ok and type(bufnr) == "number" and vim.api.nvim_buf_is_valid(bufnr) then
+      return bufnr
+    end
+  end
+
+  return nil
+end
+
+---@param bufnr number?
+local function apply_user_mappings_to_buf(bufnr)
+  if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+
+  local lhs_to_clear = {}
+  for _, lhs in ipairs(previous_mapping_lhs) do
+    lhs_to_clear[lhs] = true
+  end
+  for _, lhs in ipairs(mapping_lhs) do
+    lhs_to_clear[lhs] = true
+  end
+
+  for lhs in pairs(lhs_to_clear) do
+    pcall(vim.keymap.del, "n", lhs, { buffer = bufnr })
+  end
+
+  for lhs, rhs in pairs(user_mappings) do
+    vim.keymap.set("n", lhs, rhs, {
+      buffer = bufnr,
+      noremap = true,
+      silent = true,
+    })
+  end
+end
+
+---@param mappings table<string, string|function>
+function terminal.set_user_mappings(mappings)
+  previous_mapping_lhs = mapping_lhs
+  user_mappings = mappings or {}
+  mapping_lhs = {}
+
+  for lhs in pairs(user_mappings) do
+    mapping_lhs[#mapping_lhs + 1] = lhs
+  end
+
+  table.sort(mapping_lhs)
+end
+
+function terminal.apply_user_mappings()
+  for _, id in ipairs(state.live_ids()) do
+    local rec = state.get_terminal(id)
+    apply_user_mappings_to_buf(terminal_bufnr(rec))
+  end
 end
 
 local function ensure_snacks()
@@ -62,6 +134,32 @@ local function close_current_window_before_switch(target_id)
   hide_window_if_open(current_id)
 end
 
+---@return number?
+function terminal.get_current_winid()
+  local current_id = state.get_current_id()
+  if not current_id then
+    return nil
+  end
+
+  local rec = state.get_terminal(current_id)
+  if not helpers.is_window_open(rec) then
+    return nil
+  end
+
+  if type(rec.win.win) == "number" and vim.api.nvim_win_is_valid(rec.win.win) then
+    return rec.win.win
+  end
+
+  if type(rec.win.win) == "function" then
+    local ok, win = pcall(function() return rec.win:win() end)
+    if ok and type(win) == "number" and vim.api.nvim_win_is_valid(win) then
+      return win
+    end
+  end
+
+  return nil
+end
+
 ---@param id number
 ---@param opts? qck.Opts
 ---@return qck.TerminalRecord?
@@ -104,9 +202,13 @@ function terminal.create(id, opts)
   rec.win = term_or_err
   state.set_terminal(id, rec)
   state.set_current_id(id)
+  apply_user_mappings_to_buf(terminal_bufnr(rec))
   tabbar.sync(rec, id)
 
   rec.win:on("BufWipeout", function()
+    if deleting_ids[id] then
+      return
+    end
     if state.get_terminal(id) == rec then
       state.remove_terminal(id)
       state.update_current_after_removal(id)
@@ -209,6 +311,56 @@ function terminal.toggle(id)
   state.set_current_id(id)
   if helpers.is_window_open(rec) then
     tabbar.sync(rec, id)
+  else
+    tabbar.hide()
+  end
+end
+
+---@param id number
+function terminal.delete(id)
+  state.prune_stale()
+
+  local rec = state.get_terminal(id)
+  if not rec then
+    helpers.notify(
+      ("terminal %d does not exist (no-op)"):format(id),
+      vim.log.levels.WARN
+    )
+    return
+  end
+
+  local ids = state.live_ids()
+  local next_id = nil
+  for i, live_id in ipairs(ids) do
+    if live_id == id and #ids > 1 then
+      local next_idx = i < #ids and i + 1 or i - 1
+      next_id = ids[next_idx]
+      break
+    end
+  end
+
+  local removed_current = state.get_current_id() == id
+  deleting_ids[id] = true
+  local ok_close, err = pcall(function() rec.win:close() end)
+  deleting_ids[id] = nil
+  if not ok_close then
+    helpers.notify(
+      ("failed to delete terminal %d: %s"):format(id, tostring(err)),
+      vim.log.levels.ERROR
+    )
+    return
+  end
+
+  state.remove_terminal(id)
+
+  if not removed_current then
+    sync_tabbar_for_current()
+    return
+  end
+
+  state.set_current_id(nil)
+  if next_id then
+    terminal.open(next_id)
   else
     tabbar.hide()
   end
