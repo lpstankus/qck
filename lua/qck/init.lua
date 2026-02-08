@@ -10,13 +10,10 @@ if not ok then error("QCK: snacks.nvim is required") end
 terminal.set_snacks(Snacks)
 terminal.set_user_mappings({})
 
----@type { mappings: table<string, string|function> }
 local config = {
   mappings = {},
 }
 
----@param mappings any
----@return table<string, string|function>
 local function parse_mappings(mappings)
   if mappings == nil then
     return {}
@@ -58,7 +55,17 @@ tabbar.set_actions({
   focus_current = focus_current_terminal,
 })
 
----@param opts? { mappings?: table<string, string|function> }
+---@class qck.SetupOpts
+---@field mappings? table<string, string|function> Buffer-local normal-mode mappings applied only to qck terminal buffers.
+---@class qck.Opts
+---@field title? string Optional single-character label shown in terminal titles.
+
+---Configure qck behavior.
+---Mappings defined here are only active inside qck terminal buffers.
+---Calling setup again replaces previously configured qck terminal mappings.
+---Invalid options are ignored with error notifications.
+---@param opts? qck.SetupOpts
+---@return nil
 function qck.setup(opts)
   if opts ~= nil and type(opts) ~= "table" then
     helpers.notify("setup(opts): opts must be a table", vim.log.levels.ERROR)
@@ -70,12 +77,21 @@ function qck.setup(opts)
   terminal.apply_user_mappings()
 end
 
----@param opts? qck.Opts
+---Create a new qck terminal using the next available numeric id.
+---If another qck terminal window is currently visible, that window is hidden first.
+---@param opts? qck.Opts Optional terminal options.
+---@return nil
 function qck.new(opts)
   local parsed_opts = helpers.validate_opts(opts)
   terminal.create(state.next_free_id(), parsed_opts)
 end
 
+---Open a terminal by id.
+---If the id exists, opens the existing terminal; if it does not exist, creates and opens it.
+---When omitted, opens the current terminal, otherwise the first live terminal, or creates a new one.
+---When switching ids, the previously current visible terminal window is hidden.
+---@param id? number Terminal id to open or create.
+---@return nil
 function qck.open(id)
   local target_id = nil
 
@@ -99,6 +115,12 @@ function qck.open(id)
   terminal.open(target_id)
 end
 
+---Close a terminal window by id only if its window is currently open.
+---If the id exists but the window is already closed/hidden, this is a no-op with a warning.
+---If `id` is omitted, uses the current terminal id.
+---Successful close removes the terminal record from qck state.
+---@param id? number Terminal id whose open window should be closed.
+---@return nil
 function qck.close(id)
   local target_id = nil
 
@@ -122,6 +144,10 @@ function qck.close(id)
   terminal.close_if_open(target_id)
 end
 
+---Toggle visibility of the current terminal.
+---If none exists, a new terminal is created and opened.
+---If no current id is set but live terminals exist, selects the first live id then toggles it.
+---@return nil
 function qck.toggle()
   local current_id = state.get_current_id()
   if not current_id then
@@ -138,6 +164,9 @@ function qck.toggle()
   terminal.toggle(current_id)
 end
 
+---Switch to the next live terminal id (cyclic order).
+---No-op when no live terminals exist.
+---@return nil
 function qck.cycle_next()
   local target_id = state.get_cycle_id(1)
   if not target_id then return end
@@ -145,6 +174,9 @@ function qck.cycle_next()
   terminal.open(target_id)
 end
 
+---Switch to the previous live terminal id (cyclic order).
+---No-op when no live terminals exist.
+---@return nil
 function qck.cycle_prev()
   local target_id = state.get_cycle_id(-1)
   if not target_id then return end
@@ -152,6 +184,10 @@ function qck.cycle_prev()
   terminal.open(target_id)
 end
 
+---Toggle focus between the current qck terminal window and the qck tab bar window.
+---If only one is available, focus that one; if neither exists, this is a no-op.
+---This function does not create/open windows.
+---@return nil
 function qck.switch_focus()
   local tab_win = tabbar.get_winid()
   local term_win = terminal.get_current_winid()

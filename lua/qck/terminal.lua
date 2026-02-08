@@ -4,20 +4,16 @@ local tabbar = require("qck.tabbar")
 
 local terminal = {}
 
----@type table?
 local snacks = nil
 local user_mappings = {}
 local mapping_lhs = {}
 local previous_mapping_lhs = {}
 local deleting_ids = {}
 
----@param snacks_impl table
 function terminal.set_snacks(snacks_impl)
   snacks = snacks_impl
 end
 
----@param rec qck.TerminalRecord?
----@return number?
 local function terminal_bufnr(rec)
   if not rec or not rec.win then
     return nil
@@ -37,7 +33,6 @@ local function terminal_bufnr(rec)
   return nil
 end
 
----@param bufnr number?
 local function apply_user_mappings_to_buf(bufnr)
   if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
     return
@@ -64,7 +59,6 @@ local function apply_user_mappings_to_buf(bufnr)
   end
 end
 
----@param mappings table<string, string|function>
 function terminal.set_user_mappings(mappings)
   previous_mapping_lhs = mapping_lhs
   user_mappings = mappings or {}
@@ -108,7 +102,6 @@ local function sync_tabbar_for_current()
   tabbar.sync(current_rec, current_id)
 end
 
----@param id number
 local function hide_window_if_open(id)
   local rec = state.get_terminal(id)
   if not helpers.is_window_open(rec) then
@@ -124,7 +117,6 @@ local function hide_window_if_open(id)
   end
 end
 
----@param target_id number
 local function close_current_window_before_switch(target_id)
   local current_id = state.get_current_id()
   if not current_id or current_id == target_id then
@@ -134,7 +126,6 @@ local function close_current_window_before_switch(target_id)
   hide_window_if_open(current_id)
 end
 
----@return number?
 function terminal.get_current_winid()
   local current_id = state.get_current_id()
   if not current_id then
@@ -160,9 +151,6 @@ function terminal.get_current_winid()
   return nil
 end
 
----@param id number
----@param opts? qck.Opts
----@return qck.TerminalRecord?
 function terminal.create(id, opts)
   if not ensure_snacks() then
     return nil
@@ -219,8 +207,6 @@ function terminal.create(id, opts)
   return rec
 end
 
----@param id number
----@return qck.TerminalRecord?
 function terminal.ensure(id)
   local rec = state.get_terminal(id)
   if helpers.is_valid_record(rec) then
@@ -231,8 +217,6 @@ function terminal.ensure(id)
   return terminal.create(id)
 end
 
----@param id number
----@return qck.TerminalRecord?
 function terminal.open(id)
   close_current_window_before_switch(id)
 
@@ -257,7 +241,6 @@ function terminal.open(id)
   return rec
 end
 
----@param id number
 function terminal.close_if_open(id)
   state.prune_stale()
 
@@ -292,7 +275,6 @@ function terminal.close_if_open(id)
   sync_tabbar_for_current()
 end
 
----@param id number
 function terminal.toggle(id)
   local rec = terminal.ensure(id)
   if not rec then
@@ -316,7 +298,6 @@ function terminal.toggle(id)
   end
 end
 
----@param id number
 function terminal.delete(id)
   state.prune_stale()
 

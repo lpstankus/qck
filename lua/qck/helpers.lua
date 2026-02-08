@@ -1,7 +1,5 @@
 local M = {}
 
----@class qck.Opts
----@field title? string
 
 function M.notify(msg, level)
   vim.notify("QCK: " .. msg, level or vim.log.levels.INFO)
@@ -11,18 +9,14 @@ function M.is_valid_id(id)
   return type(id) == "number" and id > 0 and id % 1 == 0
 end
 
----@param rec? qck.TerminalRecord
 function M.is_valid_record(rec)
   return rec and rec.win and rec.win.buf_valid and rec.win:buf_valid()
 end
 
----@param rec? qck.TerminalRecord
 function M.is_window_open(rec)
   return rec and rec.win and rec.win.valid and rec.win:valid()
 end
 
----@param opts? qck.Opts
----@return qck.Opts?
 function M.validate_opts(opts)
   if opts == nil then return {} end
 
@@ -58,8 +52,6 @@ function M.validate_opts(opts)
   return { title = validate_title(opts.title) }
 end
 
----@param id number
----@param rec qck.TerminalRecord
 function M.title_for(id, rec)
   local title = rec.meta and rec.meta.title
   if title and title ~= "" then

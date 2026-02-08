@@ -2,14 +2,8 @@ local helpers = require("qck.helpers")
 
 local state = {}
 
----@class qck.TerminalMeta
----@field title? string
 
----@class qck.TerminalRecord
----@field win snacks.win
----@field meta qck.TerminalMeta
 
----@type table<number, qck.TerminalRecord>
 local terminals = {}
 local current_id = nil
 
@@ -21,19 +15,14 @@ function state.set_current_id(id)
   current_id = id
 end
 
----@param id number
----@return qck.TerminalRecord?
 function state.get_terminal(id)
   return terminals[id]
 end
 
----@param id number
----@param rec qck.TerminalRecord
 function state.set_terminal(id, rec)
   terminals[id] = rec
 end
 
----@param id number
 function state.remove_terminal(id)
   terminals[id] = nil
 end
@@ -50,7 +39,6 @@ function state.prune_stale()
   end
 end
 
----@return number[]
 function state.live_ids()
   state.prune_stale()
 
@@ -72,8 +60,6 @@ function state.next_free_id()
   return id
 end
 
----@param direction 1|-1
----@return number?
 function state.get_cycle_id(direction)
   local ids = state.live_ids()
   if #ids == 0 then
@@ -106,7 +92,6 @@ function state.get_cycle_id(direction)
   return ids[next_idx]
 end
 
----@param removed_id number
 function state.update_current_after_removal(removed_id)
   if current_id ~= removed_id then
     return

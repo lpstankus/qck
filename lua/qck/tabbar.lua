@@ -127,9 +127,6 @@ local function apply_window_opts(win)
   vim.wo[win].winfixwidth = true
 end
 
----@param text string
----@param width number
----@return string
 local function center_text(text, width)
   local text_width = vim.fn.strdisplaywidth(text)
   if text_width >= width then
@@ -168,7 +165,6 @@ function tabbar.hide()
   vim.api.nvim_clear_autocmds({ group = watch_group })
 end
 
----@param fns? { open?: fun(id: number), delete?: fun(id: number), focus_current?: fun() }
 function tabbar.set_actions(fns)
   if type(fns) ~= "table" then
     return
@@ -184,7 +180,6 @@ function tabbar.set_actions(fns)
   end
 end
 
----@return number?
 function tabbar.get_winid()
   if not is_valid_win(winid) then
     return nil
@@ -192,7 +187,6 @@ function tabbar.get_winid()
   return winid
 end
 
----@return boolean
 function tabbar.is_focused()
   local tab_win = tabbar.get_winid()
   if not tab_win then
