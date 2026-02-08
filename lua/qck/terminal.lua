@@ -1,5 +1,6 @@
 local helpers = require("qck.helpers")
 local state = require("qck.state")
+local tabbar = require("qck.tabbar")
 
 local terminal = {}
 
@@ -19,6 +20,48 @@ local function ensure_snacks()
   return false
 end
 
+local function sync_tabbar_for_current()
+  local current_id = state.get_current_id()
+  if not current_id then
+    tabbar.hide()
+    return
+  end
+
+  local current_rec = state.get_terminal(current_id)
+  if not helpers.is_window_open(current_rec) then
+    tabbar.hide()
+    return
+  end
+
+  tabbar.sync(current_rec, current_id)
+end
+
+---@param id number
+local function hide_window_if_open(id)
+  local rec = state.get_terminal(id)
+  if not helpers.is_window_open(rec) then
+    return
+  end
+
+  local ok_hide, err = pcall(function() rec.win:toggle() end)
+  if not ok_hide then
+    helpers.notify(
+      ("failed to hide terminal %d: %s"):format(id, tostring(err)),
+      vim.log.levels.ERROR
+    )
+  end
+end
+
+---@param target_id number
+local function close_current_window_before_switch(target_id)
+  local current_id = state.get_current_id()
+  if not current_id or current_id == target_id then
+    return
+  end
+
+  hide_window_if_open(current_id)
+end
+
 ---@param id number
 ---@param opts? qck.Opts
 ---@return qck.TerminalRecord?
@@ -26,6 +69,7 @@ function terminal.create(id, opts)
   if not ensure_snacks() then
     return nil
   end
+  close_current_window_before_switch(id)
 
   local rec = {
     win = nil,
@@ -60,11 +104,13 @@ function terminal.create(id, opts)
   rec.win = term_or_err
   state.set_terminal(id, rec)
   state.set_current_id(id)
+  tabbar.sync(rec, id)
 
   rec.win:on("BufWipeout", function()
     if state.get_terminal(id) == rec then
       state.remove_terminal(id)
       state.update_current_after_removal(id)
+      sync_tabbar_for_current()
     end
   end, { buf = true })
 
@@ -86,6 +132,8 @@ end
 ---@param id number
 ---@return qck.TerminalRecord?
 function terminal.open(id)
+  close_current_window_before_switch(id)
+
   local rec = terminal.ensure(id)
   if not rec then
     return nil
@@ -103,6 +151,7 @@ function terminal.open(id)
   end
 
   state.set_current_id(id)
+  tabbar.sync(rec, id)
   return rec
 end
 
@@ -138,6 +187,7 @@ function terminal.close_if_open(id)
 
   state.remove_terminal(id)
   state.update_current_after_removal(id)
+  sync_tabbar_for_current()
 end
 
 ---@param id number
@@ -157,6 +207,11 @@ function terminal.toggle(id)
   end
 
   state.set_current_id(id)
+  if helpers.is_window_open(rec) then
+    tabbar.sync(rec, id)
+  else
+    tabbar.hide()
+  end
 end
 
 return terminal
