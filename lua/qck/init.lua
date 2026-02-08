@@ -1,27 +1,63 @@
 ---@class qck
 local qck = {}
 
+local ok, Snacks = pcall(require, "snacks")
+if not ok then
+  error("QCK: snacks.nvim is required")
+end
+
 local qck_group = vim.api.nvim_create_augroup("QCK", {})
 
 local cur_buf = nil
 local cur_win = nil
 
+local function has_buf()
+  return cur_buf and vim.api.nvim_buf_is_valid(cur_buf)
+end
+
+local function has_window()
+  return cur_win and cur_win.valid and cur_win:valid()
+end
+
 local function spawn_term()
-  cur_buf = vim.api.nvim_create_buf(true, true)
+  cur_buf = vim.api.nvim_create_buf(true, false)
   if cur_buf == 0 then
     cur_buf = nil
     vim.notify("QCK: failed to spawn new buffer", vim.log.levels.ERROR)
     return
   end
 
-  vim.cmd("split")
-  local win = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_buf(win, cur_buf)
-  vim.cmd("terminal")
-  vim.cmd("q")
+  vim.bo[cur_buf].bufhidden = "hide"
+
+  local job_started = false
+  local shells = {
+    vim.o.shell,
+    vim.env.SHELL,
+    "bash",
+    "sh",
+  }
+
+  for _, shell_cmd in ipairs(shells) do
+    if shell_cmd and shell_cmd ~= "" then
+      local ok_jobstart, job_id = pcall(vim.api.nvim_buf_call, cur_buf, function()
+        return vim.fn.jobstart(shell_cmd, { term = true })
+      end)
+      if ok_jobstart and type(job_id) == "number" and job_id > 0 then
+        job_started = true
+        break
+      end
+    end
+  end
+
+  if not job_started then
+    vim.notify("QCK: failed to start terminal shell", vim.log.levels.ERROR)
+    vim.api.nvim_buf_delete(cur_buf, { force = true })
+    cur_buf = nil
+    return
+  end
 
   vim.api.nvim_create_autocmd(
-    { "BufDelete", "QuitPre" },
+    { "BufDelete", "BufWipeout" },
     {
       group = qck_group,
       buffer = cur_buf,
@@ -34,45 +70,42 @@ local function spawn_term()
 end
 
 local function toggle_window()
-  if not cur_buf then return end
+  if not has_buf() then return end
 
-  if cur_win then
-    vim.api.nvim_win_close(cur_win, false)
+  if has_window() then
+    cur_win:hide()
     cur_win = nil
     return
   end
 
-  local tot_width  = vim.o.columns - 2
-  local tot_height = vim.o.lines - 4
-
-  local fraction = 0.8
-  local win_width  = math.floor(tot_width * fraction)
-  local win_height = math.floor(tot_height * fraction)
-
-  local off_width = math.floor((tot_width - win_width) / 2)
-  local off_height = math.floor((tot_height - win_height) / 2) + 1
-
-  cur_win = vim.api.nvim_open_win(
-    cur_buf,
-    true,
-    {
-      title = { { "┤ qck terminal ├", "FloatBorder" } },
-      relative = 'editor', border = "single", style = "minimal",
-      width = win_width, height = win_height, col = off_width, row = off_height,
-    }
-  )
+  cur_win = Snacks.win({
+    buf = cur_buf,
+    enter = true,
+    show = false,
+    relative = "editor",
+    position = "float",
+    border = "single",
+    width = 0.8,
+    height = 0.8,
+    title = "qck terminal",
+    title_pos = "center",
+    on_close = function()
+      cur_win = nil
+    end,
+  })
+  cur_win:show()
 
   vim.cmd("startinsert")
 end
 
 function qck.new()
-  if cur_buf then qck.kill() end
+  if has_buf() then qck.kill() end
   spawn_term()
   toggle_window()
 end
 
 function qck.toggle()
-  if not cur_buf then
+  if not has_buf() then
     qck.new()
     return
   end
@@ -80,12 +113,12 @@ function qck.toggle()
 end
 
 function qck.kill()
-  if cur_win then
-    vim.api.nvim_win_close(cur_win, false)
+  if has_window() then
+    cur_win:close({ buf = false })
     cur_win = nil
   end
-  if cur_buf then
-    vim.cmd("bdelete! " .. cur_buf)
+  if has_buf() then
+    vim.api.nvim_buf_delete(cur_buf, { force = true })
     cur_buf = nil
   end
 end
