@@ -164,9 +164,7 @@ function terminal.create(id, opts)
 
   local rec = {
     win = nil,
-    meta = {
-      title = opts and opts.title or nil,
-    },
+    meta = {},
   }
 
   local term_opts = {
@@ -179,8 +177,6 @@ function terminal.create(id, opts)
       border = "single",
       width = 0.8,
       height = 0.8,
-      title = helpers.title_for(id, rec),
-      title_pos = "center",
     },
   }
 

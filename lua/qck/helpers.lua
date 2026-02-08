@@ -28,36 +28,7 @@ function M.validate_opts(opts)
     return {}
   end
 
-  ---@param title string|nil
-  ---@return string|nil
-  local function validate_title(title)
-    if title == nil then return nil end
-
-    if type(title) ~= "string" then
-      M.notify("new(opts): opts.title must be a string", vim.log.levels.ERROR)
-      return nil
-    end
-
-    if vim.fn.strchars(title) > 1 then
-      M.notify(
-        "new(opts): title must be a single character",
-        vim.log.levels.ERROR
-      )
-      return nil
-    end
-
-    return title
-  end
-
-  return { title = validate_title(opts.title) }
-end
-
-function M.title_for(id, rec)
-  local title = rec.meta and rec.meta.title
-  if title and title ~= "" then
-    return ("qck [%d] %s"):format(id, title)
-  end
-  return ("qck [%d]"):format(id)
+  return {}
 end
 
 return M

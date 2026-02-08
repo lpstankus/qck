@@ -57,8 +57,6 @@ tabbar.set_actions({
 
 ---@class qck.SetupOpts
 ---@field mappings? table<string, string|function> Buffer-local mappings applied in both normal and terminal modes for qck terminal buffers.
----@class qck.Opts
----@field title? string Optional single-character label shown in terminal titles.
 
 ---Configure qck behavior.
 ---Mappings defined here are only active inside qck terminal buffers.
@@ -80,7 +78,7 @@ end
 
 ---Create a new qck terminal using the next available numeric id.
 ---If another qck terminal window is currently visible, that window is hidden first.
----@param opts? qck.Opts Optional terminal options.
+---@param opts? table Optional terminal options (currently reserved/unused).
 ---@return nil
 function qck.new(opts)
   local parsed_opts = helpers.validate_opts(opts)
