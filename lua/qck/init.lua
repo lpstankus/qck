@@ -56,12 +56,13 @@ tabbar.set_actions({
 })
 
 ---@class qck.SetupOpts
----@field mappings? table<string, string|function> Buffer-local normal-mode mappings applied only to qck terminal buffers.
+---@field mappings? table<string, string|function> Buffer-local mappings applied in both normal and terminal modes for qck terminal buffers.
 ---@class qck.Opts
 ---@field title? string Optional single-character label shown in terminal titles.
 
 ---Configure qck behavior.
 ---Mappings defined here are only active inside qck terminal buffers.
+---Each configured mapping is applied in both normal (`n`) and terminal (`t`) modes.
 ---Calling setup again replaces previously configured qck terminal mappings.
 ---Invalid options are ignored with error notifications.
 ---@param opts? qck.SetupOpts

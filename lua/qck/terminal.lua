@@ -9,6 +9,7 @@ local user_mappings = {}
 local mapping_lhs = {}
 local previous_mapping_lhs = {}
 local deleting_ids = {}
+local mapping_modes = { "n", "t" }
 
 function terminal.set_snacks(snacks_impl)
   snacks = snacks_impl
@@ -47,15 +48,19 @@ local function apply_user_mappings_to_buf(bufnr)
   end
 
   for lhs in pairs(lhs_to_clear) do
-    pcall(vim.keymap.del, "n", lhs, { buffer = bufnr })
+    for _, mode in ipairs(mapping_modes) do
+      pcall(vim.keymap.del, mode, lhs, { buffer = bufnr })
+    end
   end
 
   for lhs, rhs in pairs(user_mappings) do
-    vim.keymap.set("n", lhs, rhs, {
-      buffer = bufnr,
-      noremap = true,
-      silent = true,
-    })
+    for _, mode in ipairs(mapping_modes) do
+      vim.keymap.set(mode, lhs, rhs, {
+        buffer = bufnr,
+        noremap = true,
+        silent = true,
+      })
+    end
   end
 end
 
