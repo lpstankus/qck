@@ -3,10 +3,72 @@ local qck = {}
 local helpers = require("qck.helpers")
 local state = require("qck.state")
 local terminal = require("qck.terminal")
+local tabbar = require("qck.tabbar")
 
 local ok, Snacks = pcall(require, "snacks")
 if not ok then error("QCK: snacks.nvim is required") end
 terminal.set_snacks(Snacks)
+terminal.set_user_mappings({})
+
+---@type { mappings: table<string, string|function> }
+local config = {
+  mappings = {},
+}
+
+---@param mappings any
+---@return table<string, string|function>
+local function parse_mappings(mappings)
+  if mappings == nil then
+    return {}
+  end
+
+  if type(mappings) ~= "table" then
+    helpers.notify("setup(opts): opts.mappings must be a table", vim.log.levels.ERROR)
+    return {}
+  end
+
+  local parsed = {}
+  for lhs, rhs in pairs(mappings) do
+    if type(lhs) ~= "string" then
+      helpers.notify("setup(opts): mapping lhs must be a string", vim.log.levels.ERROR)
+    elseif type(rhs) ~= "function" and type(rhs) ~= "string" then
+      helpers.notify(
+        ("setup(opts): mapping `%s` rhs must be a function or string"):format(lhs),
+        vim.log.levels.ERROR
+      )
+    else
+      parsed[lhs] = rhs
+    end
+  end
+
+  return parsed
+end
+
+local function focus_current_terminal()
+  local term_win = terminal.get_current_winid()
+  if not term_win then
+    return
+  end
+  vim.api.nvim_set_current_win(term_win)
+end
+
+tabbar.set_actions({
+  open = function(id) terminal.open(id) end,
+  delete = function(id) terminal.delete(id) end,
+  focus_current = focus_current_terminal,
+})
+
+---@param opts? { mappings?: table<string, string|function> }
+function qck.setup(opts)
+  if opts ~= nil and type(opts) ~= "table" then
+    helpers.notify("setup(opts): opts must be a table", vim.log.levels.ERROR)
+    return
+  end
+
+  config.mappings = parse_mappings(opts and opts.mappings)
+  terminal.set_user_mappings(config.mappings)
+  terminal.apply_user_mappings()
+end
 
 ---@param opts? qck.Opts
 function qck.new(opts)
@@ -88,6 +150,35 @@ function qck.cycle_prev()
   if not target_id then return end
 
   terminal.open(target_id)
+end
+
+function qck.switch_focus()
+  local tab_win = tabbar.get_winid()
+  local term_win = terminal.get_current_winid()
+  local current_win = vim.api.nvim_get_current_win()
+
+  if tab_win and current_win == tab_win then
+    if term_win then
+      vim.api.nvim_set_current_win(term_win)
+    end
+    return
+  end
+
+  if term_win and current_win == term_win then
+    if tab_win then
+      vim.api.nvim_set_current_win(tab_win)
+    end
+    return
+  end
+
+  if term_win then
+    vim.api.nvim_set_current_win(term_win)
+    return
+  end
+
+  if tab_win then
+    vim.api.nvim_set_current_win(tab_win)
+  end
 end
 
 return qck
