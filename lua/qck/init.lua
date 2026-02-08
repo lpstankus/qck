@@ -6,121 +6,66 @@ if not ok then
   error("QCK: snacks.nvim is required")
 end
 
-local qck_group = vim.api.nvim_create_augroup("QCK", {})
+local cur_term = nil
 
-local cur_buf = nil
-local cur_win = nil
-
-local function has_buf()
-  return cur_buf and vim.api.nvim_buf_is_valid(cur_buf)
+local function has_term()
+  return cur_term and cur_term.buf_valid and cur_term:buf_valid()
 end
 
-local function has_window()
-  return cur_win and cur_win.valid and cur_win:valid()
-end
-
-local function spawn_term()
-  cur_buf = vim.api.nvim_create_buf(true, false)
-  if cur_buf == 0 then
-    cur_buf = nil
-    vim.notify("QCK: failed to spawn new buffer", vim.log.levels.ERROR)
-    return
-  end
-
-  vim.bo[cur_buf].bufhidden = "hide"
-
-  local job_started = false
-  local shells = {
-    vim.o.shell,
-    vim.env.SHELL,
-    "bash",
-    "sh",
+local function open_term()
+  local term_opts = {
+    interactive = true,
+    auto_close = true,
+    win = {
+      position = "float",
+      relative = "editor",
+      border = "single",
+      width = 0.8,
+      height = 0.8,
+      title = "qck terminal",
+      title_pos = "center",
+    },
   }
 
-  for _, shell_cmd in ipairs(shells) do
-    if shell_cmd and shell_cmd ~= "" then
-      local ok_jobstart, job_id = pcall(vim.api.nvim_buf_call, cur_buf, function()
-        return vim.fn.jobstart(shell_cmd, { term = true })
-      end)
-      if ok_jobstart and type(job_id) == "number" and job_id > 0 then
-        job_started = true
-        break
-      end
+  local ok_open, term_or_err = pcall(Snacks.terminal.open, nil, term_opts)
+  local term = term_or_err
+  if not ok_open or not term then
+    local msg = ok_open and "QCK: failed to open terminal"
+      or ("QCK: failed to open terminal: " .. tostring(term_or_err))
+    vim.notify(msg, vim.log.levels.ERROR)
+    return nil
+  end
+
+  cur_term = term
+  cur_term:on("BufWipeout", function()
+    if cur_term == term then
+      cur_term = nil
     end
-  end
+  end, { buf = true })
 
-  if not job_started then
-    vim.notify("QCK: failed to start terminal shell", vim.log.levels.ERROR)
-    vim.api.nvim_buf_delete(cur_buf, { force = true })
-    cur_buf = nil
-    return
-  end
-
-  vim.api.nvim_create_autocmd(
-    { "BufDelete", "BufWipeout" },
-    {
-      group = qck_group,
-      buffer = cur_buf,
-      callback = function(_)
-        cur_buf = nil
-        cur_win = nil
-      end
-    }
-  )
-end
-
-local function toggle_window()
-  if not has_buf() then return end
-
-  if has_window() then
-    cur_win:hide()
-    cur_win = nil
-    return
-  end
-
-  cur_win = Snacks.win({
-    buf = cur_buf,
-    enter = true,
-    show = false,
-    relative = "editor",
-    position = "float",
-    border = "single",
-    width = 0.8,
-    height = 0.8,
-    title = "qck terminal",
-    title_pos = "center",
-    on_close = function()
-      cur_win = nil
-    end,
-  })
-  cur_win:show()
-
-  vim.cmd("startinsert")
-end
-
-function qck.new()
-  if has_buf() then qck.kill() end
-  spawn_term()
-  toggle_window()
+  return cur_term
 end
 
 function qck.toggle()
-  if not has_buf() then
-    qck.new()
-    return
+  if not has_term() then
+    open_term()
+  else
+    cur_term:toggle()
   end
-  toggle_window()
+end
+
+function qck.new()
+  if has_term() then
+    qck.kill()
+  end
+  open_term()
 end
 
 function qck.kill()
-  if has_window() then
-    cur_win:close({ buf = false })
-    cur_win = nil
+  if has_term() then
+    cur_term:close()
   end
-  if has_buf() then
-    vim.api.nvim_buf_delete(cur_buf, { force = true })
-    cur_buf = nil
-  end
+  cur_term = nil
 end
 
 return qck
