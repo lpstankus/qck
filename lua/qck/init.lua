@@ -1,6 +1,5 @@
 ---@class qck
 local qck = {}
-local helpers = require("qck.helpers")
 local state = require("qck.state")
 local terminal = require("qck.terminal")
 local tabbar = require("qck.tabbar")
@@ -14,23 +13,54 @@ local config = {
   mappings = {},
 }
 
+---@param msg string
+---@param level integer|nil
+---@return nil
+local function notify(msg, level)
+  vim.notify("QCK: " .. msg, level or vim.log.levels.INFO)
+end
+
+---@param id number
+---@return boolean
+local function is_valid_id(id)
+  return type(id) == "number" and id > 0 and id % 1 == 0
+end
+
+---@param opts table|nil
+---@return table
+local function validate_new_opts(opts)
+  if opts == nil then
+    return {}
+  end
+
+  if type(opts) ~= "table" then
+    notify(
+      "new(opts): opts must be a table. falling back to default options.",
+      vim.log.levels.ERROR
+    )
+    return {}
+  end
+
+  return {}
+end
+
 local function parse_mappings(mappings)
   if mappings == nil then
     return {}
   end
 
   if type(mappings) ~= "table" then
-    helpers.notify("setup(opts): opts.mappings must be a table", vim.log.levels.ERROR)
+    notify("setup(opts): opts.mappings must be a table", vim.log.levels.ERROR)
     return {}
   end
 
   local parsed = {}
   for lhs, rhs in pairs(mappings) do
     if type(lhs) ~= "string" then
-      helpers.notify("setup(opts): mapping lhs must be a string", vim.log.levels.ERROR)
+      notify("setup(opts): mapping lhs must be a string", vim.log.levels.ERROR)
     elseif type(rhs) ~= "function" and type(rhs) ~= "string" then
-      helpers.notify(
-        ("setup(opts): mapping `%s` rhs must be a function or string"):format(lhs),
+      notify(
+        ("setup(opts): map `%s` rhs must be a function or string"):format(lhs),
         vim.log.levels.ERROR
       )
     else
@@ -67,7 +97,7 @@ tabbar.set_actions({
 ---@return nil
 function qck.setup(opts)
   if opts ~= nil and type(opts) ~= "table" then
-    helpers.notify("setup(opts): opts must be a table", vim.log.levels.ERROR)
+    notify("setup(opts): opts must be a table", vim.log.levels.ERROR)
     return
   end
 
@@ -81,7 +111,7 @@ end
 ---@param opts? table Optional terminal options (currently reserved/unused).
 ---@return nil
 function qck.new(opts)
-  local parsed_opts = helpers.validate_opts(opts)
+  local parsed_opts = validate_new_opts(opts)
   terminal.create(state.next_free_id(), parsed_opts)
 end
 
@@ -95,8 +125,8 @@ function qck.open(id)
   local target_id = nil
 
   if id ~= nil then
-    if not helpers.is_valid_id(id) then
-      helpers.notify("id must be a positive integer", vim.log.levels.ERROR)
+    if not is_valid_id(id) then
+      notify("id must be a positive integer", vim.log.levels.ERROR)
       return
     end
     target_id = id
@@ -124,8 +154,8 @@ function qck.close(id)
   local target_id = nil
 
   if id ~= nil then
-    if not helpers.is_valid_id(id) then
-      helpers.notify("id must be a positive integer", vim.log.levels.ERROR)
+    if not is_valid_id(id) then
+      notify("id must be a positive integer", vim.log.levels.ERROR)
       return
     end
     target_id = id
@@ -136,7 +166,7 @@ function qck.close(id)
   end
 
   if not target_id then
-    helpers.notify("no current terminal selected (no-op)", vim.log.levels.WARN)
+    notify("no current terminal selected (no-op)", vim.log.levels.WARN)
     return
   end
 
