@@ -277,6 +277,31 @@ local function validate_build_opts(opts)
   return parsed
 end
 
+---@param opts any
+---@return table|nil
+local function validate_builder_cmd_opts(opts)
+  if opts == nil then
+    return {}
+  end
+
+  if type(opts) ~= "table" then
+    notify("set_builder_cmd(builder_type, cmd, opts): opts must be a table", vim.log.levels.ERROR)
+    return nil
+  end
+
+  local parsed = {}
+
+  if opts.temp ~= nil then
+    if type(opts.temp) ~= "boolean" then
+      notify("set_builder_cmd(builder_type, cmd, opts): opts.temp must be a boolean", vim.log.levels.ERROR)
+      return nil
+    end
+    parsed.temp = opts.temp
+  end
+
+  return parsed
+end
+
 local function focus_current_terminal()
   local term_win = terminal.get_current_winid()
   if not term_win then
@@ -301,6 +326,8 @@ tabbar.set_actions({
 ---@class qck.BuildOpts
 ---@field force_new? boolean Restart builder instance when already running.
 ---@field auto_scroll? boolean Override configured auto-scroll behavior for this run.
+---@class qck.SetBuilderCmdOpts
+---@field temp? boolean Use a temporary in-memory override that is not persisted.
 
 ---Configure qck behavior.
 ---Mappings defined here are active inside qck terminal and tabbar buffers.
@@ -416,6 +443,49 @@ function qck.kill_builder(builder_type)
   end
 
   builders.kill(parsed_builder_type)
+end
+
+---Override the command for a configured builder type.
+---By default the override is persisted for the current workspace.
+---When `opts.temp = true`, override is kept in-memory only for this session.
+---@param builder_type string Configured builder type.
+---@param cmd string|string[] Builder command override.
+---@param opts? qck.SetBuilderCmdOpts Optional override behavior.
+---@return nil
+function qck.set_builder_cmd(builder_type, cmd, opts)
+  local parsed_builder_type = validate_builder_type(
+    builder_type,
+    "set_builder_cmd(builder_type, cmd, opts)"
+  )
+  if not parsed_builder_type then
+    return
+  end
+
+  local parsed_cmd = parse_builder_cmd(cmd, "set_builder_cmd(builder_type, cmd, opts)")
+  if not parsed_cmd then
+    return
+  end
+
+  local parsed_opts = validate_builder_cmd_opts(opts)
+  if not parsed_opts then
+    return
+  end
+
+  builders.set_builder_cmd(parsed_builder_type, parsed_cmd, parsed_opts)
+end
+
+---Reset command override for a configured builder type.
+---If a temporary override exists, it is cleared first.
+---Otherwise the persisted workspace override is removed.
+---@param builder_type string Configured builder type.
+---@return nil
+function qck.reset_builder_cmd(builder_type)
+  local parsed_builder_type = validate_builder_type(builder_type, "reset_builder_cmd(builder_type)")
+  if not parsed_builder_type then
+    return
+  end
+
+  builders.reset_builder_cmd(parsed_builder_type)
 end
 
 ---Open a terminal by id.
