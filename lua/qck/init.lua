@@ -4,6 +4,7 @@ local state = require("qck.state")
 local terminal = require("qck.terminal")
 local tabbar = require("qck.tabbar")
 local storage = require("qck.storage")
+local builders = require("qck.builders")
 
 local ok, Snacks = pcall(require, "snacks")
 if not ok then error("QCK: snacks.nvim is required") end
@@ -13,6 +14,7 @@ tabbar.set_user_mappings({})
 
 local config = {
   mappings = {},
+  builders = {},
 }
 
 ---@param msg string
@@ -139,6 +141,97 @@ local function parse_mappings(mappings)
   return parsed
 end
 
+---@param cmd any
+---@param context string
+---@return string|string[]|nil
+local function parse_builder_cmd(cmd, context)
+  if type(cmd) == "string" then
+    if vim.trim(cmd) == "" then
+      notify(context .. ": cmd must not be empty", vim.log.levels.ERROR)
+      return nil
+    end
+    return cmd
+  end
+
+  if type(cmd) ~= "table" then
+    notify(context .. ": cmd must be a string or a list of strings", vim.log.levels.ERROR)
+    return nil
+  end
+
+  if #cmd == 0 then
+    notify(context .. ": cmd list must not be empty", vim.log.levels.ERROR)
+    return nil
+  end
+
+  local parsed = {}
+  for i, part in ipairs(cmd) do
+    if type(part) ~= "string" or vim.trim(part) == "" then
+      notify(
+        ("%s: cmd[%d] must be a non-empty string"):format(context, i),
+        vim.log.levels.ERROR
+      )
+      return nil
+    end
+    parsed[i] = part
+  end
+
+  return parsed
+end
+
+---@param input any
+---@return table<string, table>
+local function parse_builders(input)
+  if input == nil then
+    return {}
+  end
+
+  if type(input) ~= "table" then
+    notify("setup(opts): opts.builders must be a table", vim.log.levels.ERROR)
+    return {}
+  end
+
+  local parsed = {}
+  for builder_type, builder in pairs(input) do
+    if type(builder_type) ~= "string" or vim.trim(builder_type) == "" then
+      notify("setup(opts): builder type must be a non-empty string", vim.log.levels.ERROR)
+    elseif type(builder) ~= "table" then
+      notify(
+        ("setup(opts): builder `%s` must be a table"):format(builder_type),
+        vim.log.levels.ERROR
+      )
+    else
+      local cmd = parse_builder_cmd(builder.cmd, ("setup(opts): builder `%s`"):format(builder_type))
+      if cmd then
+        local auto_scroll = builder.auto_scroll
+        if auto_scroll ~= nil and type(auto_scroll) ~= "boolean" then
+          notify(
+            ("setup(opts): builder `%s`.auto_scroll must be a boolean"):format(builder_type),
+            vim.log.levels.ERROR
+          )
+          auto_scroll = nil
+        end
+
+        local title = builder.title
+        if title ~= nil and type(title) ~= "string" then
+          notify(
+            ("setup(opts): builder `%s`.title must be a string"):format(builder_type),
+            vim.log.levels.ERROR
+          )
+          title = nil
+        end
+
+        parsed[builder_type] = {
+          cmd = cmd,
+          auto_scroll = auto_scroll,
+          title = title,
+        }
+      end
+    end
+  end
+
+  return parsed
+end
+
 local function focus_current_terminal()
   local term_win = terminal.get_current_winid()
   if not term_win then
@@ -156,6 +249,7 @@ tabbar.set_actions({
 
 ---@class qck.SetupOpts
 ---@field mappings? table<string, string|function> Buffer-local mappings for qck buffers (terminal: normal+terminal modes, tabbar: normal mode).
+---@field builders? table<string, { cmd: string|string[], auto_scroll?: boolean, title?: string }> Workspace builder definitions.
 ---@class qck.RunOpts
 ---@field id? integer Optional internal terminal id. Must be a positive integer when provided.
 ---@field title? string Optional reserved field for future tab/title customization.
@@ -174,8 +268,11 @@ function qck.setup(opts)
   end
 
   config.mappings = parse_mappings(opts and opts.mappings)
+  config.builders = parse_builders(opts and opts.builders)
+
   terminal.set_user_mappings(config.mappings)
   tabbar.set_user_mappings(config.mappings)
+  builders.set_definitions(config.builders)
   terminal.apply_user_mappings()
   tabbar.apply_user_mappings()
 
