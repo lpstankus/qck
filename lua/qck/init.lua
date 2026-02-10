@@ -44,6 +44,72 @@ local function validate_new_opts(opts)
   return {}
 end
 
+---@param cmd any
+---@return string|string[]|nil
+local function validate_run_cmd(cmd)
+  if type(cmd) == "string" then
+    if vim.trim(cmd) == "" then
+      notify("run(cmd): cmd must not be empty", vim.log.levels.ERROR)
+      return nil
+    end
+    return cmd
+  end
+
+  if type(cmd) == "table" then
+    if #cmd == 0 then
+      notify("run(cmd): cmd list must not be empty", vim.log.levels.ERROR)
+      return nil
+    end
+
+    local parsed = {}
+    for i, part in ipairs(cmd) do
+      if type(part) ~= "string" or vim.trim(part) == "" then
+        notify(
+          ("run(cmd): cmd[%d] must be a non-empty string"):format(i),
+          vim.log.levels.ERROR
+        )
+        return nil
+      end
+      parsed[i] = part
+    end
+    return parsed
+  end
+
+  notify("run(cmd): cmd must be a string or a list of strings", vim.log.levels.ERROR)
+  return nil
+end
+
+---@param opts any
+---@return table|nil
+local function validate_run_opts(opts)
+  if opts == nil then
+    return {}
+  end
+
+  if type(opts) ~= "table" then
+    notify("run(cmd, opts): opts must be a table", vim.log.levels.ERROR)
+    return nil
+  end
+
+  local parsed = {}
+
+  if opts.id ~= nil then
+    if not is_valid_id(opts.id) then
+      notify("run(cmd, opts): opts.id must be a positive integer", vim.log.levels.ERROR)
+      return nil
+    end
+    parsed.id = opts.id
+  end
+
+  if opts.title ~= nil and type(opts.title) ~= "string" then
+    notify("run(cmd, opts): opts.title must be a string", vim.log.levels.ERROR)
+    return nil
+  end
+  parsed.title = opts.title
+
+  return parsed
+end
+
 local function parse_mappings(mappings)
   if mappings == nil then
     return {}
@@ -113,6 +179,26 @@ end
 function qck.new(opts)
   local parsed_opts = validate_new_opts(opts)
   terminal.create(state.next_free_id(), parsed_opts)
+end
+
+---Create and start a long-running command terminal.
+---Long-running terminals are preserved after command exit for output inspection.
+---@param cmd string|string[] Command to run.
+---@param opts? table Optional options. Supports `id` and reserved `title`.
+---@return nil
+function qck.run(cmd, opts)
+  local parsed_cmd = validate_run_cmd(cmd)
+  if not parsed_cmd then
+    return
+  end
+
+  local parsed_opts = validate_run_opts(opts)
+  if not parsed_opts then
+    return
+  end
+
+  local id = parsed_opts.id or state.next_free_id()
+  terminal.run(id, parsed_cmd, parsed_opts)
 end
 
 ---Open a terminal by id.
