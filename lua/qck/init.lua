@@ -192,8 +192,20 @@ local function parse_builders(input)
 
   local parsed = {}
   for builder_type, builder in pairs(input) do
-    if type(builder_type) ~= "string" or vim.trim(builder_type) == "" then
+    local normalized_builder_type = nil
+    if type(builder_type) == "string" then
+      normalized_builder_type = vim.trim(builder_type)
+    end
+
+    if not normalized_builder_type or normalized_builder_type == "" then
       notify("setup(opts): builder type must be a non-empty string", vim.log.levels.ERROR)
+    elseif parsed[normalized_builder_type] then
+      notify(
+        (
+          "setup(opts): duplicate builder type `%s` after normalization (original key `%s`)"
+        ):format(normalized_builder_type, builder_type),
+        vim.log.levels.ERROR
+      )
     elseif type(builder) ~= "table" then
       notify(
         ("setup(opts): builder `%s` must be a table"):format(builder_type),
@@ -220,7 +232,7 @@ local function parse_builders(input)
           title = nil
         end
 
-        parsed[builder_type] = {
+        parsed[normalized_builder_type] = {
           cmd = cmd,
           auto_scroll = auto_scroll,
           title = title,
