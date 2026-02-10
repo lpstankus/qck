@@ -21,6 +21,79 @@ local function clone_cmd(cmd)
   return copy
 end
 
+---@param value any
+---@return string|string[]|nil
+local function normalize_cmd(value)
+  if type(value) == "string" then
+    if vim.trim(value) == "" then
+      return nil
+    end
+    return value
+  end
+
+  if type(value) ~= "table" or #value == 0 then
+    return nil
+  end
+
+  local parsed = {}
+  for i, part in ipairs(value) do
+    if type(part) ~= "string" or vim.trim(part) == "" then
+      return nil
+    end
+    parsed[i] = part
+  end
+
+  return parsed
+end
+
+---@param data any
+---@return table|nil
+local function sanitize_data(data)
+  if type(data) ~= "table" then
+    return nil
+  end
+
+  local sanitized = {
+    version = STORAGE_VERSION,
+    workspaces = {},
+  }
+
+  if type(data.workspaces) ~= "table" then
+    return sanitized
+  end
+
+  for workspace, ws in pairs(data.workspaces) do
+    if type(workspace) == "string" and workspace ~= "" and type(ws) == "table" then
+      local builders = {}
+      local ws_builders = ws.builders
+
+      if type(ws_builders) == "table" then
+        for builder_type, builder in pairs(ws_builders) do
+          if type(builder_type) == "string" then
+            local normalized_builder_type = vim.trim(builder_type)
+            if normalized_builder_type ~= "" and not builders[normalized_builder_type] then
+              local cmd = normalize_cmd(type(builder) == "table" and builder.cmd or nil)
+              if cmd then
+                builders[normalized_builder_type] = {
+                  cmd = clone_cmd(cmd),
+                }
+              end
+            end
+          end
+        end
+      end
+
+      if next(builders) then
+        sanitized.workspaces[workspace] = {
+          builders = builders,
+        }
+      end
+    end
+  end
+
+  return sanitized
+end
+
 ---@param data table
 ---@return nil
 local function write_data(data)
@@ -60,13 +133,22 @@ end
 ---@return boolean
 function storage.load()
   local ok, data = pcall(read_data)
-  if not ok or type(data) ~= "table" or data.version ~= STORAGE_VERSION then
-    ok, data = pcall(clean_data)
+  local sanitized = nil
+
+  if ok and type(data) == "table" and data.version == STORAGE_VERSION then
+    sanitized = sanitize_data(data)
   end
 
-  storage.ok = ok
+  if not sanitized then
+    ok, data = pcall(clean_data)
+    if ok then
+      sanitized = sanitize_data(data)
+    end
+  end
+
+  storage.ok = ok and sanitized ~= nil
   storage.version = STORAGE_VERSION
-  storage.workspaces = ok and data.workspaces or {}
+  storage.workspaces = storage.ok and sanitized.workspaces or {}
   return storage.ok
 end
 
@@ -86,7 +168,7 @@ end
 ---@param workspace string
 ---@return table
 function storage.ensure_workspace(workspace)
-  if not storage.workspaces then
+  if type(storage.workspaces) ~= "table" then
     storage.workspaces = {}
   end
 
@@ -96,6 +178,10 @@ function storage.ensure_workspace(workspace)
     }
   end
 
+  if type(storage.workspaces[workspace].builders) ~= "table" then
+    storage.workspaces[workspace].builders = {}
+  end
+
   return storage.workspaces[workspace]
 end
 
@@ -103,25 +189,39 @@ end
 ---@param builder_type string
 ---@return string|string[]|nil
 function storage.get_builder_cmd(workspace, builder_type)
-  if not storage.ok then
+  if not storage.ok or type(storage.workspaces) ~= "table" then
     return nil
   end
 
-  local ws = storage.ensure_workspace(workspace)
-  local builder = ws.builders[builder_type]
-  if not builder then
+  if type(workspace) ~= "string" or workspace == "" then
     return nil
   end
 
-  if type(builder.cmd) == "string" then
-    return builder.cmd
+  if type(builder_type) ~= "string" then
+    return nil
   end
 
-  if type(builder.cmd) == "table" then
-    return clone_cmd(builder.cmd)
+  local normalized_builder_type = vim.trim(builder_type)
+  if normalized_builder_type == "" then
+    return nil
   end
 
-  return nil
+  local ws = storage.workspaces[workspace]
+  if type(ws) ~= "table" or type(ws.builders) ~= "table" then
+    return nil
+  end
+
+  local builder = ws.builders[normalized_builder_type]
+  if type(builder) ~= "table" then
+    return nil
+  end
+
+  local cmd = normalize_cmd(builder.cmd)
+  if not cmd then
+    return nil
+  end
+
+  return clone_cmd(cmd)
 end
 
 ---@param workspace string
@@ -133,12 +233,25 @@ function storage.set_builder_cmd(workspace, builder_type, cmd)
     return
   end
 
-  local ws = storage.ensure_workspace(workspace)
-  if not ws.builders[builder_type] then
-    ws.builders[builder_type] = {}
+  if type(workspace) ~= "string" or workspace == "" then
+    return
   end
 
-  ws.builders[builder_type].cmd = clone_cmd(cmd)
+  if type(builder_type) ~= "string" then
+    return
+  end
+
+  local normalized_builder_type = vim.trim(builder_type)
+  if normalized_builder_type == "" then
+    return
+  end
+
+  local ws = storage.ensure_workspace(workspace)
+  if not ws.builders[normalized_builder_type] then
+    ws.builders[normalized_builder_type] = {}
+  end
+
+  ws.builders[normalized_builder_type].cmd = clone_cmd(cmd)
 end
 
 ---@param workspace string
@@ -149,15 +262,28 @@ function storage.reset_builder_cmd(workspace, builder_type)
     return
   end
 
-  local ws = storage.ensure_workspace(workspace)
-  if not ws.builders[builder_type] then
+  if type(workspace) ~= "string" or workspace == "" then
     return
   end
 
-  ws.builders[builder_type].cmd = nil
+  if type(builder_type) ~= "string" then
+    return
+  end
 
-  if not next(ws.builders[builder_type]) then
-    ws.builders[builder_type] = nil
+  local normalized_builder_type = vim.trim(builder_type)
+  if normalized_builder_type == "" then
+    return
+  end
+
+  local ws = storage.ensure_workspace(workspace)
+  if not ws.builders[normalized_builder_type] then
+    return
+  end
+
+  ws.builders[normalized_builder_type].cmd = nil
+
+  if not next(ws.builders[normalized_builder_type]) then
+    ws.builders[normalized_builder_type] = nil
   end
 end
 
