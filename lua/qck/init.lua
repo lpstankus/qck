@@ -153,6 +153,9 @@ tabbar.set_actions({
 
 ---@class qck.SetupOpts
 ---@field mappings? table<string, string|function> Buffer-local mappings applied in both normal and terminal modes for qck terminal buffers.
+---@class qck.RunOpts
+---@field id? integer Optional internal terminal id. Must be a positive integer when provided.
+---@field title? string Optional reserved field for future tab/title customization.
 
 ---Configure qck behavior.
 ---Mappings defined here are only active inside qck terminal buffers.
@@ -183,8 +186,9 @@ end
 
 ---Create and start a long-running command terminal.
 ---Long-running terminals are preserved after command exit for output inspection.
+---Tabbar visual labels (`L1`, `T1`, ...) are display-only; APIs still use internal numeric ids.
 ---@param cmd string|string[] Command to run.
----@param opts? table Optional options. Supports `id` and reserved `title`.
+---@param opts? qck.RunOpts Optional options. Supports `id` and reserved `title`.
 ---@return nil
 function qck.run(cmd, opts)
   local parsed_cmd = validate_run_cmd(cmd)
