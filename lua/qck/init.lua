@@ -232,6 +232,51 @@ local function parse_builders(input)
   return parsed
 end
 
+---@param builder_type any
+---@param context string
+---@return string|nil
+local function validate_builder_type(builder_type, context)
+  if type(builder_type) ~= "string" or vim.trim(builder_type) == "" then
+    notify(context .. ": builder_type must be a non-empty string", vim.log.levels.ERROR)
+    return nil
+  end
+
+  return vim.trim(builder_type)
+end
+
+---@param opts any
+---@return table|nil
+local function validate_build_opts(opts)
+  if opts == nil then
+    return {}
+  end
+
+  if type(opts) ~= "table" then
+    notify("build(builder_type, opts): opts must be a table", vim.log.levels.ERROR)
+    return nil
+  end
+
+  local parsed = {}
+
+  if opts.force_new ~= nil then
+    if type(opts.force_new) ~= "boolean" then
+      notify("build(builder_type, opts): opts.force_new must be a boolean", vim.log.levels.ERROR)
+      return nil
+    end
+    parsed.force_new = opts.force_new
+  end
+
+  if opts.auto_scroll ~= nil then
+    if type(opts.auto_scroll) ~= "boolean" then
+      notify("build(builder_type, opts): opts.auto_scroll must be a boolean", vim.log.levels.ERROR)
+      return nil
+    end
+    parsed.auto_scroll = opts.auto_scroll
+  end
+
+  return parsed
+end
+
 local function focus_current_terminal()
   local term_win = terminal.get_current_winid()
   if not term_win then
@@ -253,6 +298,9 @@ tabbar.set_actions({
 ---@class qck.RunOpts
 ---@field id? integer Optional internal terminal id. Must be a positive integer when provided.
 ---@field title? string Optional reserved field for future tab/title customization.
+---@class qck.BuildOpts
+---@field force_new? boolean Restart builder instance when already running.
+---@field auto_scroll? boolean Override configured auto-scroll behavior for this run.
 
 ---Configure qck behavior.
 ---Mappings defined here are active inside qck terminal and tabbar buffers.
@@ -310,6 +358,64 @@ function qck.run(cmd, opts)
 
   local id = parsed_opts.id or state.next_free_id()
   terminal.run(id, parsed_cmd, parsed_opts)
+end
+
+---Build using a configured builder type.
+---Only one runtime instance is allowed per builder type.
+---If that builder type is already running, this opens the existing instance unless `opts.force_new = true`.
+---@param builder_type string Configured builder type.
+---@param opts? qck.BuildOpts Optional build options.
+---@return nil
+function qck.build(builder_type, opts)
+  local parsed_builder_type = validate_builder_type(builder_type, "build(builder_type, opts)")
+  if not parsed_builder_type then
+    return
+  end
+
+  local parsed_opts = validate_build_opts(opts)
+  if not parsed_opts then
+    return
+  end
+
+  builders.build(parsed_builder_type, parsed_opts)
+end
+
+---Open a running builder terminal by type.
+---This does not create a new builder instance.
+---@param builder_type string Configured builder type.
+---@return nil
+function qck.open_builder(builder_type)
+  local parsed_builder_type = validate_builder_type(builder_type, "open_builder(builder_type)")
+  if not parsed_builder_type then
+    return
+  end
+
+  builders.open(parsed_builder_type)
+end
+
+---Toggle a running builder terminal window by type.
+---This does not create a new builder instance.
+---@param builder_type string Configured builder type.
+---@return nil
+function qck.toggle_builder(builder_type)
+  local parsed_builder_type = validate_builder_type(builder_type, "toggle_builder(builder_type)")
+  if not parsed_builder_type then
+    return
+  end
+
+  builders.toggle(parsed_builder_type)
+end
+
+---Kill a running builder instance by type.
+---@param builder_type string Configured builder type.
+---@return nil
+function qck.kill_builder(builder_type)
+  local parsed_builder_type = validate_builder_type(builder_type, "kill_builder(builder_type)")
+  if not parsed_builder_type then
+    return
+  end
+
+  builders.kill(parsed_builder_type)
 end
 
 ---Open a terminal by id.
