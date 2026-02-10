@@ -182,6 +182,13 @@ local function set_buffer_mappings(buf)
     end,
     { buffer = buf, noremap = true, silent = true }
   )
+
+  vim.keymap.set(
+    "n",
+    "<Esc>",
+    function() actions.focus_current() end,
+    { buffer = buf, noremap = true, silent = true }
+  )
 end
 
 ---@param buf integer
