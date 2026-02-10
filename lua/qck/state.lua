@@ -70,6 +70,53 @@ function state.live_ids()
   return ids
 end
 
+---@param id integer
+---@return boolean
+function state.is_long_running(id)
+  local rec = terminals[id]
+  return rec and rec.meta and rec.meta.kind == "long_running" or false
+end
+
+---@return integer[], integer[], integer[]
+function state.partitioned_ids()
+  state.prune_stale()
+
+  local all_ids = {}
+  local long_running_ids = {}
+  local default_ids = {}
+
+  for id in pairs(terminals) do
+    all_ids[#all_ids + 1] = id
+    if state.is_long_running(id) then
+      long_running_ids[#long_running_ids + 1] = id
+    else
+      default_ids[#default_ids + 1] = id
+    end
+  end
+
+  table.sort(all_ids)
+  table.sort(long_running_ids)
+  table.sort(default_ids)
+
+  return all_ids, long_running_ids, default_ids
+end
+
+---@return integer[]
+function state.ordered_ids()
+  local _, long_running_ids, default_ids = state.partitioned_ids()
+  local ids = {}
+
+  for _, id in ipairs(long_running_ids) do
+    ids[#ids + 1] = id
+  end
+
+  for _, id in ipairs(default_ids) do
+    ids[#ids + 1] = id
+  end
+
+  return ids
+end
+
 ---@return integer
 function state.next_free_id()
   state.prune_stale()
@@ -84,7 +131,7 @@ end
 ---@param direction integer
 ---@return integer|nil
 function state.get_cycle_id(direction)
-  local ids = state.live_ids()
+  local ids = state.ordered_ids()
   if #ids == 0 then
     return nil
   end
