@@ -14,6 +14,10 @@ local bufnr = nil
 local winid = nil
 local watched_term_win = nil
 local render_rows = {}
+local user_mappings = {}
+local mapping_lhs = {}
+local previous_mapping_lhs = {}
+local center_text
 local actions = {
   open = function(_) end,
   delete = function(_) end,
@@ -82,6 +86,33 @@ local function is_selectable_line(line)
   return row and row.selectable or false
 end
 
+---@param line integer
+---@return integer
+local function get_line_cursor_col(line)
+  local row = render_rows[line]
+  if not row then
+    return 0
+  end
+
+  local width = 1
+  if winid and is_valid_win(winid) then
+    width = math.max(1, vim.api.nvim_win_get_width(winid))
+  end
+
+  local centered = center_text(row.visual_label, width)
+  local first_digit = centered:find("%d")
+  if first_digit then
+    return first_digit - 1
+  end
+
+  local first_non_space = centered:find("%S")
+  if first_non_space then
+    return first_non_space - 1
+  end
+
+  return 0
+end
+
 ---@param delta integer
 local function move_selection(delta)
   if not winid or not is_valid_win(winid) then
@@ -109,7 +140,7 @@ local function move_selection(delta)
     end
   end
 
-  vim.api.nvim_win_set_cursor(winid, { next_line, 0 })
+  vim.api.nvim_win_set_cursor(winid, { next_line, get_line_cursor_col(next_line) })
 end
 
 ---@param buf integer
@@ -154,6 +185,33 @@ local function set_buffer_mappings(buf)
 end
 
 ---@param buf integer
+local function apply_user_mappings_to_buf(buf)
+  if not buf or not vim.api.nvim_buf_is_valid(buf) then
+    return
+  end
+
+  local lhs_to_clear = {}
+  for _, lhs in ipairs(previous_mapping_lhs) do
+    lhs_to_clear[lhs] = true
+  end
+  for _, lhs in ipairs(mapping_lhs) do
+    lhs_to_clear[lhs] = true
+  end
+
+  for lhs in pairs(lhs_to_clear) do
+    pcall(vim.keymap.del, "n", lhs, { buffer = buf })
+  end
+
+  for lhs, rhs in pairs(user_mappings) do
+    vim.keymap.set("n", lhs, rhs, {
+      buffer = buf,
+      noremap = true,
+      silent = true,
+    })
+  end
+end
+
+---@param buf integer
 local function configure_buffer_options(buf)
   vim.bo[buf].buftype = "nofile"
   vim.bo[buf].bufhidden = "wipe"
@@ -168,6 +226,7 @@ local function create_buffer()
   local buf = vim.api.nvim_create_buf(false, true)
   configure_buffer_options(buf)
   set_buffer_mappings(buf)
+  apply_user_mappings_to_buf(buf)
   return buf
 end
 
@@ -195,7 +254,7 @@ end
 ---@param text string
 ---@param width integer
 ---@return string
-local function center_text(text, width)
+center_text = function(text, width)
   local text_width = vim.fn.strdisplaywidth(text)
   if text_width >= width then
     return text
@@ -306,7 +365,7 @@ local function restore_cursor_position(previous_line, line_count, current_idx)
     end
   end
 
-  vim.api.nvim_win_set_cursor(winid, { target_line, 0 })
+  vim.api.nvim_win_set_cursor(winid, { target_line, get_line_cursor_col(target_line) })
 end
 
 ---@param term_win integer
@@ -354,6 +413,29 @@ function tabbar.set_actions(fns)
   if type(fns.focus_current) == "function" then
     actions.focus_current = fns.focus_current
   end
+end
+
+---@param mappings table|nil
+---@return nil
+function tabbar.set_user_mappings(mappings)
+  previous_mapping_lhs = mapping_lhs
+  user_mappings = mappings or {}
+  mapping_lhs = {}
+
+  for lhs in pairs(user_mappings) do
+    mapping_lhs[#mapping_lhs + 1] = lhs
+  end
+
+  table.sort(mapping_lhs)
+end
+
+---@return nil
+function tabbar.apply_user_mappings()
+  if not bufnr or not is_valid_buf(bufnr) then
+    return
+  end
+
+  apply_user_mappings_to_buf(bufnr)
 end
 
 ---@return integer|nil

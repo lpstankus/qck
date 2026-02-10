@@ -8,6 +8,7 @@ local ok, Snacks = pcall(require, "snacks")
 if not ok then error("QCK: snacks.nvim is required") end
 terminal.set_snacks(Snacks)
 terminal.set_user_mappings({})
+tabbar.set_user_mappings({})
 
 local config = {
   mappings = {},
@@ -152,15 +153,15 @@ tabbar.set_actions({
 })
 
 ---@class qck.SetupOpts
----@field mappings? table<string, string|function> Buffer-local mappings applied in both normal and terminal modes for qck terminal buffers.
+---@field mappings? table<string, string|function> Buffer-local mappings for qck buffers (terminal: normal+terminal modes, tabbar: normal mode).
 ---@class qck.RunOpts
 ---@field id? integer Optional internal terminal id. Must be a positive integer when provided.
 ---@field title? string Optional reserved field for future tab/title customization.
 
 ---Configure qck behavior.
----Mappings defined here are only active inside qck terminal buffers.
----Each configured mapping is applied in both normal (`n`) and terminal (`t`) modes.
----Calling setup again replaces previously configured qck terminal mappings.
+---Mappings defined here are active inside qck terminal and tabbar buffers.
+---Each configured mapping is applied in both normal (`n`) and terminal (`t`) modes for terminal buffers, and normal mode (`n`) for tabbar buffers.
+---Calling setup again replaces previously configured qck buffer-local mappings.
 ---Invalid options are ignored with error notifications.
 ---@param opts? qck.SetupOpts
 ---@return nil
@@ -172,7 +173,9 @@ function qck.setup(opts)
 
   config.mappings = parse_mappings(opts and opts.mappings)
   terminal.set_user_mappings(config.mappings)
+  tabbar.set_user_mappings(config.mappings)
   terminal.apply_user_mappings()
+  tabbar.apply_user_mappings()
 end
 
 ---Create a new qck terminal using the next available numeric id.
