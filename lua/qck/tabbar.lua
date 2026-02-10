@@ -2,7 +2,7 @@ local state = require("qck.state")
 
 local tabbar = {}
 
-local TABBAR_WIDTH = 5
+local TABBAR_WIDTH = 6
 local ns = vim.api.nvim_create_namespace("qck_tabbar")
 local watch_group = vim.api.nvim_create_augroup(
   "qck_tabbar_watch",
@@ -68,11 +68,18 @@ local function get_selected_terminal_id()
   end
 
   local row = render_rows[line]
-  if not row then
+  if not row or not row.selectable then
     return nil
   end
 
   return row.internal_id
+end
+
+---@param line integer
+---@return boolean
+local function is_selectable_line(line)
+  local row = render_rows[line]
+  return row and row.selectable or false
 end
 
 ---@param delta integer
@@ -87,12 +94,21 @@ local function move_selection(delta)
   end
 
   local line = vim.api.nvim_win_get_cursor(winid)[1]
-  local next_line = line + delta
-  if next_line < 1 then
-    next_line = total
-  elseif next_line > total then
-    next_line = 1
+  local next_line = line
+
+  for _ = 1, total do
+    next_line = next_line + delta
+    if next_line < 1 then
+      next_line = total
+    elseif next_line > total then
+      next_line = 1
+    end
+
+    if is_selectable_line(next_line) then
+      break
+    end
   end
+
   vim.api.nvim_win_set_cursor(winid, { next_line, 0 })
 end
 
@@ -191,9 +207,10 @@ local function center_text(text, width)
 end
 
 ---@class qck.TabbarRow
----@field internal_id integer
+---@field internal_id integer|nil
 ---@field visual_label string
 ---@field kind string
+---@field selectable boolean
 
 ---@return qck.TabbarRow[]
 local function build_render_rows()
@@ -205,6 +222,16 @@ local function build_render_rows()
       internal_id = id,
       visual_label = ("L%d"):format(i),
       kind = "long_running",
+      selectable = true,
+    }
+  end
+
+  if #long_running_ids > 0 and #default_ids > 0 then
+    rows[#rows + 1] = {
+      internal_id = nil,
+      visual_label = "---",
+      kind = "separator",
+      selectable = false,
     }
   end
 
@@ -213,6 +240,7 @@ local function build_render_rows()
       internal_id = id,
       visual_label = ("T%d"):format(i),
       kind = "default",
+      selectable = true,
     }
   end
 
@@ -267,6 +295,15 @@ local function restore_cursor_position(previous_line, line_count, current_idx)
   local target_line = previous_line
   if target_line < 1 or target_line > line_count then
     target_line = current_idx or 1
+  end
+
+  if not is_selectable_line(target_line) then
+    for i = 1, line_count do
+      if is_selectable_line(i) then
+        target_line = i
+        break
+      end
+    end
   end
 
   vim.api.nvim_win_set_cursor(winid, { target_line, 0 })
