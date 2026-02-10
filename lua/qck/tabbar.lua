@@ -13,6 +13,7 @@ vim.api.nvim_set_hl(0, "QckTabbarCurrent", { reverse = true, default = true })
 local bufnr = nil
 local winid = nil
 local watched_term_win = nil
+local render_rows = {}
 local actions = {
   open = function(_) end,
   delete = function(_) end,
@@ -62,12 +63,16 @@ local function get_selected_terminal_id()
   end
 
   local line = vim.api.nvim_win_get_cursor(winid)[1]
-  local ids = state.live_ids()
-  if line < 1 or line > #ids then
+  if line < 1 or line > #render_rows then
     return nil
   end
 
-  return ids[line]
+  local row = render_rows[line]
+  if not row then
+    return nil
+  end
+
+  return row.internal_id
 end
 
 ---@param delta integer
@@ -76,7 +81,7 @@ local function move_selection(delta)
     return
   end
 
-  local total = #state.live_ids()
+  local total = #render_rows
   if total == 0 then
     return
   end
@@ -185,17 +190,46 @@ local function center_text(text, width)
   return string.rep(" ", left) .. text .. string.rep(" ", right)
 end
 
----@param ids integer[]
+---@class qck.TabbarRow
+---@field internal_id integer
+---@field visual_label string
+---@field kind string
+
+---@return qck.TabbarRow[]
+local function build_render_rows()
+  local _, long_running_ids, default_ids = state.partitioned_ids()
+  local rows = {}
+
+  for i, id in ipairs(long_running_ids) do
+    rows[#rows + 1] = {
+      internal_id = id,
+      visual_label = ("L%d"):format(i),
+      kind = "long_running",
+    }
+  end
+
+  for i, id in ipairs(default_ids) do
+    rows[#rows + 1] = {
+      internal_id = id,
+      visual_label = ("T%d"):format(i),
+      kind = "default",
+    }
+  end
+
+  return rows
+end
+
+---@param rows qck.TabbarRow[]
 ---@param current_id integer|nil
 ---@param width integer
 ---@return string[], integer|nil
-local function build_tabbar_lines(ids, current_id, width)
+local function build_tabbar_lines(rows, current_id, width)
   local lines = {}
   local current_idx = nil
 
-  for i, id in ipairs(ids) do
-    lines[i] = center_text(tostring(id), width)
-    if id == current_id then
+  for i, row in ipairs(rows) do
+    lines[i] = center_text(row.visual_label, width)
+    if row.internal_id == current_id then
       current_idx = i
     end
   end
@@ -263,6 +297,7 @@ function tabbar.hide()
     pcall(vim.api.nvim_win_close, winid, true)
   end
   winid = nil
+  render_rows = {}
   watched_term_win = nil
   vim.api.nvim_clear_autocmds({ group = watch_group })
 end
@@ -308,16 +343,17 @@ function tabbar.render(current_id)
     return
   end
 
-  local ids = state.live_ids()
-  if #ids == 0 then
+  local rows = build_render_rows()
+  if #rows == 0 then
     tabbar.hide()
     return
   end
+  render_rows = rows
 
   local buf = ensure_buffer()
   local width = math.max(1, vim.api.nvim_win_get_width(winid))
   local previous_line = vim.api.nvim_win_get_cursor(winid)[1]
-  local lines, current_idx = build_tabbar_lines(ids, current_id, width)
+  local lines, current_idx = build_tabbar_lines(rows, current_id, width)
 
   update_tabbar_buffer(buf, lines, current_idx)
   restore_cursor_position(previous_line, #lines, current_idx)
@@ -392,7 +428,7 @@ function tabbar.sync(rec, current_id)
     return
   end
 
-  local ids = state.live_ids()
+  local ids = state.ordered_ids()
   if #ids == 0 then
     tabbar.hide()
     return
