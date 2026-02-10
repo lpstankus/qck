@@ -445,6 +445,16 @@ function terminal.toggle(id)
   end
 end
 
+---@return nil
+function terminal.hide_current_if_open()
+  local current_id = state.get_current_id()
+  if not current_id then
+    return
+  end
+
+  hide_window_if_open(current_id)
+end
+
 ---@param id integer
 ---@return nil
 function terminal.delete(id)

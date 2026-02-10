@@ -149,6 +149,7 @@ end
 tabbar.set_actions({
   open = function(id) terminal.open(id) end,
   delete = function(id) terminal.delete(id) end,
+  close_current = function() terminal.hide_current_if_open() end,
   focus_current = focus_current_terminal,
 })
 

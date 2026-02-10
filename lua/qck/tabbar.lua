@@ -8,11 +8,17 @@ local watch_group = vim.api.nvim_create_augroup(
   "qck_tabbar_watch",
   { clear = true }
 )
+local close_watch_group = vim.api.nvim_create_augroup(
+  "qck_tabbar_close_watch",
+  { clear = true }
+)
 vim.api.nvim_set_hl(0, "QckTabbarCurrent", { reverse = true, default = true })
 
 local bufnr = nil
 local winid = nil
 local watched_term_win = nil
+local watched_tabbar_win = nil
+local suppress_tabbar_close_action = false
 local render_rows = {}
 local user_mappings = {}
 local mapping_lhs = {}
@@ -21,6 +27,7 @@ local center_text
 local actions = {
   open = function(_) end,
   delete = function(_) end,
+  close_current = function() end,
   focus_current = function() end,
 }
 
@@ -394,15 +401,45 @@ local function watch_terminal_win(term_win)
   })
 end
 
+---@param tab_win integer
+local function watch_tabbar_win(tab_win)
+  if watched_tabbar_win == tab_win then
+    return
+  end
+
+  vim.api.nvim_clear_autocmds({ group = close_watch_group })
+  watched_tabbar_win = tab_win
+
+  vim.api.nvim_create_autocmd("WinClosed", {
+    group = close_watch_group,
+    pattern = tostring(tab_win),
+    callback = function()
+      watched_tabbar_win = nil
+      if suppress_tabbar_close_action then
+        suppress_tabbar_close_action = false
+        return
+      end
+      actions.close_current()
+    end,
+    once = true,
+  })
+end
+
 ---@return nil
 function tabbar.hide()
   if is_valid_win(winid) then
-    pcall(vim.api.nvim_win_close, winid, true)
+    suppress_tabbar_close_action = true
+    local ok_close = pcall(vim.api.nvim_win_close, winid, true)
+    if not ok_close then
+      suppress_tabbar_close_action = false
+    end
   end
   winid = nil
   render_rows = {}
   watched_term_win = nil
+  watched_tabbar_win = nil
   vim.api.nvim_clear_autocmds({ group = watch_group })
+  vim.api.nvim_clear_autocmds({ group = close_watch_group })
 end
 
 ---@param fns table|nil
@@ -416,6 +453,9 @@ function tabbar.set_actions(fns)
   end
   if type(fns.delete) == "function" then
     actions.delete = fns.delete
+  end
+  if type(fns.close_current) == "function" then
+    actions.close_current = fns.close_current
   end
   if type(fns.focus_current) == "function" then
     actions.focus_current = fns.focus_current
@@ -540,6 +580,7 @@ function tabbar.show_for_terminal(rec, current_id)
 
   ensure_tabbar_window(buf, conf)
   if not winid then return end
+  watch_tabbar_win(winid)
 
   apply_window_opts(winid)
   tabbar.render(current_id)
