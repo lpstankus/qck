@@ -3,6 +3,7 @@ local qck = {}
 local state = require("qck.state")
 local terminal = require("qck.terminal")
 local tabbar = require("qck.tabbar")
+local storage = require("qck.storage")
 
 local ok, Snacks = pcall(require, "snacks")
 if not ok then error("QCK: snacks.nvim is required") end
@@ -177,6 +178,10 @@ function qck.setup(opts)
   tabbar.set_user_mappings(config.mappings)
   terminal.apply_user_mappings()
   tabbar.apply_user_mappings()
+
+  if not storage.load() then
+    notify("failed to load workspace storage", vim.log.levels.ERROR)
+  end
 end
 
 ---Create a new qck terminal using the next available numeric id.
