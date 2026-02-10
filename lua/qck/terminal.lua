@@ -29,6 +29,15 @@ local function get_terminal_handle(rec)
   return rec.win
 end
 
+---@param kind string|nil
+---@return string
+local function normalize_terminal_kind(kind)
+  if kind == "long_running" then
+    return "long_running"
+  end
+  return "default"
+end
+
 ---@param snacks_impl table|nil
 ---@return nil
 function terminal.set_snacks(snacks_impl)
@@ -224,7 +233,9 @@ end
 ---@param opts table|nil
 ---@return table|nil
 function terminal.create(id, opts)
-  _ = opts
+  opts = opts or {}
+  local kind = normalize_terminal_kind(opts.kind)
+  local cmd = opts.cmd
 
   if not snacks or not ensure_snacks() then return nil end
 
@@ -232,12 +243,14 @@ function terminal.create(id, opts)
 
   local rec = {
     win = nil,
-    meta = {},
+    meta = {
+      kind = kind,
+    },
   }
 
   local term_opts = {
     interactive = true,
-    auto_close = true,
+    auto_close = kind == "long_running" and false or true,
     count = id,
     win = {
       position = "float",
@@ -248,7 +261,7 @@ function terminal.create(id, opts)
     },
   }
 
-  local ok_open, term_or_err = pcall(snacks.terminal.open, nil, term_opts)
+  local ok_open, term_or_err = pcall(snacks.terminal.open, cmd, term_opts)
   if not ok_open or not term_or_err then
     local msg = ok_open and "failed to open terminal"
         or ("failed to open terminal: " .. tostring(term_or_err))
@@ -297,6 +310,31 @@ function terminal.ensure(id)
 
   state.remove_terminal(id)
   return terminal.create(id)
+end
+
+---@param id integer
+---@param cmd string|string[]
+---@param opts table|nil
+---@return table|nil
+function terminal.run(id, cmd, opts)
+  state.prune_stale()
+  if state.get_terminal(id) then
+    notify(
+      ("terminal %d already exists; choose a different id"):format(id),
+      vim.log.levels.ERROR
+    )
+    return nil
+  end
+
+  local create_opts = {}
+  if type(opts) == "table" then
+    for k, v in pairs(opts) do
+      create_opts[k] = v
+    end
+  end
+  create_opts.kind = "long_running"
+  create_opts.cmd = cmd
+  return terminal.create(id, create_opts)
 end
 
 ---@param id integer
