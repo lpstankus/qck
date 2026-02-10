@@ -10,6 +10,8 @@ local previous_mapping_lhs = {}
 local deleting_ids = {}
 local mapping_modes = { "n", "t" }
 local buffer_hook_groups = {}
+local terminal_hook_groups = {}
+local terminal_hook_bufnrs = {}
 
 ---@param msg string
 ---@param level integer|nil
@@ -115,23 +117,46 @@ local function clear_buffer_hook_group(bufnr)
   buffer_hook_groups[bufnr] = nil
 end
 
+---@param id integer
+---@return nil
+local function clear_terminal_hook_group(id)
+  local group_id = terminal_hook_groups[id]
+  if group_id then
+    pcall(vim.api.nvim_del_augroup_by_id, group_id)
+  end
+
+  local bufnr = terminal_hook_bufnrs[id]
+  if bufnr and buffer_hook_groups[bufnr] == group_id then
+    buffer_hook_groups[bufnr] = nil
+  end
+
+  terminal_hook_groups[id] = nil
+  terminal_hook_bufnrs[id] = nil
+end
+
+---@param id integer
 ---@param rec table|nil
 ---@return nil
-local function clear_terminal_buffer_hooks(rec)
+local function clear_terminal_buffer_hooks(id, rec)
+  clear_terminal_hook_group(id)
   clear_buffer_hook_group(terminal_bufnr(rec))
 end
 
+---@param id integer
 ---@param rec table|nil
 ---@return integer|nil
-local function reset_terminal_buffer_hook_group(rec)
+local function reset_terminal_buffer_hook_group(id, rec)
   local bufnr = terminal_bufnr(rec)
   if not bufnr then
     return nil
   end
 
+  clear_terminal_hook_group(id)
   clear_buffer_hook_group(bufnr)
   local group_id = vim.api.nvim_create_augroup(("qck_terminal_%d"):format(bufnr), { clear = true })
   buffer_hook_groups[bufnr] = group_id
+  terminal_hook_groups[id] = group_id
+  terminal_hook_bufnrs[id] = bufnr
   return group_id
 end
 
@@ -193,7 +218,7 @@ local function attach_terminal_buffer_hooks(id, rec)
     return
   end
 
-  local group_id = reset_terminal_buffer_hook_group(rec)
+  local group_id = reset_terminal_buffer_hook_group(id, rec)
   if not group_id then
     return
   end
@@ -235,7 +260,7 @@ end
 ---@param rec table|nil
 ---@return nil
 local function purge_terminal_record(id, rec)
-  clear_terminal_buffer_hooks(rec)
+  clear_terminal_buffer_hooks(id, rec)
   state.remove_terminal(id)
 end
 
@@ -361,14 +386,14 @@ local function hide_window_if_open(id)
 end
 
 ---@param target_id integer
----@return nil
-local function close_current_window_before_switch(target_id)
+---@return integer|nil
+local function get_previous_visible_id(target_id)
   local current_id = state.get_current_id()
   if not current_id or current_id == target_id then
-    return
+    return nil
   end
 
-  hide_window_if_open(current_id)
+  return current_id
 end
 
 ---@return integer|nil
@@ -395,10 +420,9 @@ function terminal.create(id, opts)
   local builder_type = normalize_builder_type(opts.builder_type)
   local cmd = opts.cmd
   local auto_scroll = resolve_auto_scroll(kind, opts.auto_scroll)
+  local previous_visible_id = get_previous_visible_id(id)
 
   if not snacks or not ensure_snacks() then return nil end
-
-  close_current_window_before_switch(id)
 
   local rec = {
     win = nil,
@@ -441,6 +465,9 @@ function terminal.create(id, opts)
   end
 
   state.set_terminal(id, rec)
+  if previous_visible_id then
+    hide_window_if_open(previous_visible_id)
+  end
   state.set_current_id(id)
   apply_user_mappings_to_buf(terminal_bufnr(rec))
   attach_terminal_buffer_hooks(id, rec)
@@ -501,7 +528,7 @@ end
 ---@param id integer
 ---@return table|nil
 function terminal.open(id)
-  close_current_window_before_switch(id)
+  local previous_visible_id = get_previous_visible_id(id)
 
   local rec = terminal.ensure(id)
   if not rec then
@@ -523,6 +550,10 @@ function terminal.open(id)
       )
       return nil
     end
+  end
+
+  if previous_visible_id then
+    hide_window_if_open(previous_visible_id)
   end
 
   state.set_current_id(id)
