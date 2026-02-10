@@ -270,6 +270,7 @@ function qck.setup(opts)
   config.mappings = parse_mappings(opts and opts.mappings)
   config.builders = parse_builders(opts and opts.builders)
 
+  builders.set_storage(storage)
   terminal.set_user_mappings(config.mappings)
   tabbar.set_user_mappings(config.mappings)
   builders.set_definitions(config.builders)
