@@ -77,6 +77,37 @@ function state.is_long_running(id)
   return rec and rec.meta and rec.meta.kind == "long_running" or false
 end
 
+---@param id integer
+---@return string|nil
+function state.get_terminal_kind(id)
+  local rec = terminals[id]
+  return rec and rec.meta and rec.meta.kind or nil
+end
+
+---@param id integer
+---@return string|nil
+function state.get_builder_type(id)
+  local rec = terminals[id]
+  return rec and rec.meta and rec.meta.builder_type or nil
+end
+
+---@param builder_type string
+---@return integer|nil
+function state.find_terminal_id_by_builder_type(builder_type)
+  if type(builder_type) ~= "string" or builder_type == "" then
+    return nil
+  end
+
+  local ids = state.live_ids()
+  for _, id in ipairs(ids) do
+    if state.get_builder_type(id) == builder_type then
+      return id
+    end
+  end
+
+  return nil
+end
+
 ---@return integer[], integer[], integer[]
 function state.partitioned_ids()
   state.prune_stale()

@@ -38,6 +38,21 @@ local function normalize_terminal_kind(kind)
   return "default"
 end
 
+---@param builder_type any
+---@return string|nil
+local function normalize_builder_type(builder_type)
+  if type(builder_type) ~= "string" then
+    return nil
+  end
+
+  local trimmed = vim.trim(builder_type)
+  if trimmed == "" then
+    return nil
+  end
+
+  return trimmed
+end
+
 ---@param snacks_impl table|nil
 ---@return nil
 function terminal.set_snacks(snacks_impl)
@@ -235,6 +250,7 @@ end
 function terminal.create(id, opts)
   opts = opts or {}
   local kind = normalize_terminal_kind(opts.kind)
+  local builder_type = normalize_builder_type(opts.builder_type)
   local cmd = opts.cmd
 
   if not snacks or not ensure_snacks() then return nil end
@@ -245,6 +261,7 @@ function terminal.create(id, opts)
     win = nil,
     meta = {
       kind = kind,
+      builder_type = builder_type,
     },
   }
 
