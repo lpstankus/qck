@@ -9,6 +9,7 @@ local mapping_lhs = {}
 local previous_mapping_lhs = {}
 local deleting_ids = {}
 local mapping_modes = { "n", "t" }
+local buffer_hook_groups = {}
 
 ---@param msg string
 ---@param level integer|nil
@@ -85,6 +86,58 @@ local function terminal_bufnr(rec)
   end
 
   return nil
+end
+
+---@param bufnr integer|nil
+---@return nil
+local function clear_buffer_hook_group(bufnr)
+  if not bufnr then
+    return
+  end
+
+  local group_id = buffer_hook_groups[bufnr]
+  if not group_id then
+    return
+  end
+
+  pcall(vim.api.nvim_del_augroup_by_id, group_id)
+  buffer_hook_groups[bufnr] = nil
+end
+
+---@param rec table|nil
+---@return nil
+local function clear_terminal_buffer_hooks(rec)
+  clear_buffer_hook_group(terminal_bufnr(rec))
+end
+
+---@param rec table|nil
+---@return integer|nil
+local function reset_terminal_buffer_hook_group(rec)
+  local bufnr = terminal_bufnr(rec)
+  if not bufnr then
+    return nil
+  end
+
+  clear_buffer_hook_group(bufnr)
+  local group_id = vim.api.nvim_create_augroup(("qck_terminal_%d"):format(bufnr), { clear = true })
+  buffer_hook_groups[bufnr] = group_id
+  return group_id
+end
+
+---@param id integer
+---@param rec table|nil
+---@return nil
+local function purge_terminal_record(id, rec)
+  clear_terminal_buffer_hooks(rec)
+  state.remove_terminal(id)
+end
+
+---@param id integer
+---@param rec table|nil
+---@return nil
+local function remove_terminal_record(id, rec)
+  purge_terminal_record(id, rec)
+  state.update_current_after_removal(id)
 end
 
 ---@param bufnr integer|nil
@@ -299,6 +352,7 @@ function terminal.create(id, opts)
   state.set_terminal(id, rec)
   state.set_current_id(id)
   apply_user_mappings_to_buf(terminal_bufnr(rec))
+  reset_terminal_buffer_hook_group(rec)
   tabbar.sync(rec, id)
 
   if type(rec_win.on) == "function" then
@@ -307,8 +361,7 @@ function terminal.create(id, opts)
         return
       end
       if state.get_terminal(id) == rec then
-        state.remove_terminal(id)
-        state.update_current_after_removal(id)
+        remove_terminal_record(id, rec)
         sync_tabbar_for_current()
       end
     end, { buf = true })
@@ -325,7 +378,7 @@ function terminal.ensure(id)
     return rec
   end
 
-  state.remove_terminal(id)
+  remove_terminal_record(id, rec)
   return terminal.create(id)
 end
 
@@ -366,7 +419,7 @@ function terminal.open(id)
 
   local rec_win = get_terminal_handle(rec)
   if not rec_win then
-    state.remove_terminal(id)
+    remove_terminal_record(id, rec)
     return nil
   end
 
@@ -426,8 +479,7 @@ function terminal.close_if_open(id)
     return
   end
 
-  state.remove_terminal(id)
-  state.update_current_after_removal(id)
+  remove_terminal_record(id, rec)
   sync_tabbar_for_current()
 end
 
@@ -441,7 +493,7 @@ function terminal.toggle(id)
 
   local rec_win = get_terminal_handle(rec)
   if not rec_win then
-    state.remove_terminal(id)
+    remove_terminal_record(id, rec)
     return
   end
 
@@ -499,7 +551,7 @@ function terminal.delete(id)
   local removed_current = state.get_current_id() == id
   local rec_win = get_terminal_handle(rec)
   if not rec_win then
-    state.remove_terminal(id)
+    purge_terminal_record(id, rec)
     sync_tabbar_for_current()
     return
   end
@@ -515,7 +567,7 @@ function terminal.delete(id)
     return
   end
 
-  state.remove_terminal(id)
+  purge_terminal_record(id, rec)
 
   if not removed_current then
     sync_tabbar_for_current()
