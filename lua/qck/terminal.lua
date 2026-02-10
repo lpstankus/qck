@@ -54,6 +54,17 @@ local function normalize_builder_type(builder_type)
   return trimmed
 end
 
+---@param kind string
+---@param auto_scroll any
+---@return boolean
+local function resolve_auto_scroll(kind, auto_scroll)
+  if type(auto_scroll) == "boolean" then
+    return auto_scroll
+  end
+
+  return kind == "long_running"
+end
+
 ---@param snacks_impl table|nil
 ---@return nil
 function terminal.set_snacks(snacks_impl)
@@ -122,6 +133,102 @@ local function reset_terminal_buffer_hook_group(rec)
   local group_id = vim.api.nvim_create_augroup(("qck_terminal_%d"):format(bufnr), { clear = true })
   buffer_hook_groups[bufnr] = group_id
   return group_id
+end
+
+---@param rec table|nil
+---@return integer|nil
+local function terminal_winid(rec)
+  local rec_win = get_terminal_handle(rec)
+  if not rec_win then
+    return nil
+  end
+
+  if type(rec_win.win) == "number" and vim.api.nvim_win_is_valid(rec_win.win) then
+    return rec_win.win
+  end
+
+  if type(rec_win.win) == "function" then
+    local ok, win = pcall(function() return rec_win:win() end)
+    if ok and type(win) == "number" and vim.api.nvim_win_is_valid(win) then
+      return win
+    end
+  end
+
+  return nil
+end
+
+---@param winid integer
+---@param bufnr integer
+---@return boolean
+local function should_follow_terminal_output(winid, bufnr)
+  if not vim.api.nvim_win_is_valid(winid) or not vim.api.nvim_buf_is_valid(bufnr) then
+    return false
+  end
+
+  local cursor_row = vim.api.nvim_win_get_cursor(winid)[1]
+  local line_count = vim.api.nvim_buf_line_count(bufnr)
+  local near_bottom = line_count - cursor_row <= 5
+  local not_focused = vim.api.nvim_get_current_win() ~= winid
+  return near_bottom or not_focused
+end
+
+---@param winid integer
+---@param bufnr integer
+---@return nil
+local function scroll_terminal_to_bottom(winid, bufnr)
+  if not vim.api.nvim_win_is_valid(winid) or not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+
+  local line_count = vim.api.nvim_buf_line_count(bufnr)
+  vim.api.nvim_win_set_cursor(winid, { math.max(1, line_count), 0 })
+end
+
+---@param id integer
+---@param rec table|nil
+---@return nil
+local function attach_terminal_buffer_hooks(id, rec)
+  local bufnr = terminal_bufnr(rec)
+  if not bufnr then
+    return
+  end
+
+  local group_id = reset_terminal_buffer_hook_group(rec)
+  if not group_id then
+    return
+  end
+
+  if not rec or not rec.meta or not rec.meta.auto_scroll then
+    return
+  end
+
+  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedT" }, {
+    group = group_id,
+    buffer = bufnr,
+    callback = function()
+      local current_rec = state.get_terminal(id)
+      if not current_rec then
+        return
+      end
+
+      if terminal_bufnr(current_rec) ~= bufnr then
+        return
+      end
+
+      if not state.is_window_open(current_rec) then
+        return
+      end
+
+      local winid = terminal_winid(current_rec)
+      if not winid then
+        return
+      end
+
+      if should_follow_terminal_output(winid, bufnr) then
+        scroll_terminal_to_bottom(winid, bufnr)
+      end
+    end,
+  })
 end
 
 ---@param id integer
@@ -276,25 +383,7 @@ function terminal.get_current_winid()
     return nil
   end
 
-  local rec_win = get_terminal_handle(rec)
-  if not rec_win then
-    return nil
-  end
-
-  if type(rec_win.win) == "number" and
-      vim.api.nvim_win_is_valid(rec_win.win)
-  then
-    return rec_win.win
-  end
-
-  if type(rec_win.win) == "function" then
-    local ok, win = pcall(function() return rec_win:win() end)
-    if ok and type(win) == "number" and vim.api.nvim_win_is_valid(win) then
-      return win
-    end
-  end
-
-  return nil
+  return terminal_winid(rec)
 end
 
 ---@param id integer
@@ -305,6 +394,7 @@ function terminal.create(id, opts)
   local kind = normalize_terminal_kind(opts.kind)
   local builder_type = normalize_builder_type(opts.builder_type)
   local cmd = opts.cmd
+  local auto_scroll = resolve_auto_scroll(kind, opts.auto_scroll)
 
   if not snacks or not ensure_snacks() then return nil end
 
@@ -315,6 +405,7 @@ function terminal.create(id, opts)
     meta = {
       kind = kind,
       builder_type = builder_type,
+      auto_scroll = auto_scroll,
     },
   }
 
@@ -352,7 +443,7 @@ function terminal.create(id, opts)
   state.set_terminal(id, rec)
   state.set_current_id(id)
   apply_user_mappings_to_buf(terminal_bufnr(rec))
-  reset_terminal_buffer_hook_group(rec)
+  attach_terminal_buffer_hooks(id, rec)
   tabbar.sync(rec, id)
 
   if type(rec_win.on) == "function" then
