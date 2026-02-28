@@ -41,7 +41,7 @@ local function is_valid_win(win)
   return win and vim.api.nvim_win_is_valid(win) or false
 end
 
----@param rec table|nil
+---@param rec qck.TerminalRecord|nil
 ---@return integer|nil
 local function get_terminal_window_id(rec)
   if not rec or not rec.win then
@@ -507,7 +507,7 @@ function tabbar.hide()
   tabbar_close_watch_autocmd_id = nil
 end
 
----@param fns table|nil
+---@param fns { open?: fun(id: integer), delete?: fun(id: integer), move_up?: fun(id: integer), move_down?: fun(id: integer), close_current?: fun(), focus_current?: fun() }|nil
 ---@return nil
 function tabbar.set_actions(fns)
   if type(fns) ~= "table" then
@@ -630,7 +630,7 @@ local function ensure_tabbar_window(buf, conf)
   winid = vim.api.nvim_open_win(buf, false, conf)
 end
 
----@param rec table|nil
+---@param rec qck.TerminalRecord|nil
 ---@param current_id integer|nil
 ---@return nil
 function tabbar.show_for_terminal(rec, current_id)
@@ -657,7 +657,7 @@ function tabbar.show_for_terminal(rec, current_id)
   tabbar.render(current_id)
 end
 
----@param rec table|nil
+---@param rec qck.TerminalRecord|nil
 ---@param current_id integer|nil
 ---@return nil
 function tabbar.sync(rec, current_id)

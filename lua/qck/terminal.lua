@@ -19,8 +19,8 @@ local function notify(msg, level)
   vim.notify("QCK: " .. msg, level or vim.log.levels.INFO)
 end
 
----@param rec table|nil
----@return table|nil
+---@param rec qck.TerminalRecord|nil
+---@return qck.TerminalHandle|nil
 local function get_terminal_handle(rec)
   if not rec or type(rec) ~= "table" then
     return nil
@@ -31,7 +31,7 @@ local function get_terminal_handle(rec)
   return rec.win
 end
 
----@param handle table|nil
+---@param handle qck.TerminalHandle|table|nil
 ---@return nil
 local function safe_close_handle(handle)
   if type(handle) ~= "table" then
@@ -87,7 +87,7 @@ local function resolve_auto_scroll(kind, auto_scroll)
   return kind == "long_running"
 end
 
----@param snacks_impl table|nil
+---@param snacks_impl { terminal?: { open?: fun(cmd: qck.Command|nil, opts: table|nil): qck.TerminalHandle|nil } }|nil
 ---@return nil
 function terminal.set_snacks(snacks_impl)
   if snacks_impl ~= nil and type(snacks_impl) ~= "table" then
@@ -97,7 +97,7 @@ function terminal.set_snacks(snacks_impl)
   snacks = snacks_impl
 end
 
----@param rec table|nil
+---@param rec qck.TerminalRecord|nil
 ---@return integer|nil
 local function terminal_bufnr(rec)
   local rec_win = get_terminal_handle(rec)
@@ -156,7 +156,7 @@ local function clear_terminal_hook_autocmd(id)
 end
 
 ---@param id integer
----@param rec table|nil
+---@param rec qck.TerminalRecord|nil
 ---@return nil
 local function clear_terminal_buffer_hooks(id, rec)
   clear_terminal_hook_autocmd(id)
@@ -164,7 +164,7 @@ local function clear_terminal_buffer_hooks(id, rec)
 end
 
 ---@param id integer
----@param rec table|nil
+---@param rec qck.TerminalRecord|nil
 ---@return integer|nil
 local function reset_terminal_buffer_hook_autocmd(id, rec)
   local bufnr = terminal_bufnr(rec)
@@ -178,7 +178,7 @@ local function reset_terminal_buffer_hook_autocmd(id, rec)
   return bufnr
 end
 
----@param rec table|nil
+---@param rec qck.TerminalRecord|nil
 ---@return integer|nil
 local function terminal_winid(rec)
   local rec_win = get_terminal_handle(rec)
@@ -220,7 +220,7 @@ local function capture_mode_intent()
   return nil
 end
 
----@param rec table|nil
+---@param rec qck.TerminalRecord|nil
 ---@param mode_intent "normal"|nil
 ---@return nil
 local function restore_mode_intent(rec, mode_intent)
@@ -265,7 +265,7 @@ local function scroll_terminal_to_bottom(winid, bufnr)
 end
 
 ---@param id integer
----@param rec table|nil
+---@param rec qck.TerminalRecord|nil
 ---@return nil
 local function attach_terminal_buffer_hooks(id, rec)
   local bufnr = terminal_bufnr(rec)
@@ -332,7 +332,7 @@ local function attach_terminal_buffer_hooks(id, rec)
 end
 
 ---@param id integer
----@param rec table|nil
+---@param rec qck.TerminalRecord|nil
 ---@return nil
 local function purge_terminal_record(id, rec)
   clear_terminal_buffer_hooks(id, rec)
@@ -340,7 +340,7 @@ local function purge_terminal_record(id, rec)
 end
 
 ---@param id integer
----@param rec table|nil
+---@param rec qck.TerminalRecord|nil
 ---@return nil
 local function remove_terminal_record(id, rec)
   purge_terminal_record(id, rec)
@@ -498,8 +498,8 @@ function terminal.get_current_winid()
 end
 
 ---@param id integer
----@param opts table|nil
----@return table|nil
+---@param opts qck.TerminalCreateOpts|nil
+---@return qck.TerminalRecord|nil
 function terminal.create(id, opts)
   opts = opts or {}
   local kind = normalize_terminal_kind(opts.kind)
@@ -579,7 +579,7 @@ function terminal.create(id, opts)
 end
 
 ---@param id integer
----@return table|nil
+---@return qck.TerminalRecord|nil
 function terminal.ensure(id)
   local rec = state.get_terminal(id)
   if state.is_valid_record(rec) then
@@ -591,9 +591,9 @@ function terminal.ensure(id)
 end
 
 ---@param id integer
----@param cmd string|string[]
+---@param cmd qck.Command
 ---@param opts table|nil
----@return table|nil
+---@return qck.TerminalRecord|nil
 function terminal.run(id, cmd, opts)
   state.prune_stale()
   if state.get_terminal(id) then
@@ -617,7 +617,7 @@ end
 
 ---@param id integer
 ---@param opts table|nil
----@return table|nil
+---@return qck.TerminalRecord|nil
 function terminal.open(id, opts)
   opts = opts or {}
   local preserve_mode = opts.preserve_mode == true

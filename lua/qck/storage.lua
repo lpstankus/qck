@@ -8,8 +8,8 @@ storage.version = STORAGE_VERSION
 storage.workspaces = {}
 storage.last_error = nil
 
----@param cmd string|string[]
----@return string|string[]
+---@param cmd qck.Command
+---@return qck.Command
 local function clone_cmd(cmd)
   if type(cmd) == "string" then
     return cmd
@@ -23,7 +23,7 @@ local function clone_cmd(cmd)
 end
 
 ---@param value any
----@return string|string[]|nil
+---@return qck.Command|nil
 local function normalize_cmd(value)
   if type(value) == "string" then
     if vim.trim(value) == "" then
@@ -48,7 +48,7 @@ local function normalize_cmd(value)
 end
 
 ---@param data any
----@return table|nil
+---@return qck.StorageState|nil
 local function sanitize_data(data)
   if type(data) ~= "table" then
     return nil
@@ -95,14 +95,14 @@ local function sanitize_data(data)
   return sanitized
 end
 
----@param data table
+---@param data qck.StorageState
 ---@return nil
 local function write_data(data)
   local encoded = vim.json.encode(data)
   vim.fn.writefile({ encoded }, storage_path)
 end
 
----@return table
+---@return qck.StorageState
 local function clean_data()
   local blank = {
     version = STORAGE_VERSION,
@@ -112,7 +112,7 @@ local function clean_data()
   return blank
 end
 
----@return table
+---@return qck.StorageState
 local function read_data()
   if vim.fn.filereadable(storage_path) == 0 then
     return clean_data()
@@ -193,7 +193,7 @@ function storage.get_last_error()
 end
 
 ---@param workspace string
----@return table
+---@return qck.StorageWorkspaceState
 function storage.ensure_workspace(workspace)
   if type(storage.workspaces) ~= "table" then
     storage.workspaces = {}
@@ -214,7 +214,7 @@ end
 
 ---@param workspace string
 ---@param builder_type string
----@return string|string[]|nil
+---@return qck.Command|nil
 function storage.get_builder_cmd(workspace, builder_type)
   if not storage.ok or type(storage.workspaces) ~= "table" then
     return nil
@@ -253,7 +253,7 @@ end
 
 ---@param workspace string
 ---@param builder_type string
----@param cmd string|string[]
+---@param cmd qck.Command
 ---@return nil
 function storage.set_builder_cmd(workspace, builder_type, cmd)
   if not storage.ok then

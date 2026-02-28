@@ -1,5 +1,6 @@
 ---@class qck
 local qck = {}
+require("qck.types")
 local state = require("qck.state")
 local terminal = require("qck.terminal")
 local tabbar = require("qck.tabbar")
@@ -52,7 +53,7 @@ local function validate_new_opts(opts)
 end
 
 ---@param cmd any
----@return string|string[]|nil
+---@return qck.Command|nil
 local function validate_run_cmd(cmd)
   if type(cmd) == "string" then
     if vim.trim(cmd) == "" then
@@ -87,7 +88,7 @@ local function validate_run_cmd(cmd)
 end
 
 ---@param opts any
----@return table|nil
+---@return qck.RunOpts|nil
 local function validate_run_opts(opts)
   if opts == nil then
     return {}
@@ -224,7 +225,7 @@ end
 
 ---@param cmd any
 ---@param context string
----@return string|string[]|nil
+---@return qck.Command|nil
 local function parse_builder_cmd(cmd, context)
   if type(cmd) == "string" then
     if vim.trim(cmd) == "" then
@@ -260,7 +261,7 @@ local function parse_builder_cmd(cmd, context)
 end
 
 ---@param input any
----@return table<string, table>
+---@return table<string, qck.BuilderDefinition>
 local function parse_builders(input)
   if input == nil then
     return {}
@@ -338,7 +339,7 @@ local function validate_builder_type(builder_type, context)
 end
 
 ---@param opts any
----@return table|nil
+---@return qck.BuildOpts|nil
 local function validate_build_opts(opts)
   if opts == nil then
     return {}
@@ -371,7 +372,7 @@ local function validate_build_opts(opts)
 end
 
 ---@param opts any
----@return table|nil
+---@return qck.SetBuilderCmdOpts|nil
 local function validate_builder_cmd_opts(opts)
   if opts == nil then
     return {}
@@ -462,7 +463,7 @@ autocmd.create({ "WinEnter", "BufEnter", "TabEnter" }, {
 ---@field mode? qck.MappingMode|qck.MappingMode[] Terminal modes to apply (`n`, `t`, or both). Defaults to both when omitted.
 ---@class qck.SetupOpts
 ---@field mappings? table<string, string|function|qck.MappingSpec> Buffer-local mappings for qck buffers.
----@field builders? table<string, { cmd: string|string[], auto_scroll?: boolean, title?: string }> Workspace builder definitions.
+---@field builders? table<string, qck.BuilderDefinition> Workspace builder definitions.
 ---@class qck.RunOpts
 ---@field id? integer Optional internal terminal id. Must be a positive integer when provided.
 ---@field title? string Optional reserved field for future tab/title customization.

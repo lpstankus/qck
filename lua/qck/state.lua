@@ -80,7 +80,7 @@ local function sync_kind_order(existing, live_ids)
   return ordered
 end
 
----@param rec table|nil
+---@param rec qck.TerminalRecord|nil
 ---@return boolean
 function state.is_valid_record(rec)
   if type(rec) ~= "table" or type(rec.win) ~= "table" then
@@ -95,7 +95,7 @@ function state.is_valid_record(rec)
   return ok and valid == true
 end
 
----@param rec table|nil
+---@param rec qck.TerminalRecord|nil
 ---@return boolean
 function state.is_window_open(rec)
   if type(rec) ~= "table" or type(rec.win) ~= "table" then
@@ -122,13 +122,13 @@ function state.set_current_id(id)
 end
 
 ---@param id integer
----@return table|nil
+---@return qck.TerminalRecord|nil
 function state.get_terminal(id)
   return terminals[id]
 end
 
 ---@param id integer
----@param rec table
+---@param rec qck.TerminalRecord
 ---@return nil
 function state.set_terminal(id, rec)
   terminals[id] = rec
@@ -225,7 +225,7 @@ function state.is_long_running(id)
 end
 
 ---@param id integer
----@return string|nil
+---@return qck.TerminalKind|nil
 function state.get_terminal_kind(id)
   local rec = terminals[id]
   return rec and rec.meta and rec.meta.kind or nil

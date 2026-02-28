@@ -86,6 +86,7 @@ When tests are added, place them under `tests/` and document the test runner her
 - Workspace persistence lives in `storage.lua` (`stdpath("data") .. "/qck.json"`) and currently stores per-workspace builder command overrides.
 - `storage.load()` / `storage.save()` now return `(ok, err)` and track `storage.last_error`, so callers can report concrete persistence failure details.
 - Workspace LuaLS defaults now live in `.luarc.json` (LuaJIT runtime path + `vim` global) to improve editor diagnostics consistency for the plugin codebase.
+- Shared EmmyLua type aliases/classes now live in `lua/qck/types.lua`, and module annotations use these types to tighten internal contracts for LuaLS.
 - Tab bar lifecycle is synchronized from `terminal.lua` and reinforced by a `WinClosed` autocmd watcher in `tabbar.lua`.
 - All plugin autocmds now share a single `qck` augroup via `autocmd.lua`; modules track and delete autocmd ids for targeted cleanup.
 - When switching terminals, hiding the previous window (`toggle`) is safer than closing it (`close`), because closing may wipe the buffer and terminate the terminal job.

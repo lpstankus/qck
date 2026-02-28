@@ -20,8 +20,8 @@ local function current_workspace()
   return vim.fn.getcwd()
 end
 
----@param cmd string|string[]
----@return string|string[]
+---@param cmd qck.Command
+---@return qck.Command
 local function clone_cmd(cmd)
   if type(cmd) == "string" then
     return cmd
@@ -35,7 +35,7 @@ local function clone_cmd(cmd)
 end
 
 ---@param value any
----@return string|string[]|nil
+---@return qck.Command|nil
 local function normalize_cmd(value)
   if type(value) == "string" then
     if vim.trim(value) == "" then
@@ -64,13 +64,13 @@ local function normalize_cmd(value)
 end
 
 ---@param builder_type string
----@return table|nil
+---@return qck.BuilderDefinition|nil
 local function get_builder(builder_type)
   return configured_builders[builder_type]
 end
 
 ---@param builder_type string
----@return string|string[]|nil
+---@return qck.Command|nil
 local function get_persistent_cmd(builder_type)
   if not storage or type(storage.get_builder_cmd) ~= "function" then
     return nil
@@ -81,7 +81,7 @@ local function get_persistent_cmd(builder_type)
 end
 
 ---@param builder_type string
----@return string|string[]|nil
+---@return qck.Command|nil
 local function get_effective_cmd(builder_type)
   local temp_cmd = normalize_cmd(temp_builder_cmds[builder_type])
   if temp_cmd then
@@ -109,7 +109,7 @@ end
 
 ---@param id integer
 ---@param opts table|nil
----@return table|nil
+---@return qck.TerminalRecord|nil
 local function spawn_builder(id, builder_type, opts)
   local builder = get_builder(builder_type)
   if not builder then
@@ -156,8 +156,8 @@ local function ensure_builder_type(builder_type)
 end
 
 ---@param builder_type string
----@param opts table|nil
----@return table|nil
+---@param opts qck.BuildOpts|nil
+---@return qck.TerminalRecord|nil
 function builders.build(builder_type, opts)
   if not ensure_builder_type(builder_type) then
     return nil
@@ -186,7 +186,7 @@ function builders.build(builder_type, opts)
 end
 
 ---@param builder_type string
----@return table|nil
+---@return qck.TerminalRecord|nil
 function builders.open(builder_type)
   if not ensure_builder_type(builder_type) then
     return nil
@@ -234,8 +234,8 @@ function builders.kill(builder_type)
 end
 
 ---@param builder_type string
----@param cmd string|string[]
----@param opts table|nil
+---@param cmd qck.Command
+---@param opts qck.SetBuilderCmdOpts|nil
 ---@return nil
 function builders.set_builder_cmd(builder_type, cmd, opts)
   if not ensure_builder_type(builder_type) then
@@ -310,7 +310,7 @@ function builders.set_storage(storage_impl)
   storage = storage_impl
 end
 
----@param definitions table<string, table>
+---@param definitions table<string, qck.BuilderDefinition>
 ---@return nil
 function builders.set_definitions(definitions)
   configured_builders = {}
@@ -326,7 +326,7 @@ function builders.set_definitions(definitions)
 end
 
 ---@param builder_type string
----@return table|nil
+---@return qck.BuilderDefinition|nil
 function builders.get_definition(builder_type)
   local builder = configured_builders[builder_type]
   if not builder then
@@ -345,7 +345,7 @@ function builders.get_definition(builder_type)
   }
 end
 
----@return table<string, table>
+---@return table<string, qck.BuilderDefinition>
 function builders.get_definitions()
   local out = {}
   for builder_type, _ in pairs(configured_builders) do
