@@ -7,6 +7,7 @@ This repository is a Neovim plugin written in Lua.
 - `lua/qck/builders.lua`: builder registry and orchestration (builder-type lifecycle, one-instance-per-type enforcement, effective command resolution).
 - `lua/qck/storage.lua`: workspace-persistent storage for builder command overrides.
 - `lua/qck/cmd.lua`: shared command normalization/cloning/validation helpers (`string` or string-list commands).
+- `lua/qck/mappings.lua`: shared mapping state helpers for tracking/removing user-configured buffer mappings.
 - `lua/qck/state.lua`: terminal registry and current-id/cycling state plus terminal record/window validity helpers.
 - `lua/qck/autocmd.lua`: shared plugin autocmd wrapper exposing a single `qck` augroup.
 - `lua/qck/terminal.lua`: terminal lifecycle orchestration over `snacks.terminal`.
@@ -95,6 +96,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - Unused internal query helpers were removed to reduce surface area (`state.get_terminal_kind`, `tabbar.is_focused`, `storage.get_last_error`, `builders.get_definition`, `builders.get_definitions`).
 - Command normalization/cloning/validation is centralized in `lua/qck/cmd.lua` and reused by `init.lua`, `builders.lua`, and `storage.lua`.
 - Builder action dispatch now shares helpers in `init.lua` and `builders.lua` to avoid repeated builder-type/running-instance checks.
+- Mapping-state diff/cleanup helpers are centralized in `lua/qck/mappings.lua` and reused by both terminal and tabbar mapping application paths.
 - Tab bar lifecycle is synchronized from `terminal.lua` and reinforced by a `WinClosed` autocmd watcher in `tabbar.lua`.
 - All plugin autocmds now share a single `qck` augroup via `autocmd.lua`; modules track and delete autocmd ids for targeted cleanup.
 - When switching terminals, hiding the previous window (`toggle`) is safer than closing it (`close`), because closing may wipe the buffer and terminate the terminal job.
@@ -136,6 +138,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - Tabbar now watches its own `WinClosed` event; manual tabbar closes trigger hiding the current terminal window while internal tabbar closes suppress this action.
 - `init.lua` wires tabbar actions (`open`, `delete`, `move_up`, `move_down`, `close_current`, `focus_current`) to terminal behavior; `close_current` delegates to `terminal.hide_current_if_open()` to avoid wiping terminal buffers/jobs.
 - `init.lua` now installs a global focus watcher (`WinEnter`, `BufEnter`, `TabEnter`) that hides qck terminal and tabbar windows when focus leaves both qck windows (for example navigating with `<C-w>h`).
+- `init.lua` now resolves `open(id?)` / `close(id?)` target ids through shared helpers to avoid duplicated id-validation and fallback logic.
 - Visual labels are UI-only; public APIs (`open`, `close`, `toggle`, `run`) continue to operate on internal numeric ids.
 - `terminal.open(id, opts?)` and `terminal.create(id, opts?)` now accept internal `opts.preserve_mode` and restore normal mode after switching/creating when requested.
 - `qck.cycle_next()` / `qck.cycle_prev()` now request mode preservation; `qck.new()` requests it only when a qck terminal window is currently open.

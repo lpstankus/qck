@@ -35,6 +35,61 @@ local function is_valid_id(id)
   return type(id) == "number" and id > 0 and id % 1 == 0
 end
 
+---@param id number|nil
+---@return integer|nil, boolean
+local function parse_id_arg(id)
+  if id == nil then
+    return nil, true
+  end
+
+  if not is_valid_id(id) then
+    notify("id must be a positive integer", vim.log.levels.ERROR)
+    return nil, false
+  end
+
+  return id, true
+end
+
+---@param id number|nil
+---@return integer|nil
+local function resolve_open_target_id(id)
+  local target_id, ok = parse_id_arg(id)
+  if not ok then
+    return nil
+  end
+  if target_id then
+    return target_id
+  end
+
+  target_id = state.get_current_id()
+  if target_id then
+    return target_id
+  end
+
+  local ids = state.live_ids()
+  return ids[1] or state.next_free_id()
+end
+
+---@param id number|nil
+---@return integer|nil
+local function resolve_close_target_id(id)
+  local target_id, ok = parse_id_arg(id)
+  if not ok then
+    return nil
+  end
+  if target_id then
+    return target_id
+  end
+
+  target_id = state.get_current_id()
+  if target_id then
+    return target_id
+  end
+
+  notify("no current terminal selected (no-op)", vim.log.levels.WARN)
+  return nil
+end
+
 ---@param opts any
 ---@return qck.RunOpts|nil
 local function validate_run_opts(opts)
@@ -544,23 +599,9 @@ end
 ---@param id? number Terminal id to open or create.
 ---@return nil
 function qck.open(id)
-  local target_id = nil
-
-  if id ~= nil then
-    if not is_valid_id(id) then
-      notify("id must be a positive integer", vim.log.levels.ERROR)
-      return
-    end
-    target_id = id
-  end
-
-  if not target_id and state.get_current_id() then
-    target_id = state.get_current_id()
-  end
-
+  local target_id = resolve_open_target_id(id)
   if not target_id then
-    local ids = state.live_ids()
-    target_id = ids[1] or state.next_free_id()
+    return
   end
 
   terminal.open(target_id)
@@ -573,22 +614,8 @@ end
 ---@param id? number Terminal id whose open window should be closed.
 ---@return nil
 function qck.close(id)
-  local target_id = nil
-
-  if id ~= nil then
-    if not is_valid_id(id) then
-      notify("id must be a positive integer", vim.log.levels.ERROR)
-      return
-    end
-    target_id = id
-  end
-
-  if not target_id and state.get_current_id() then
-    target_id = state.get_current_id()
-  end
-
+  local target_id = resolve_close_target_id(id)
   if not target_id then
-    notify("no current terminal selected (no-op)", vim.log.levels.WARN)
     return
   end
 

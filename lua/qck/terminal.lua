@@ -1,5 +1,6 @@
 local state = require("qck.state")
 local tabbar = require("qck.tabbar")
+local mappings = require("qck.mappings")
 
 local terminal = {}
 
@@ -354,13 +355,7 @@ local function apply_user_mappings_to_buf(bufnr)
     return
   end
 
-  local lhs_to_clear = {}
-  for _, lhs in ipairs(previous_mapping_lhs) do
-    lhs_to_clear[lhs] = true
-  end
-  for _, lhs in ipairs(mapping_lhs) do
-    lhs_to_clear[lhs] = true
-  end
+  local lhs_to_clear = mappings.collect_lhs_to_clear(previous_mapping_lhs, mapping_lhs)
 
   for lhs in pairs(lhs_to_clear) do
     for _, mode in ipairs(terminal_mapping_modes) do
@@ -390,18 +385,10 @@ local function apply_user_mappings_to_buf(bufnr)
   end
 end
 
----@param mappings table|nil
+---@param raw_mappings table|nil
 ---@return nil
-function terminal.set_user_mappings(mappings)
-  previous_mapping_lhs = mapping_lhs
-  user_mappings = mappings or {}
-  mapping_lhs = {}
-
-  for lhs in pairs(user_mappings) do
-    mapping_lhs[#mapping_lhs + 1] = lhs
-  end
-
-  table.sort(mapping_lhs)
+function terminal.set_user_mappings(raw_mappings)
+  previous_mapping_lhs, user_mappings, mapping_lhs = mappings.update_state(mapping_lhs, raw_mappings)
 end
 
 ---@return nil
