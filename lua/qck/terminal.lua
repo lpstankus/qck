@@ -1,5 +1,6 @@
 local state = require("qck.state")
 local tabbar = require("qck.tabbar")
+local autocmd = require("qck.autocmd")
 
 local terminal = {}
 
@@ -9,8 +10,8 @@ local mapping_lhs = {}
 local previous_mapping_lhs = {}
 local deleting_ids = {}
 local mapping_modes = { "n", "t" }
-local buffer_hook_groups = {}
-local terminal_hook_groups = {}
+local buffer_hook_autocmd_ids = {}
+local terminal_hook_autocmd_ids = {}
 local terminal_hook_bufnrs = {}
 
 ---@param msg string
@@ -103,34 +104,34 @@ end
 
 ---@param bufnr integer|nil
 ---@return nil
-local function clear_buffer_hook_group(bufnr)
+local function clear_buffer_hook_autocmd(bufnr)
   if not bufnr then
     return
   end
 
-  local group_id = buffer_hook_groups[bufnr]
-  if not group_id then
+  local autocmd_id = buffer_hook_autocmd_ids[bufnr]
+  if not autocmd_id then
     return
   end
 
-  pcall(vim.api.nvim_del_augroup_by_id, group_id)
-  buffer_hook_groups[bufnr] = nil
+  autocmd.delete(autocmd_id)
+  buffer_hook_autocmd_ids[bufnr] = nil
 end
 
 ---@param id integer
 ---@return nil
-local function clear_terminal_hook_group(id)
-  local group_id = terminal_hook_groups[id]
-  if group_id then
-    pcall(vim.api.nvim_del_augroup_by_id, group_id)
+local function clear_terminal_hook_autocmd(id)
+  local autocmd_id = terminal_hook_autocmd_ids[id]
+  if autocmd_id then
+    autocmd.delete(autocmd_id)
   end
 
   local bufnr = terminal_hook_bufnrs[id]
-  if bufnr and buffer_hook_groups[bufnr] == group_id then
-    buffer_hook_groups[bufnr] = nil
+  if bufnr and buffer_hook_autocmd_ids[bufnr] == autocmd_id then
+    buffer_hook_autocmd_ids[bufnr] = nil
   end
 
-  terminal_hook_groups[id] = nil
+  terminal_hook_autocmd_ids[id] = nil
   terminal_hook_bufnrs[id] = nil
 end
 
@@ -138,26 +139,23 @@ end
 ---@param rec table|nil
 ---@return nil
 local function clear_terminal_buffer_hooks(id, rec)
-  clear_terminal_hook_group(id)
-  clear_buffer_hook_group(terminal_bufnr(rec))
+  clear_terminal_hook_autocmd(id)
+  clear_buffer_hook_autocmd(terminal_bufnr(rec))
 end
 
 ---@param id integer
 ---@param rec table|nil
 ---@return integer|nil
-local function reset_terminal_buffer_hook_group(id, rec)
+local function reset_terminal_buffer_hook_autocmd(id, rec)
   local bufnr = terminal_bufnr(rec)
   if not bufnr then
     return nil
   end
 
-  clear_terminal_hook_group(id)
-  clear_buffer_hook_group(bufnr)
-  local group_id = vim.api.nvim_create_augroup(("qck_terminal_%d"):format(bufnr), { clear = true })
-  buffer_hook_groups[bufnr] = group_id
-  terminal_hook_groups[id] = group_id
+  clear_terminal_hook_autocmd(id)
+  clear_buffer_hook_autocmd(bufnr)
   terminal_hook_bufnrs[id] = bufnr
-  return group_id
+  return bufnr
 end
 
 ---@param rec table|nil
@@ -218,8 +216,8 @@ local function attach_terminal_buffer_hooks(id, rec)
     return
   end
 
-  local group_id = reset_terminal_buffer_hook_group(id, rec)
-  if not group_id then
+  local tracked_bufnr = reset_terminal_buffer_hook_autocmd(id, rec)
+  if not tracked_bufnr then
     return
   end
 
@@ -227,8 +225,7 @@ local function attach_terminal_buffer_hooks(id, rec)
     return
   end
 
-  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedT" }, {
-    group = group_id,
+  local autocmd_id = autocmd.create({ "TextChanged", "TextChangedT" }, {
     buffer = bufnr,
     callback = function()
       local current_rec = state.get_terminal(id)
@@ -254,6 +251,9 @@ local function attach_terminal_buffer_hooks(id, rec)
       end
     end,
   })
+
+  buffer_hook_autocmd_ids[tracked_bufnr] = autocmd_id
+  terminal_hook_autocmd_ids[id] = autocmd_id
 end
 
 ---@param id integer

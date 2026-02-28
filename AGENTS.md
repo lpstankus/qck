@@ -7,6 +7,7 @@ This repository is a Neovim plugin written in Lua.
 - `lua/qck/builders.lua`: builder registry and orchestration (builder-type lifecycle, one-instance-per-type enforcement, effective command resolution).
 - `lua/qck/storage.lua`: workspace-persistent storage for builder command overrides.
 - `lua/qck/state.lua`: terminal registry and current-id/cycling state plus terminal record/window validity helpers.
+- `lua/qck/autocmd.lua`: shared plugin autocmd wrapper exposing a single `qck` augroup.
 - `lua/qck/terminal.lua`: terminal lifecycle orchestration over `snacks.terminal`.
 - `lua/qck/tabbar.lua`: floating vertical tab bar that renders live terminal IDs.
 - `LICENSE`: project license.
@@ -78,6 +79,7 @@ When tests are added, place them under `tests/` and document the test runner her
 - Builder orchestration lives in `builders.lua` and keeps `init.lua` as a thin public API facade.
 - Workspace persistence lives in `storage.lua` (`stdpath("data") .. "/qck.json"`) and currently stores per-workspace builder command overrides.
 - Tab bar lifecycle is synchronized from `terminal.lua` and reinforced by a `WinClosed` autocmd watcher in `tabbar.lua`.
+- All plugin autocmds now share a single `qck` augroup via `autocmd.lua`; modules track and delete autocmd ids for targeted cleanup.
 - When switching terminals, hiding the previous window (`toggle`) is safer than closing it (`close`), because closing may wipe the buffer and terminate the terminal job.
 - `noautocmd` is valid when creating the tab bar float (`nvim_open_win`), but must not be passed to `nvim_win_set_config` for an existing window.
 - `qck.new(opts)` currently accepts an optional table, but terminal title customization is not used.

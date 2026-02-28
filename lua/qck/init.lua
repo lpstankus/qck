@@ -3,6 +3,7 @@ local qck = {}
 local state = require("qck.state")
 local terminal = require("qck.terminal")
 local tabbar = require("qck.tabbar")
+local autocmd = require("qck.autocmd")
 local storage = require("qck.storage")
 local builders = require("qck.builders")
 
@@ -24,7 +25,6 @@ local function notify(msg, level)
   vim.notify("QCK: " .. msg, level or vim.log.levels.INFO)
 end
 
-local focus_watch_group = vim.api.nvim_create_augroup("qck_focus_watch", { clear = true })
 local focus_cleanup_in_progress = false
 
 ---@param id number
@@ -374,8 +374,7 @@ local function hide_if_focus_left_qck_windows()
   end
 end
 
-vim.api.nvim_create_autocmd({ "WinEnter", "BufEnter", "TabEnter" }, {
-  group = focus_watch_group,
+autocmd.create({ "WinEnter", "BufEnter", "TabEnter" }, {
   callback = hide_if_focus_left_qck_windows,
 })
 

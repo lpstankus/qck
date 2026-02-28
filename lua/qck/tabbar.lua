@@ -1,23 +1,18 @@
 local state = require("qck.state")
+local autocmd = require("qck.autocmd")
 
 local tabbar = {}
 
 local TABBAR_WIDTH = 6
 local ns = vim.api.nvim_create_namespace("qck_tabbar")
-local watch_group = vim.api.nvim_create_augroup(
-  "qck_tabbar_watch",
-  { clear = true }
-)
-local close_watch_group = vim.api.nvim_create_augroup(
-  "qck_tabbar_close_watch",
-  { clear = true }
-)
 vim.api.nvim_set_hl(0, "QckTabbarCurrent", { reverse = true, default = true })
 
 local bufnr = nil
 local winid = nil
 local watched_term_win = nil
 local watched_tabbar_win = nil
+local terminal_watch_autocmd_id = nil
+local tabbar_close_watch_autocmd_id = nil
 local suppress_tabbar_close_action = false
 local render_rows = {}
 local user_mappings = {}
@@ -447,13 +442,14 @@ local function watch_terminal_win(term_win)
     return
   end
 
-  vim.api.nvim_clear_autocmds({ group = watch_group })
+  autocmd.delete(terminal_watch_autocmd_id)
+  terminal_watch_autocmd_id = nil
   watched_term_win = term_win
 
-  vim.api.nvim_create_autocmd("WinClosed", {
-    group = watch_group,
+  terminal_watch_autocmd_id = autocmd.create("WinClosed", {
     pattern = tostring(term_win),
     callback = function()
+      terminal_watch_autocmd_id = nil
       tabbar.hide()
     end,
     once = true,
@@ -466,13 +462,14 @@ local function watch_tabbar_win(tab_win)
     return
   end
 
-  vim.api.nvim_clear_autocmds({ group = close_watch_group })
+  autocmd.delete(tabbar_close_watch_autocmd_id)
+  tabbar_close_watch_autocmd_id = nil
   watched_tabbar_win = tab_win
 
-  vim.api.nvim_create_autocmd("WinClosed", {
-    group = close_watch_group,
+  tabbar_close_watch_autocmd_id = autocmd.create("WinClosed", {
     pattern = tostring(tab_win),
     callback = function()
+      tabbar_close_watch_autocmd_id = nil
       watched_tabbar_win = nil
       if suppress_tabbar_close_action then
         suppress_tabbar_close_action = false
@@ -497,8 +494,10 @@ function tabbar.hide()
   render_rows = {}
   watched_term_win = nil
   watched_tabbar_win = nil
-  vim.api.nvim_clear_autocmds({ group = watch_group })
-  vim.api.nvim_clear_autocmds({ group = close_watch_group })
+  autocmd.delete(terminal_watch_autocmd_id)
+  autocmd.delete(tabbar_close_watch_autocmd_id)
+  terminal_watch_autocmd_id = nil
+  tabbar_close_watch_autocmd_id = nil
 end
 
 ---@param fns table|nil
