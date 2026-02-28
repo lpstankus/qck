@@ -497,8 +497,12 @@ function qck.setup(opts)
   terminal.apply_user_mappings()
   tabbar.apply_user_mappings()
 
-  if not storage.load() then
-    notify("failed to load workspace storage", vim.log.levels.ERROR)
+  local ok_load, load_err = storage.load()
+  if not ok_load then
+    notify(
+      ("failed to load workspace storage: %s"):format(load_err or "unknown error"),
+      vim.log.levels.ERROR
+    )
   end
 end
 

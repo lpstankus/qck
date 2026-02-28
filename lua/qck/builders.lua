@@ -259,8 +259,14 @@ function builders.set_builder_cmd(builder_type, cmd, opts)
   end
 
   storage.set_builder_cmd(current_workspace(), builder_type, parsed_cmd)
-  if type(storage.save) == "function" and not storage.save() then
-    notify("failed to save workspace storage", vim.log.levels.ERROR)
+  if type(storage.save) == "function" then
+    local ok, err = storage.save()
+    if not ok then
+      notify(
+        ("failed to save workspace storage: %s"):format(err or "unknown error"),
+        vim.log.levels.ERROR
+      )
+    end
   end
 end
 
@@ -282,8 +288,14 @@ function builders.reset_builder_cmd(builder_type)
   end
 
   storage.reset_builder_cmd(current_workspace(), builder_type)
-  if type(storage.save) == "function" and not storage.save() then
-    notify("failed to save workspace storage", vim.log.levels.ERROR)
+  if type(storage.save) == "function" then
+    local ok, err = storage.save()
+    if not ok then
+      notify(
+        ("failed to save workspace storage: %s"):format(err or "unknown error"),
+        vim.log.levels.ERROR
+      )
+    end
   end
 end
 

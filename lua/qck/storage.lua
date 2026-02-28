@@ -6,6 +6,7 @@ local storage_path = vim.fn.stdpath("data") .. "/qck.json"
 storage.ok = false
 storage.version = STORAGE_VERSION
 storage.workspaces = {}
+storage.last_error = nil
 
 ---@param cmd string|string[]
 ---@return string|string[]
@@ -130,39 +131,65 @@ local function read_data()
   return decoded
 end
 
----@return boolean
+---@return boolean, string|nil
 function storage.load()
-  local ok, data = pcall(read_data)
   local sanitized = nil
+  local err = nil
 
-  if ok and type(data) == "table" and data.version == STORAGE_VERSION then
-    sanitized = sanitize_data(data)
+  local ok_read, data_or_err = pcall(read_data)
+  if ok_read and type(data_or_err) == "table" and data_or_err.version == STORAGE_VERSION then
+    sanitized = sanitize_data(data_or_err)
+    if not sanitized then
+      err = "failed to sanitize storage data"
+    end
+  elseif not ok_read then
+    err = ("failed to read storage file: %s"):format(tostring(data_or_err))
+  else
+    err = "storage file has unsupported format/version"
   end
 
   if not sanitized then
-    ok, data = pcall(clean_data)
-    if ok then
-      sanitized = sanitize_data(data)
+    local ok_reset, reset_or_err = pcall(clean_data)
+    if ok_reset and type(reset_or_err) == "table" then
+      sanitized = sanitize_data(reset_or_err)
+      if not sanitized then
+        err = "failed to sanitize reset storage data"
+      end
+    else
+      err = ("failed to reset storage file: %s"):format(tostring(reset_or_err))
     end
   end
 
-  storage.ok = ok and sanitized ~= nil
+  storage.ok = sanitized ~= nil
   storage.version = STORAGE_VERSION
   storage.workspaces = storage.ok and sanitized.workspaces or {}
-  return storage.ok
+  storage.last_error = storage.ok and nil or (err or "failed to load storage")
+  return storage.ok, storage.last_error
 end
 
----@return boolean
+---@return boolean, string|nil
 function storage.save()
   if not storage.ok then
-    return false
+    storage.last_error = "storage is not loaded"
+    return false, storage.last_error
   end
 
-  local ok = pcall(write_data, {
+  local ok, write_err = pcall(write_data, {
     version = STORAGE_VERSION,
     workspaces = storage.workspaces,
   })
-  return ok
+  if not ok then
+    storage.last_error = ("failed to write `%s`: %s"):format(storage_path, tostring(write_err))
+    return false, storage.last_error
+  end
+
+  storage.last_error = nil
+  return true, nil
+end
+
+---@return string|nil
+function storage.get_last_error()
+  return storage.last_error
 end
 
 ---@param workspace string
