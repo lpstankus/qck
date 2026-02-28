@@ -225,13 +225,6 @@ function state.is_long_running(id)
 end
 
 ---@param id integer
----@return qck.TerminalKind|nil
-function state.get_terminal_kind(id)
-  local rec = terminals[id]
-  return rec and rec.meta and rec.meta.kind or nil
-end
-
----@param id integer
 ---@return string|nil
 function state.get_builder_type(id)
   local rec = terminals[id]

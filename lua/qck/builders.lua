@@ -325,33 +325,4 @@ function builders.set_definitions(definitions)
   end
 end
 
----@param builder_type string
----@return qck.BuilderDefinition|nil
-function builders.get_definition(builder_type)
-  local builder = configured_builders[builder_type]
-  if not builder then
-    return nil
-  end
-
-  local cmd = get_effective_cmd(builder_type)
-  if not cmd then
-    return nil
-  end
-
-  return {
-    cmd = cmd,
-    auto_scroll = builder.auto_scroll,
-    title = builder.title,
-  }
-end
-
----@return table<string, qck.BuilderDefinition>
-function builders.get_definitions()
-  local out = {}
-  for builder_type, _ in pairs(configured_builders) do
-    out[builder_type] = builders.get_definition(builder_type)
-  end
-  return out
-end
-
 return builders

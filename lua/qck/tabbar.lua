@@ -564,15 +564,6 @@ function tabbar.get_winid()
   return winid
 end
 
----@return boolean
-function tabbar.is_focused()
-  local tab_win = tabbar.get_winid()
-  if not tab_win then
-    return false
-  end
-  return vim.api.nvim_get_current_win() == tab_win
-end
-
 ---@param current_id integer|nil
 ---@return nil
 function tabbar.render(current_id)

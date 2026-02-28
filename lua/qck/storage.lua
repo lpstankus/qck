@@ -187,11 +187,6 @@ function storage.save()
   return true, nil
 end
 
----@return string|nil
-function storage.get_last_error()
-  return storage.last_error
-end
-
 ---@param workspace string
 ---@return qck.StorageWorkspaceState
 function storage.ensure_workspace(workspace)
