@@ -504,10 +504,13 @@ end
 
 ---Create a new qck terminal using the next available numeric id.
 ---If another qck terminal window is currently visible, that window is hidden first.
+---When a qck terminal window is already open, preserves normal mode across the new terminal switch.
+---When qck is closed, default terminal-mode entry behavior is preserved.
 ---@param opts? table Optional terminal options (currently reserved/unused).
 ---@return nil
 function qck.new(opts)
   local parsed_opts = validate_new_opts(opts)
+  parsed_opts.preserve_mode = terminal.get_current_winid() ~= nil
   terminal.create(state.next_free_id(), parsed_opts)
 end
 
@@ -712,23 +715,25 @@ function qck.toggle()
 end
 
 ---Switch to the next live terminal id (cyclic order).
+---When cycling from normal mode, the destination terminal stays in normal mode.
 ---No-op when no live terminals exist.
 ---@return nil
 function qck.cycle_next()
   local target_id = state.get_cycle_id(1)
   if not target_id then return end
 
-  terminal.open(target_id)
+  terminal.open(target_id, { preserve_mode = true })
 end
 
 ---Switch to the previous live terminal id (cyclic order).
+---When cycling from normal mode, the destination terminal stays in normal mode.
 ---No-op when no live terminals exist.
 ---@return nil
 function qck.cycle_prev()
   local target_id = state.get_cycle_id(-1)
   if not target_id then return end
 
-  terminal.open(target_id)
+  terminal.open(target_id, { preserve_mode = true })
 end
 
 ---Toggle focus between the current qck terminal window and the qck tab bar window.

@@ -41,6 +41,8 @@ Automated tests are not configured yet. Validate changes with:
    - `setup({ mappings = ... })` should apply mappings buffer-locally to qck terminal buffers and the qck tabbar buffer.
    - legacy mapping entries (`lhs = rhs`) should map in terminal normal+terminal modes and tabbar normal mode.
    - mapping spec entries (`lhs = { rhs = ..., mode = ... }`) should honor terminal `mode` (`"n"`, `"t"`, or both) while tabbar remains normal mode only.
+   - `cycle_next`/`cycle_prev` should preserve normal mode when switching terminals.
+   - `new()` should preserve normal mode only when a qck terminal window is already open; creating while qck is closed should keep default terminal-mode entry.
 3. Builder workflow checks:
    - `setup({ builders = { compilation = ..., server = ... } })` should register builder types,
    - `build("type")` should open an existing running instance for that builder type,
@@ -121,6 +123,8 @@ When tests are added, place them under `tests/` and document the test runner her
 - `init.lua` wires tabbar actions (`open`, `delete`, `move_up`, `move_down`, `close_current`, `focus_current`) to terminal behavior; `close_current` delegates to `terminal.hide_current_if_open()` to avoid wiping terminal buffers/jobs.
 - `init.lua` now installs a global focus watcher (`WinEnter`, `BufEnter`, `TabEnter`) that hides qck terminal and tabbar windows when focus leaves both qck windows (for example navigating with `<C-w>h`).
 - Visual labels are UI-only; public APIs (`open`, `close`, `toggle`, `run`) continue to operate on internal numeric ids.
+- `terminal.open(id, opts?)` and `terminal.create(id, opts?)` now accept internal `opts.preserve_mode` and restore normal mode after switching/creating when requested.
+- `qck.cycle_next()` / `qck.cycle_prev()` now request mode preservation; `qck.new()` requests it only when a qck terminal window is currently open.
 
 ## Commit & Pull Request Guidelines
 - Commit messages should be short, imperative, and scoped (example: `add multi terminal management api`).

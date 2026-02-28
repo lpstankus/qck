@@ -180,6 +180,43 @@ local function terminal_winid(rec)
   return nil
 end
 
+---@param mode string|nil
+---@return boolean
+local function is_normal_mode(mode)
+  return type(mode) == "string" and mode:sub(1, 1) == "n"
+end
+
+---@return "normal"|nil
+local function capture_mode_intent()
+  local ok, mode_info = pcall(vim.api.nvim_get_mode)
+  if not ok or type(mode_info) ~= "table" then
+    return nil
+  end
+
+  if is_normal_mode(mode_info.mode) then
+    return "normal"
+  end
+
+  return nil
+end
+
+---@param rec table|nil
+---@param mode_intent "normal"|nil
+---@return nil
+local function restore_mode_intent(rec, mode_intent)
+  if mode_intent ~= "normal" then
+    return
+  end
+
+  local winid = terminal_winid(rec)
+  if not winid then
+    return
+  end
+
+  pcall(vim.api.nvim_set_current_win, winid)
+  pcall(vim.cmd, "stopinsert")
+end
+
 ---@param winid integer
 ---@param bufnr integer
 ---@return boolean
@@ -430,8 +467,10 @@ function terminal.create(id, opts)
   local kind = normalize_terminal_kind(opts.kind)
   local builder_type = normalize_builder_type(opts.builder_type)
   local cmd = opts.cmd
+  local preserve_mode = opts.preserve_mode == true
   local auto_scroll = resolve_auto_scroll(kind, opts.auto_scroll)
   local previous_visible_id = get_previous_visible_id(id)
+  local mode_intent = preserve_mode and capture_mode_intent() or nil
 
   if not snacks or not ensure_snacks() then return nil end
 
@@ -483,6 +522,7 @@ function terminal.create(id, opts)
   apply_user_mappings_to_buf(terminal_bufnr(rec))
   attach_terminal_buffer_hooks(id, rec)
   tabbar.sync(rec, id)
+  restore_mode_intent(rec, mode_intent)
 
   if type(rec_win.on) == "function" then
     rec_win:on("BufWipeout", function()
@@ -537,9 +577,13 @@ function terminal.run(id, cmd, opts)
 end
 
 ---@param id integer
+---@param opts table|nil
 ---@return table|nil
-function terminal.open(id)
+function terminal.open(id, opts)
+  opts = opts or {}
+  local preserve_mode = opts.preserve_mode == true
   local previous_visible_id = get_previous_visible_id(id)
+  local mode_intent = preserve_mode and capture_mode_intent() or nil
 
   local rec = terminal.ensure(id)
   if not rec then
@@ -569,6 +613,7 @@ function terminal.open(id)
 
   state.set_current_id(id)
   tabbar.sync(rec, id)
+  restore_mode_intent(rec, mode_intent)
   return rec
 end
 
