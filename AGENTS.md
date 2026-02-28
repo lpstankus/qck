@@ -23,6 +23,8 @@ There is no build system or package manifest. Use Neovim headless/manual checks:
   Verifies behavior with Snacks dependency on `runtimepath`.
 - `luac -p lua/qck/*.lua`  
   Fast syntax check for all Lua modules.
+- `nvim --headless --clean -u NONE +"set rtp+=." +"luafile tests/smoke.lua"`  
+  Runs the mocked smoke regression harness (`tests/mock_snacks.lua` + `tests/smoke.lua`) and exits non-zero on failure.
 - `nvim --clean +"set rtp+=."`  
   Opens an interactive clean session for manual testing.
 
@@ -34,26 +36,27 @@ There is no build system or package manifest. Use Neovim headless/manual checks:
 - Keep window/terminal side effects centralized and explicit.
 
 ## Testing Guidelines
-Automated tests are not configured yet. Validate changes with:
+Minimal automated smoke coverage is available under `tests/`. Validate changes with:
 
-1. Headless load check.
-2. Manual workflow checks: `new`, `run`, `open`, `close`, `toggle`, `cycle_next`, `cycle_prev`.
+1. Mocked headless smoke check (`tests/smoke.lua`).
+2. Headless load check.
+3. Manual workflow checks: `new`, `run`, `open`, `close`, `toggle`, `cycle_next`, `cycle_prev`.
    - `setup({ mappings = ... })` should apply mappings buffer-locally to qck terminal buffers and the qck tabbar buffer.
    - legacy mapping entries (`lhs = rhs`) should map in terminal normal+terminal modes and tabbar normal mode.
    - mapping spec entries (`lhs = { rhs = ..., mode = ... }`) should honor terminal `mode` (`"n"`, `"t"`, or both) while tabbar remains normal mode only.
    - `cycle_next`/`cycle_prev` should preserve normal mode when switching terminals.
    - `new()` should preserve normal mode only when a qck terminal window is already open; creating while qck is closed should keep default terminal-mode entry.
-3. Builder workflow checks:
+4. Builder workflow checks:
    - `setup({ builders = { compilation = ..., server = ... } })` should register builder types,
    - `build("type")` should open an existing running instance for that builder type,
    - `build("type", { force_new = true })` should restart only that builder type,
    - only one running terminal instance per builder type should exist,
    - multiple different builder types should run concurrently.
-4. Multi-terminal visibility checks:
+5. Multi-terminal visibility checks:
    - creating/opening a different terminal should hide the previously visible terminal window,
    - `toggle` should affect only the current terminal visibility,
    - moving focus to a non-qck window (for example `<C-w>h`) should hide qck terminal and tabbar windows.
-5. Tab bar checks:
+6. Tab bar checks:
    - opens/closes with the visible terminal window,
    - closes when the terminal window is closed manually (for example `:q`),
    - closing the tabbar window manually (for example `:q`) should hide the current terminal window,
@@ -62,16 +65,16 @@ Automated tests are not configured yet. Validate changes with:
    - `L*`/`T*` labels should stay with the same terminal when rows are reordered,
    - creating a new terminal should assign the lowest missing label number within its group for the current session,
    - current terminal line uses full-row reverse highlight.
-6. Persistence checks:
+7. Persistence checks:
    - `set_builder_cmd("type", cmd)` should persist command override per workspace cwd,
    - `set_builder_cmd("type", cmd, { temp = true })` should be session-only,
    - `reset_builder_cmd("type")` should clear temp override first, then persisted override.
-7. Terminal exit checks (`exit`, `exit 1`) to verify close/error behavior.
-8. Autoscroll checks for long-running/builder terminals:
+8. Terminal exit checks (`exit`, `exit 1`) to verify close/error behavior.
+9. Autoscroll checks for long-running/builder terminals:
    - output should follow when cursor is near bottom or terminal window is unfocused,
    - output should not force-scroll when user is inspecting older lines away from bottom.
 
-When tests are added, place them under `tests/` and document the test runner here.
+Additional tests should be placed under `tests/` and documented in this section.
 
 ## Current Architecture Findings
 - `snacks.nvim` is required at runtime; plugin load should fail early if unavailable.
@@ -87,6 +90,7 @@ When tests are added, place them under `tests/` and document the test runner her
 - `storage.load()` / `storage.save()` now return `(ok, err)` and track `storage.last_error`, so callers can report concrete persistence failure details.
 - Workspace LuaLS defaults now live in `.luarc.json` (LuaJIT runtime path + `vim` global) to improve editor diagnostics consistency for the plugin codebase.
 - Shared EmmyLua type aliases/classes now live in `lua/qck/types.lua`, and module annotations use these types to tighten internal contracts for LuaLS.
+- A deterministic mocked regression harness now lives under `tests/` (`tests/mock_snacks.lua` + `tests/smoke.lua`) for repeatable headless workflow checks.
 - Tab bar lifecycle is synchronized from `terminal.lua` and reinforced by a `WinClosed` autocmd watcher in `tabbar.lua`.
 - All plugin autocmds now share a single `qck` augroup via `autocmd.lua`; modules track and delete autocmd ids for targeted cleanup.
 - When switching terminals, hiding the previous window (`toggle`) is safer than closing it (`close`), because closing may wipe the buffer and terminate the terminal job.
