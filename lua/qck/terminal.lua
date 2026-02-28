@@ -33,6 +33,27 @@ local function get_terminal_handle(rec)
   return rec.win
 end
 
+---@param handle table|nil
+---@return nil
+local function safe_close_handle(handle)
+  if type(handle) ~= "table" then
+    return
+  end
+
+  if type(handle.close) == "function" then
+    pcall(function() handle:close() end)
+    return
+  end
+
+  if type(handle.win) == "number" and vim.api.nvim_win_is_valid(handle.win) then
+    pcall(vim.api.nvim_win_close, handle.win, true)
+  end
+
+  if type(handle.buf) == "number" and vim.api.nvim_buf_is_valid(handle.buf) then
+    pcall(vim.api.nvim_buf_delete, handle.buf, { force = true })
+  end
+end
+
 ---@param kind string|nil
 ---@return string
 local function normalize_terminal_kind(kind)
@@ -507,6 +528,7 @@ function terminal.create(id, opts)
   rec.win = term_or_err
   local rec_win = get_terminal_handle(rec)
   if not rec_win then
+    safe_close_handle(term_or_err)
     notify(
       ("failed to initialize terminal %d handle"):format(id),
       vim.log.levels.ERROR

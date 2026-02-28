@@ -83,13 +83,31 @@ end
 ---@param rec table|nil
 ---@return boolean
 function state.is_valid_record(rec)
-  return rec and rec.win and rec.win.buf_valid and rec.win:buf_valid() or false
+  if type(rec) ~= "table" or type(rec.win) ~= "table" then
+    return false
+  end
+
+  if type(rec.win.buf_valid) ~= "function" then
+    return false
+  end
+
+  local ok, valid = pcall(function() return rec.win:buf_valid() end)
+  return ok and valid == true
 end
 
 ---@param rec table|nil
 ---@return boolean
 function state.is_window_open(rec)
-  return rec and rec.win and rec.win.valid and rec.win:valid() or false
+  if type(rec) ~= "table" or type(rec.win) ~= "table" then
+    return false
+  end
+
+  if type(rec.win.valid) ~= "function" then
+    return false
+  end
+
+  local ok, valid = pcall(function() return rec.win:valid() end)
+  return ok and valid == true
 end
 
 ---@return integer|nil

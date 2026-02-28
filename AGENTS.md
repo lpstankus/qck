@@ -79,6 +79,8 @@ When tests are added, place them under `tests/` and document the test runner her
   - `state.lua`: record/window validity checks,
   - `init.lua`: API input validation and notifications,
   - `terminal.lua`: Snacks and terminal-handle safety checks.
+- State validity checks now guard terminal-handle method calls with `pcall`, so stale/invalid handle behavior cannot break prune/cycle paths.
+- `terminal.create(...)` now closes partially opened terminal handles when handle initialization fails, preventing leaked untracked terminal resources.
 - Builder definitions are configured via `qck.setup({ builders = ... })` and normalized/validated in `init.lua`.
 - Builder orchestration lives in `builders.lua` and keeps `init.lua` as a thin public API facade.
 - Workspace persistence lives in `storage.lua` (`stdpath("data") .. "/qck.json"`) and currently stores per-workspace builder command overrides.
