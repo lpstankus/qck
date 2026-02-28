@@ -27,6 +27,8 @@ local center_text
 local actions = {
   open = function(_) end,
   delete = function(_) end,
+  move_up = function(_) end,
+  move_down = function(_) end,
   close_current = function() end,
   focus_current = function() end,
 }
@@ -84,6 +86,22 @@ local function get_selected_terminal_id()
   end
 
   return row.internal_id
+end
+
+---@param id integer
+---@return integer|nil
+local function get_line_for_terminal_id(id)
+  if type(id) ~= "number" then
+    return nil
+  end
+
+  for line, row in ipairs(render_rows) do
+    if row.internal_id == id then
+      return line
+    end
+  end
+
+  return nil
 end
 
 ---@param line integer
@@ -150,6 +168,31 @@ local function move_selection(delta)
   vim.api.nvim_win_set_cursor(winid, { next_line, get_line_cursor_col(next_line) })
 end
 
+---@param delta integer
+local function move_selected_terminal(delta)
+  local id = get_selected_terminal_id()
+  if not id then
+    return
+  end
+
+  if delta < 0 then
+    actions.move_up(id)
+  else
+    actions.move_down(id)
+  end
+
+  if not winid or not is_valid_win(winid) then
+    return
+  end
+
+  local line = get_line_for_terminal_id(id)
+  if not line or not is_selectable_line(line) then
+    return
+  end
+
+  vim.api.nvim_win_set_cursor(winid, { line, get_line_cursor_col(line) })
+end
+
 ---@param buf integer
 local function set_buffer_mappings(buf)
   vim.keymap.set(
@@ -163,6 +206,20 @@ local function set_buffer_mappings(buf)
     "n",
     "k",
     function() move_selection(-1) end,
+    { buffer = buf, noremap = true, silent = true }
+  )
+
+  vim.keymap.set(
+    "n",
+    "J",
+    function() move_selected_terminal(1) end,
+    { buffer = buf, noremap = true, silent = true }
+  )
+
+  vim.keymap.set(
+    "n",
+    "K",
+    function() move_selected_terminal(-1) end,
     { buffer = buf, noremap = true, silent = true }
   )
 
@@ -453,6 +510,12 @@ function tabbar.set_actions(fns)
   end
   if type(fns.delete) == "function" then
     actions.delete = fns.delete
+  end
+  if type(fns.move_up) == "function" then
+    actions.move_up = fns.move_up
+  end
+  if type(fns.move_down) == "function" then
+    actions.move_down = fns.move_down
   end
   if type(fns.close_current) == "function" then
     actions.close_current = fns.close_current

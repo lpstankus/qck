@@ -52,6 +52,7 @@ Automated tests are not configured yet. Validate changes with:
    - closes when the terminal window is closed manually (for example `:q`),
    - closing the tabbar window manually (for example `:q`) should hide the current terminal window,
    - pressing `<Esc>` in the tabbar focuses the current terminal window,
+   - pressing `K`/`J` in the tabbar should move the selected terminal up/down within its own group (`L*` or `T*`),
    - current terminal line uses full-row reverse highlight.
 6. Persistence checks:
    - `set_builder_cmd("type", cmd)` should persist command override per workspace cwd,
@@ -79,7 +80,8 @@ When tests are added, place them under `tests/` and document the test runner her
 - `qck.new(opts)` currently accepts an optional table, but terminal title customization is not used.
 - State now exposes partition and ordering helpers for mixed terminal kinds:
   - `partitioned_ids()` returns three lists: `all_ids`, `long_running_ids`, `default_ids`,
-  - `ordered_ids()` returns long-running ids first, then default ids, each subgroup sorted by internal id.
+  - `ordered_ids()` returns long-running ids first, then default ids, preserving per-kind in-session manual order.
+  - `move_id_within_kind(id, direction)` reorders a terminal within its own kind (`long_running` or `default`) for the current session.
 - State now exposes builder helpers:
   - `find_terminal_id_by_builder_type(builder_type)` returns the running terminal id for a builder type,
   - `get_builder_type(id)` returns the builder type metadata for a terminal id when present.
@@ -98,11 +100,12 @@ When tests are added, place them under `tests/` and document the test runner her
   - long-running rows are labeled `L1`, `L2`, ...,
   - default rows are labeled `T1`, `T2`, ...,
   - row actions (`<CR>`, `dd`) resolve labels back to internal terminal ids.
+- Tabbar supports manual reordering in normal mode with `K` (move selected terminal up) and `J` (move selected terminal down), scoped to the selected terminal kind group.
 - User mappings configured via `qck.setup({ mappings = ... })` are now applied to both terminal buffers and the tabbar buffer.
 - Tabbar cursor placement now lands on the centered row label's numeric part (or first non-space character when no number is present).
 - Tabbar includes a built-in normal-mode `<Esc>` mapping that returns focus to the current terminal window.
 - Tabbar now watches its own `WinClosed` event; manual tabbar closes trigger hiding the current terminal window while internal tabbar closes suppress this action.
-- `init.lua` wires tabbar actions (`open`, `delete`, `close_current`, `focus_current`) to terminal behavior; `close_current` delegates to `terminal.hide_current_if_open()` to avoid wiping terminal buffers/jobs.
+- `init.lua` wires tabbar actions (`open`, `delete`, `move_up`, `move_down`, `close_current`, `focus_current`) to terminal behavior; `close_current` delegates to `terminal.hide_current_if_open()` to avoid wiping terminal buffers/jobs.
 - Visual labels are UI-only; public APIs (`open`, `close`, `toggle`, `run`) continue to operate on internal numeric ids.
 
 ## Commit & Pull Request Guidelines

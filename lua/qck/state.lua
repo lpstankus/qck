@@ -2,6 +2,45 @@ local state = {}
 
 local terminals = {}
 local current_id = nil
+local long_running_order = {}
+local default_order = {}
+
+---@param ids integer[]
+---@return integer[]
+local function copy_ids(ids)
+  local out = {}
+  for i, id in ipairs(ids) do
+    out[i] = id
+  end
+  return out
+end
+
+---@param existing integer[]
+---@param live_ids integer[]
+---@return integer[]
+local function sync_kind_order(existing, live_ids)
+  local live_lookup = {}
+  for _, id in ipairs(live_ids) do
+    live_lookup[id] = true
+  end
+
+  local ordered = {}
+  local seen = {}
+  for _, id in ipairs(existing) do
+    if live_lookup[id] and not seen[id] then
+      ordered[#ordered + 1] = id
+      seen[id] = true
+    end
+  end
+
+  for _, id in ipairs(live_ids) do
+    if not seen[id] then
+      ordered[#ordered + 1] = id
+    end
+  end
+
+  return ordered
+end
 
 ---@param rec table|nil
 ---@return boolean
@@ -37,12 +76,33 @@ end
 ---@return nil
 function state.set_terminal(id, rec)
   terminals[id] = rec
+  state.sync_orders()
 end
 
 ---@param id integer
 ---@return nil
 function state.remove_terminal(id)
   terminals[id] = nil
+  state.sync_orders()
+end
+
+---@return nil
+function state.sync_orders()
+  local long_running_ids = {}
+  local default_ids = {}
+
+  for id in pairs(terminals) do
+    if state.is_long_running(id) then
+      long_running_ids[#long_running_ids + 1] = id
+    else
+      default_ids[#default_ids + 1] = id
+    end
+  end
+
+  table.sort(long_running_ids)
+  table.sort(default_ids)
+  long_running_order = sync_kind_order(long_running_order, long_running_ids)
+  default_order = sync_kind_order(default_order, default_ids)
 end
 
 ---@return nil
@@ -56,6 +116,8 @@ function state.prune_stale()
   if current_id and not terminals[current_id] then
     current_id = nil
   end
+
+  state.sync_orders()
 end
 
 ---@return integer[]
@@ -113,23 +175,13 @@ function state.partitioned_ids()
   state.prune_stale()
 
   local all_ids = {}
-  local long_running_ids = {}
-  local default_ids = {}
-
   for id in pairs(terminals) do
     all_ids[#all_ids + 1] = id
-    if state.is_long_running(id) then
-      long_running_ids[#long_running_ids + 1] = id
-    else
-      default_ids[#default_ids + 1] = id
-    end
   end
 
   table.sort(all_ids)
-  table.sort(long_running_ids)
-  table.sort(default_ids)
 
-  return all_ids, long_running_ids, default_ids
+  return all_ids, copy_ids(long_running_order), copy_ids(default_order)
 end
 
 ---@return integer[]
@@ -146,6 +198,45 @@ function state.ordered_ids()
   end
 
   return ids
+end
+
+---@param id integer
+---@param direction integer
+---@return boolean
+function state.move_id_within_kind(id, direction)
+  if type(id) ~= "number" or id % 1 ~= 0 then
+    return false
+  end
+
+  if direction ~= -1 and direction ~= 1 then
+    return false
+  end
+
+  state.prune_stale()
+  if not terminals[id] then
+    return false
+  end
+
+  local order = state.is_long_running(id) and long_running_order or default_order
+  local idx = nil
+  for i, candidate in ipairs(order) do
+    if candidate == id then
+      idx = i
+      break
+    end
+  end
+
+  if not idx then
+    return false
+  end
+
+  local swap_idx = idx + direction
+  if swap_idx < 1 or swap_idx > #order then
+    return false
+  end
+
+  order[idx], order[swap_idx] = order[swap_idx], order[idx]
+  return true
 end
 
 ---@return integer
@@ -200,7 +291,7 @@ function state.update_current_after_removal(removed_id)
     return
   end
 
-  local ids = state.live_ids()
+  local ids = state.ordered_ids()
   current_id = ids[1]
 end
 

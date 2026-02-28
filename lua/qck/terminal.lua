@@ -647,6 +647,30 @@ function terminal.hide_current_if_open()
 end
 
 ---@param id integer
+---@return boolean
+function terminal.move_up(id)
+  local moved = state.move_id_within_kind(id, -1)
+  if not moved then
+    return false
+  end
+
+  sync_tabbar_for_current()
+  return true
+end
+
+---@param id integer
+---@return boolean
+function terminal.move_down(id)
+  local moved = state.move_id_within_kind(id, 1)
+  if not moved then
+    return false
+  end
+
+  sync_tabbar_for_current()
+  return true
+end
+
+---@param id integer
 ---@return nil
 function terminal.delete(id)
   state.prune_stale()
@@ -660,7 +684,7 @@ function terminal.delete(id)
     return
   end
 
-  local ids = state.live_ids()
+  local ids = state.ordered_ids()
   local next_id = nil
   for i, live_id in ipairs(ids) do
     if live_id == id and #ids > 1 then
