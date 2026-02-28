@@ -108,6 +108,7 @@ When tests are added, place them under `tests/` and document the test runner her
 - Calling `qck.setup(...)` replaces builder definitions and resets all temporary (`temp = true`) builder command overrides for the current session.
 - `terminal.lua` now manages per-terminal buffer hook groups to keep lifecycle cleanup centralized when terminals are deleted/wiped.
 - Autoscroll for long-running/builder terminals is enabled by default and follows output only when near bottom or unfocused.
+- Autoscroll output tracking is now attached with `nvim_buf_attach(..., { on_lines = ... })` instead of `TextChanged` autocmds, improving long-running/background output handling.
 - Builder `title` in `setup({ builders = ... })` and `qck.run(..., { title = ... })` are currently accepted/validated but reserved for future UI usage.
 - Tabbar rendering now decouples visual ids from internal ids:
   - long-running rows are labeled `L1`, `L2`, ... from per-group generation labels,

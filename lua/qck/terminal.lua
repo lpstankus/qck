@@ -1,6 +1,5 @@
 local state = require("qck.state")
 local tabbar = require("qck.tabbar")
-local autocmd = require("qck.autocmd")
 
 local terminal = {}
 
@@ -11,7 +10,6 @@ local previous_mapping_lhs = {}
 local deleting_ids = {}
 local terminal_mapping_modes = { "n", "t" }
 local buffer_hook_autocmd_ids = {}
-local terminal_hook_autocmd_ids = {}
 local terminal_hook_bufnrs = {}
 
 ---@param msg string
@@ -130,30 +128,31 @@ local function clear_buffer_hook_autocmd(bufnr)
     return
   end
 
-  local autocmd_id = buffer_hook_autocmd_ids[bufnr]
-  if not autocmd_id then
+  if not buffer_hook_autocmd_ids[bufnr] then
     return
   end
 
-  autocmd.delete(autocmd_id)
+  pcall(vim.api.nvim_buf_detach, bufnr)
   buffer_hook_autocmd_ids[bufnr] = nil
 end
 
 ---@param id integer
 ---@return nil
 local function clear_terminal_hook_autocmd(id)
-  local autocmd_id = terminal_hook_autocmd_ids[id]
-  if autocmd_id then
-    autocmd.delete(autocmd_id)
-  end
-
   local bufnr = terminal_hook_bufnrs[id]
-  if bufnr and buffer_hook_autocmd_ids[bufnr] == autocmd_id then
-    buffer_hook_autocmd_ids[bufnr] = nil
+  terminal_hook_bufnrs[id] = nil
+
+  if not bufnr then
+    return
   end
 
-  terminal_hook_autocmd_ids[id] = nil
-  terminal_hook_bufnrs[id] = nil
+  for _, other_bufnr in pairs(terminal_hook_bufnrs) do
+    if other_bufnr == bufnr then
+      return
+    end
+  end
+
+  clear_buffer_hook_autocmd(bufnr)
 end
 
 ---@param id integer
@@ -283,35 +282,53 @@ local function attach_terminal_buffer_hooks(id, rec)
     return
   end
 
-  local autocmd_id = autocmd.create({ "TextChanged", "TextChangedT" }, {
-    buffer = bufnr,
-    callback = function()
-      local current_rec = state.get_terminal(id)
-      if not current_rec then
-        return
-      end
+  if buffer_hook_autocmd_ids[tracked_bufnr] then
+    return
+  end
 
-      if terminal_bufnr(current_rec) ~= bufnr then
-        return
-      end
+  local attached = vim.api.nvim_buf_attach(tracked_bufnr, false, {
+    on_lines = function()
+      vim.schedule(function()
+        local current_rec = state.get_terminal(id)
+        if not current_rec then
+          return
+        end
 
-      if not state.is_window_open(current_rec) then
-        return
-      end
+        if terminal_bufnr(current_rec) ~= tracked_bufnr then
+          return
+        end
 
-      local winid = terminal_winid(current_rec)
-      if not winid then
-        return
-      end
+        if not state.is_window_open(current_rec) then
+          return
+        end
 
-      if should_follow_terminal_output(winid, bufnr) then
-        scroll_terminal_to_bottom(winid, bufnr)
+        local winid = terminal_winid(current_rec)
+        if not winid then
+          return
+        end
+
+        if should_follow_terminal_output(winid, tracked_bufnr) then
+          scroll_terminal_to_bottom(winid, tracked_bufnr)
+        end
+      end)
+    end,
+    on_detach = function()
+      if terminal_hook_bufnrs[id] == tracked_bufnr then
+        terminal_hook_bufnrs[id] = nil
       end
+      buffer_hook_autocmd_ids[tracked_bufnr] = nil
     end,
   })
 
-  buffer_hook_autocmd_ids[tracked_bufnr] = autocmd_id
-  terminal_hook_autocmd_ids[id] = autocmd_id
+  if not attached then
+    notify(
+      ("failed to attach terminal output hook for terminal %d"):format(id),
+      vim.log.levels.ERROR
+    )
+    return
+  end
+
+  buffer_hook_autocmd_ids[tracked_bufnr] = true
 end
 
 ---@param id integer
