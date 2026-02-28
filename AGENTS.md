@@ -53,6 +53,8 @@ Automated tests are not configured yet. Validate changes with:
    - closing the tabbar window manually (for example `:q`) should hide the current terminal window,
    - pressing `<Esc>` in the tabbar focuses the current terminal window,
    - pressing `K`/`J` in the tabbar should move the selected terminal up/down within its own group (`L*` or `T*`),
+   - `L*`/`T*` labels should stay with the same terminal when rows are reordered,
+   - creating a new terminal should assign the lowest missing label number within its group for the current session,
    - current terminal line uses full-row reverse highlight.
 6. Persistence checks:
    - `set_builder_cmd("type", cmd)` should persist command override per workspace cwd,
@@ -82,6 +84,7 @@ When tests are added, place them under `tests/` and document the test runner her
   - `partitioned_ids()` returns three lists: `all_ids`, `long_running_ids`, `default_ids`,
   - `ordered_ids()` returns long-running ids first, then default ids, preserving per-kind in-session manual order.
   - `move_id_within_kind(id, direction)` reorders a terminal within its own kind (`long_running` or `default`) for the current session.
+  - `get_group_label_id(id)` returns a stable per-kind generation label id (`T#`/`L#`) for the terminal in the current session.
 - State now exposes builder helpers:
   - `find_terminal_id_by_builder_type(builder_type)` returns the running terminal id for a builder type,
   - `get_builder_type(id)` returns the builder type metadata for a terminal id when present.
@@ -97,8 +100,10 @@ When tests are added, place them under `tests/` and document the test runner her
 - Autoscroll for long-running/builder terminals is enabled by default and follows output only when near bottom or unfocused.
 - Builder `title` in `setup({ builders = ... })` and `qck.run(..., { title = ... })` are currently accepted/validated but reserved for future UI usage.
 - Tabbar rendering now decouples visual ids from internal ids:
-  - long-running rows are labeled `L1`, `L2`, ...,
-  - default rows are labeled `T1`, `T2`, ...,
+  - long-running rows are labeled `L1`, `L2`, ... from per-group generation labels,
+  - default rows are labeled `T1`, `T2`, ... from per-group generation labels,
+  - generation labels are stable per terminal instance and do not change when rows are reordered,
+  - label numbers reuse the lowest missing value per group when terminals are deleted and new ones are created,
   - row actions (`<CR>`, `dd`) resolve labels back to internal terminal ids.
 - Tabbar supports manual reordering in normal mode with `K` (move selected terminal up) and `J` (move selected terminal down), scoped to the selected terminal kind group.
 - User mappings configured via `qck.setup({ mappings = ... })` are now applied to both terminal buffers and the tabbar buffer.

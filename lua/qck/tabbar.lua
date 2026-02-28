@@ -348,9 +348,10 @@ local function build_render_rows()
   local rows = {}
 
   for i, id in ipairs(long_running_ids) do
+    local label_id = state.get_group_label_id(id) or i
     rows[#rows + 1] = {
       internal_id = id,
-      visual_label = ("L%d"):format(i),
+      visual_label = ("L%d"):format(label_id),
       kind = "long_running",
       selectable = true,
     }
@@ -366,9 +367,10 @@ local function build_render_rows()
   end
 
   for i, id in ipairs(default_ids) do
+    local label_id = state.get_group_label_id(id) or i
     rows[#rows + 1] = {
       internal_id = id,
-      visual_label = ("T%d"):format(i),
+      visual_label = ("T%d"):format(label_id),
       kind = "default",
       selectable = true,
     }

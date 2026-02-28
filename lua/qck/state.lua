@@ -5,6 +5,44 @@ local current_id = nil
 local long_running_order = {}
 local default_order = {}
 
+---@param value any
+---@return boolean
+local function is_valid_group_label_id(value)
+  return type(value) == "number" and value > 0 and value % 1 == 0
+end
+
+---@param kind any
+---@return string
+local function normalize_kind(kind)
+  if kind == "long_running" then
+    return "long_running"
+  end
+  return "default"
+end
+
+---@param kind string
+---@return integer
+local function next_free_group_label_id(kind)
+  local used = {}
+
+  for _, rec in pairs(terminals) do
+    local rec_kind = normalize_kind(rec and rec.meta and rec.meta.kind)
+    if rec_kind == kind then
+      local label_id = rec and rec.meta and rec.meta.group_label_id
+      if is_valid_group_label_id(label_id) then
+        used[label_id] = true
+      end
+    end
+  end
+
+  local next_id = 1
+  while used[next_id] do
+    next_id = next_id + 1
+  end
+
+  return next_id
+end
+
 ---@param ids integer[]
 ---@return integer[]
 local function copy_ids(ids)
@@ -76,6 +114,7 @@ end
 ---@return nil
 function state.set_terminal(id, rec)
   terminals[id] = rec
+  state.assign_group_label_id(id)
   state.sync_orders()
 end
 
@@ -84,6 +123,34 @@ end
 function state.remove_terminal(id)
   terminals[id] = nil
   state.sync_orders()
+end
+
+---@param id integer
+---@return integer|nil
+function state.assign_group_label_id(id)
+  local rec = terminals[id]
+  if type(rec) ~= "table" then
+    return nil
+  end
+
+  if type(rec.meta) ~= "table" then
+    rec.meta = {}
+  end
+
+  local label_id = rec.meta.group_label_id
+  if is_valid_group_label_id(label_id) then
+    return label_id
+  end
+
+  local kind = normalize_kind(rec.meta.kind)
+  rec.meta.group_label_id = next_free_group_label_id(kind)
+  return rec.meta.group_label_id
+end
+
+---@param id integer
+---@return integer|nil
+function state.get_group_label_id(id)
+  return state.assign_group_label_id(id)
 end
 
 ---@return nil
