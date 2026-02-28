@@ -94,6 +94,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - A deterministic mocked regression harness now lives under `tests/` (`tests/mock_snacks.lua` + `tests/smoke.lua`) for repeatable headless workflow checks.
 - Unused internal query helpers were removed to reduce surface area (`state.get_terminal_kind`, `tabbar.is_focused`, `storage.get_last_error`, `builders.get_definition`, `builders.get_definitions`).
 - Command normalization/cloning/validation is centralized in `lua/qck/cmd.lua` and reused by `init.lua`, `builders.lua`, and `storage.lua`.
+- Builder action dispatch now shares helpers in `init.lua` and `builders.lua` to avoid repeated builder-type/running-instance checks.
 - Tab bar lifecycle is synchronized from `terminal.lua` and reinforced by a `WinClosed` autocmd watcher in `tabbar.lua`.
 - All plugin autocmds now share a single `qck` augroup via `autocmd.lua`; modules track and delete autocmd ids for targeted cleanup.
 - When switching terminals, hiding the previous window (`toggle`) is safer than closing it (`close`), because closing may wipe the buffer and terminate the terminal job.

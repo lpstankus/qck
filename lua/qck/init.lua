@@ -237,6 +237,19 @@ local function validate_builder_type(builder_type, context)
   return vim.trim(builder_type)
 end
 
+---@param builder_type any
+---@param context string
+---@param action fun(parsed_builder_type: string)
+---@return nil
+local function run_builder_action(builder_type, context, action)
+  local parsed_builder_type = validate_builder_type(builder_type, context)
+  if not parsed_builder_type then
+    return
+  end
+
+  action(parsed_builder_type)
+end
+
 ---@param opts any
 ---@return qck.BuildOpts|nil
 local function validate_build_opts(opts)
@@ -463,12 +476,7 @@ end
 ---@param builder_type string Configured builder type.
 ---@return nil
 function qck.open_builder(builder_type)
-  local parsed_builder_type = validate_builder_type(builder_type, "open_builder(builder_type)")
-  if not parsed_builder_type then
-    return
-  end
-
-  builders.open(parsed_builder_type)
+  run_builder_action(builder_type, "open_builder(builder_type)", builders.open)
 end
 
 ---Toggle a running builder terminal window by type.
@@ -476,24 +484,14 @@ end
 ---@param builder_type string Configured builder type.
 ---@return nil
 function qck.toggle_builder(builder_type)
-  local parsed_builder_type = validate_builder_type(builder_type, "toggle_builder(builder_type)")
-  if not parsed_builder_type then
-    return
-  end
-
-  builders.toggle(parsed_builder_type)
+  run_builder_action(builder_type, "toggle_builder(builder_type)", builders.toggle)
 end
 
 ---Kill a running builder instance by type.
 ---@param builder_type string Configured builder type.
 ---@return nil
 function qck.kill_builder(builder_type)
-  local parsed_builder_type = validate_builder_type(builder_type, "kill_builder(builder_type)")
-  if not parsed_builder_type then
-    return
-  end
-
-  builders.kill(parsed_builder_type)
+  run_builder_action(builder_type, "kill_builder(builder_type)", builders.kill)
 end
 
 ---Override the command for a configured builder type.

@@ -114,6 +114,18 @@ local function ensure_builder_type(builder_type)
 end
 
 ---@param builder_type string
+---@return integer|nil
+local function get_running_id_or_warn(builder_type)
+  local existing_id = find_running_id(builder_type)
+  if existing_id then
+    return existing_id
+  end
+
+  notify(("builder `%s` is not running"):format(builder_type), vim.log.levels.WARN)
+  return nil
+end
+
+---@param builder_type string
 ---@param opts qck.BuildOpts|nil
 ---@return qck.TerminalRecord|nil
 function builders.build(builder_type, opts)
@@ -150,9 +162,8 @@ function builders.open(builder_type)
     return nil
   end
 
-  local existing_id = find_running_id(builder_type)
+  local existing_id = get_running_id_or_warn(builder_type)
   if not existing_id then
-    notify(("builder `%s` is not running"):format(builder_type), vim.log.levels.WARN)
     return nil
   end
 
@@ -166,9 +177,8 @@ function builders.toggle(builder_type)
     return
   end
 
-  local existing_id = find_running_id(builder_type)
+  local existing_id = get_running_id_or_warn(builder_type)
   if not existing_id then
-    notify(("builder `%s` is not running"):format(builder_type), vim.log.levels.WARN)
     return
   end
 
@@ -182,9 +192,8 @@ function builders.kill(builder_type)
     return
   end
 
-  local existing_id = find_running_id(builder_type)
+  local existing_id = get_running_id_or_warn(builder_type)
   if not existing_id then
-    notify(("builder `%s` is not running"):format(builder_type), vim.log.levels.WARN)
     return
   end
 
