@@ -112,8 +112,7 @@ Additional tests should be placed under `tests/` and documented in this section.
   - `get_builder_type(id)` returns the builder type metadata for a terminal id when present.
 - `terminal.create(id, opts)` now accepts terminal kind metadata (`default` or `long_running`) and optional command input for command-driven terminal startup.
 - Long-running terminals are marked with `rec.meta.kind = "long_running"` and created with `auto_close = false` to preserve output after process exit.
-- `terminal.run(id, cmd, opts?)` creates long-running terminals and rejects internal-id collisions to avoid replacing existing terminal records.
-- `qck.run(cmd, opts?)` is the public command-driven API for long-running tasks; it validates command shape (`string` or string list) and optional `opts.id`.
+- `qck.run(cmd, opts?)` is the public command-driven API for long-running tasks; it validates command shape (`string` or string list), enforces internal-id collision checks, and creates long-running terminals via `terminal.create(...)`.
 - Builder terminals include `rec.meta.builder_type`; this metadata is used to enforce one running instance per builder type while allowing concurrent runs across different types.
 - `qck.build(builder_type, opts?)` opens the existing running builder instance by default; restart requires `{ force_new = true }`.
 - Builder command resolution precedence is: temporary override (`set_builder_cmd(..., { temp = true })`) > persisted workspace override > setup default.

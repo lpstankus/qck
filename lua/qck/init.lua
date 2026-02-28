@@ -503,7 +503,19 @@ function qck.run(cmd, opts)
   end
 
   local id = parsed_opts.id or state.next_free_id()
-  terminal.run(id, parsed_cmd, parsed_opts)
+  state.prune_stale()
+  if state.get_terminal(id) then
+    notify(
+      ("terminal %d already exists; choose a different id"):format(id),
+      vim.log.levels.ERROR
+    )
+    return
+  end
+
+  terminal.create(id, {
+    kind = "long_running",
+    cmd = parsed_cmd,
+  })
 end
 
 ---Build using a configured builder type.

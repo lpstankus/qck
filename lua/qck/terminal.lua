@@ -578,31 +578,6 @@ function terminal.ensure(id)
 end
 
 ---@param id integer
----@param cmd qck.Command
----@param opts table|nil
----@return qck.TerminalRecord|nil
-function terminal.run(id, cmd, opts)
-  state.prune_stale()
-  if state.get_terminal(id) then
-    notify(
-      ("terminal %d already exists; choose a different id"):format(id),
-      vim.log.levels.ERROR
-    )
-    return nil
-  end
-
-  local create_opts = {}
-  if type(opts) == "table" then
-    for k, v in pairs(opts) do
-      create_opts[k] = v
-    end
-  end
-  create_opts.kind = "long_running"
-  create_opts.cmd = cmd
-  return terminal.create(id, create_opts)
-end
-
----@param id integer
 ---@param opts table|nil
 ---@return qck.TerminalRecord|nil
 function terminal.open(id, opts)
