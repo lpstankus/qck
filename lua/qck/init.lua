@@ -117,6 +117,69 @@ local function validate_run_opts(opts)
   return parsed
 end
 
+local DEFAULT_MAPPING_MODES = { "n", "t" }
+local VALID_MAPPING_MODES = {
+  n = true,
+  t = true,
+}
+
+---@param mode any
+---@param lhs string
+---@return string[]|nil
+local function parse_mapping_modes(mode, lhs)
+  if mode == nil then
+    local default_modes = {}
+    for _, value in ipairs(DEFAULT_MAPPING_MODES) do
+      default_modes[#default_modes + 1] = value
+    end
+    return default_modes
+  end
+
+  local requested_modes = {}
+  if type(mode) == "string" then
+    requested_modes[1] = mode
+  elseif type(mode) == "table" then
+    for _, value in ipairs(mode) do
+      requested_modes[#requested_modes + 1] = value
+    end
+  else
+    notify(
+      ("setup(opts): map `%s`.mode must be `n`, `t`, or a list of them"):format(lhs),
+      vim.log.levels.ERROR
+    )
+    return nil
+  end
+
+  if #requested_modes == 0 then
+    notify(
+      ("setup(opts): map `%s`.mode list must not be empty"):format(lhs),
+      vim.log.levels.ERROR
+    )
+    return nil
+  end
+
+  local seen_modes = {}
+  for _, value in ipairs(requested_modes) do
+    if type(value) ~= "string" or not VALID_MAPPING_MODES[value] then
+      notify(
+        ("setup(opts): map `%s`.mode supports only `n` and `t`"):format(lhs),
+        vim.log.levels.ERROR
+      )
+      return nil
+    end
+    seen_modes[value] = true
+  end
+
+  local parsed_modes = {}
+  for _, value in ipairs(DEFAULT_MAPPING_MODES) do
+    if seen_modes[value] then
+      parsed_modes[#parsed_modes + 1] = value
+    end
+  end
+
+  return parsed_modes
+end
+
 local function parse_mappings(mappings)
   if mappings == nil then
     return {}
@@ -128,16 +191,31 @@ local function parse_mappings(mappings)
   end
 
   local parsed = {}
-  for lhs, rhs in pairs(mappings) do
+  for lhs, mapping in pairs(mappings) do
     if type(lhs) ~= "string" then
       notify("setup(opts): mapping lhs must be a string", vim.log.levels.ERROR)
-    elseif type(rhs) ~= "function" and type(rhs) ~= "string" then
-      notify(
-        ("setup(opts): map `%s` rhs must be a function or string"):format(lhs),
-        vim.log.levels.ERROR
-      )
     else
-      parsed[lhs] = rhs
+      local rhs = mapping
+      local mode = nil
+      if type(mapping) == "table" then
+        rhs = mapping.rhs
+        mode = mapping.mode
+      end
+
+      if type(rhs) ~= "function" and type(rhs) ~= "string" then
+        notify(
+          ("setup(opts): map `%s`.rhs must be a function or string"):format(lhs),
+          vim.log.levels.ERROR
+        )
+      else
+        local terminal_modes = parse_mapping_modes(mode, lhs)
+        if terminal_modes then
+          parsed[lhs] = {
+            rhs = rhs,
+            terminal_modes = terminal_modes,
+          }
+        end
+      end
     end
   end
 
@@ -378,8 +456,12 @@ autocmd.create({ "WinEnter", "BufEnter", "TabEnter" }, {
   callback = hide_if_focus_left_qck_windows,
 })
 
+---@alias qck.MappingMode "n"|"t"
+---@class qck.MappingSpec
+---@field rhs string|function Mapping rhs.
+---@field mode? qck.MappingMode|qck.MappingMode[] Terminal modes to apply (`n`, `t`, or both). Defaults to both when omitted.
 ---@class qck.SetupOpts
----@field mappings? table<string, string|function> Buffer-local mappings for qck buffers (terminal: normal+terminal modes, tabbar: normal mode).
+---@field mappings? table<string, string|function|qck.MappingSpec> Buffer-local mappings for qck buffers.
 ---@field builders? table<string, { cmd: string|string[], auto_scroll?: boolean, title?: string }> Workspace builder definitions.
 ---@class qck.RunOpts
 ---@field id? integer Optional internal terminal id. Must be a positive integer when provided.
@@ -392,7 +474,9 @@ autocmd.create({ "WinEnter", "BufEnter", "TabEnter" }, {
 
 ---Configure qck behavior.
 ---Mappings defined here are active inside qck terminal and tabbar buffers.
----Each configured mapping is applied in both normal (`n`) and terminal (`t`) modes for terminal buffers, and normal mode (`n`) for tabbar buffers.
+---For terminal buffers, mappings default to both normal (`n`) and terminal (`t`) modes.
+---To scope terminal mapping modes, use `{ rhs = ..., mode = "n" }`, `{ rhs = ..., mode = "t" }`, or `{ rhs = ..., mode = { "n", "t" } }`.
+---Tabbar mappings are always applied in normal mode (`n`).
 ---Calling setup again replaces previously configured qck buffer-local mappings.
 ---Invalid options are ignored with error notifications.
 ---@param opts? qck.SetupOpts

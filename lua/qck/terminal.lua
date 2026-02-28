@@ -9,7 +9,7 @@ local user_mappings = {}
 local mapping_lhs = {}
 local previous_mapping_lhs = {}
 local deleting_ids = {}
-local mapping_modes = { "n", "t" }
+local terminal_mapping_modes = { "n", "t" }
 local buffer_hook_autocmd_ids = {}
 local terminal_hook_autocmd_ids = {}
 local terminal_hook_bufnrs = {}
@@ -288,18 +288,29 @@ local function apply_user_mappings_to_buf(bufnr)
   end
 
   for lhs in pairs(lhs_to_clear) do
-    for _, mode in ipairs(mapping_modes) do
+    for _, mode in ipairs(terminal_mapping_modes) do
       pcall(vim.keymap.del, mode, lhs, { buffer = bufnr })
     end
   end
 
-  for lhs, rhs in pairs(user_mappings) do
-    for _, mode in ipairs(mapping_modes) do
-      vim.keymap.set(mode, lhs, rhs, {
-        buffer = bufnr,
-        noremap = true,
-        silent = true,
-      })
+  for lhs, mapping in pairs(user_mappings) do
+    local rhs = mapping
+    local modes = terminal_mapping_modes
+    if type(mapping) == "table" then
+      rhs = mapping.rhs
+      if type(mapping.terminal_modes) == "table" and #mapping.terminal_modes > 0 then
+        modes = mapping.terminal_modes
+      end
+    end
+
+    if type(rhs) == "function" or type(rhs) == "string" then
+      for _, mode in ipairs(modes) do
+        vim.keymap.set(mode, lhs, rhs, {
+          buffer = bufnr,
+          noremap = true,
+          silent = true,
+        })
+      end
     end
   end
 end

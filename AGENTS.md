@@ -38,7 +38,9 @@ Automated tests are not configured yet. Validate changes with:
 
 1. Headless load check.
 2. Manual workflow checks: `new`, `run`, `open`, `close`, `toggle`, `cycle_next`, `cycle_prev`.
-   - `setup({ mappings = ... })` should apply mappings buffer-locally to qck terminal buffers (normal and terminal modes) and the qck tabbar buffer (normal mode).
+   - `setup({ mappings = ... })` should apply mappings buffer-locally to qck terminal buffers and the qck tabbar buffer.
+   - legacy mapping entries (`lhs = rhs`) should map in terminal normal+terminal modes and tabbar normal mode.
+   - mapping spec entries (`lhs = { rhs = ..., mode = ... }`) should honor terminal `mode` (`"n"`, `"t"`, or both) while tabbar remains normal mode only.
 3. Builder workflow checks:
    - `setup({ builders = { compilation = ..., server = ... } })` should register builder types,
    - `build("type")` should open an existing running instance for that builder type,
@@ -109,7 +111,10 @@ When tests are added, place them under `tests/` and document the test runner her
   - label numbers reuse the lowest missing value per group when terminals are deleted and new ones are created,
   - row actions (`<CR>`, `dd`) resolve labels back to internal terminal ids.
 - Tabbar supports manual reordering in normal mode with `K` (move selected terminal up) and `J` (move selected terminal down), scoped to the selected terminal kind group.
-- User mappings configured via `qck.setup({ mappings = ... })` are now applied to both terminal buffers and the tabbar buffer.
+- User mappings configured via `qck.setup({ mappings = ... })` are now normalized in `init.lua` and applied to both terminal buffers and the tabbar buffer:
+  - legacy entries (`lhs = rhs`) default to terminal `n`+`t`,
+  - mapping specs (`lhs = { rhs = ..., mode = ... }`) allow terminal-mode scoping (`n`, `t`, or both),
+  - tabbar user mappings remain normal-mode-only.
 - Tabbar cursor placement now lands on the centered row label's numeric part (or first non-space character when no number is present).
 - Tabbar includes a built-in normal-mode `<Esc>` mapping that returns focus to the current terminal window.
 - Tabbar now watches its own `WinClosed` event; manual tabbar closes trigger hiding the current terminal window while internal tabbar closes suppress this action.

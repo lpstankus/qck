@@ -268,12 +268,19 @@ local function apply_user_mappings_to_buf(buf)
     pcall(vim.keymap.del, "n", lhs, { buffer = buf })
   end
 
-  for lhs, rhs in pairs(user_mappings) do
-    vim.keymap.set("n", lhs, rhs, {
-      buffer = buf,
-      noremap = true,
-      silent = true,
-    })
+  for lhs, mapping in pairs(user_mappings) do
+    local rhs = mapping
+    if type(mapping) == "table" then
+      rhs = mapping.rhs
+    end
+
+    if type(rhs) == "function" or type(rhs) == "string" then
+      vim.keymap.set("n", lhs, rhs, {
+        buffer = buf,
+        noremap = true,
+        silent = true,
+      })
+    end
   end
 end
 
