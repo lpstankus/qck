@@ -24,6 +24,9 @@ local function notify(msg, level)
   vim.notify("QCK: " .. msg, level or vim.log.levels.INFO)
 end
 
+local focus_watch_group = vim.api.nvim_create_augroup("qck_focus_watch", { clear = true })
+local focus_cleanup_in_progress = false
+
 ---@param id number
 ---@return boolean
 local function is_valid_id(id)
@@ -329,6 +332,51 @@ tabbar.set_actions({
   move_down = function(id) terminal.move_down(id) end,
   close_current = function() terminal.hide_current_if_open() end,
   focus_current = focus_current_terminal,
+})
+
+local function hide_if_focus_left_qck_windows()
+  if focus_cleanup_in_progress then
+    return
+  end
+
+  local term_win = terminal.get_current_winid()
+  local tab_win = tabbar.get_winid()
+  if not term_win and not tab_win then
+    return
+  end
+
+  local current_win = vim.api.nvim_get_current_win()
+  if (term_win and current_win == term_win) or (tab_win and current_win == tab_win) then
+    return
+  end
+
+  focus_cleanup_in_progress = true
+
+  local ok_term, term_err = pcall(function() terminal.hide_current_if_open() end)
+  local ok_tabbar, tabbar_err = pcall(function() tabbar.hide() end)
+
+  vim.schedule(function()
+    focus_cleanup_in_progress = false
+  end)
+
+  if not ok_term then
+    notify(
+      ("failed to hide qck terminal after focus left qck windows: %s"):format(tostring(term_err)),
+      vim.log.levels.ERROR
+    )
+  end
+
+  if not ok_tabbar then
+    notify(
+      ("failed to hide qck tabbar after focus left qck windows: %s"):format(tostring(tabbar_err)),
+      vim.log.levels.ERROR
+    )
+  end
+end
+
+vim.api.nvim_create_autocmd({ "WinEnter", "BufEnter", "TabEnter" }, {
+  group = focus_watch_group,
+  callback = hide_if_focus_left_qck_windows,
 })
 
 ---@class qck.SetupOpts

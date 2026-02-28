@@ -46,7 +46,8 @@ Automated tests are not configured yet. Validate changes with:
    - multiple different builder types should run concurrently.
 4. Multi-terminal visibility checks:
    - creating/opening a different terminal should hide the previously visible terminal window,
-   - `toggle` should affect only the current terminal visibility.
+   - `toggle` should affect only the current terminal visibility,
+   - moving focus to a non-qck window (for example `<C-w>h`) should hide qck terminal and tabbar windows.
 5. Tab bar checks:
    - opens/closes with the visible terminal window,
    - closes when the terminal window is closed manually (for example `:q`),
@@ -111,6 +112,7 @@ When tests are added, place them under `tests/` and document the test runner her
 - Tabbar includes a built-in normal-mode `<Esc>` mapping that returns focus to the current terminal window.
 - Tabbar now watches its own `WinClosed` event; manual tabbar closes trigger hiding the current terminal window while internal tabbar closes suppress this action.
 - `init.lua` wires tabbar actions (`open`, `delete`, `move_up`, `move_down`, `close_current`, `focus_current`) to terminal behavior; `close_current` delegates to `terminal.hide_current_if_open()` to avoid wiping terminal buffers/jobs.
+- `init.lua` now installs a global focus watcher (`WinEnter`, `BufEnter`, `TabEnter`) that hides qck terminal and tabbar windows when focus leaves both qck windows (for example navigating with `<C-w>h`).
 - Visual labels are UI-only; public APIs (`open`, `close`, `toggle`, `run`) continue to operate on internal numeric ids.
 
 ## Commit & Pull Request Guidelines
