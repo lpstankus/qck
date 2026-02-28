@@ -34,24 +34,6 @@ local function is_valid_id(id)
   return type(id) == "number" and id > 0 and id % 1 == 0
 end
 
----@param opts table|nil
----@return table
-local function validate_new_opts(opts)
-  if opts == nil then
-    return {}
-  end
-
-  if type(opts) ~= "table" then
-    notify(
-      "new(opts): opts must be a table. falling back to default options.",
-      vim.log.levels.ERROR
-    )
-    return {}
-  end
-
-  return {}
-end
-
 ---@param cmd any
 ---@return qck.Command|nil
 local function validate_run_cmd(cmd)
@@ -108,12 +90,6 @@ local function validate_run_opts(opts)
     end
     parsed.id = opts.id
   end
-
-  if opts.title ~= nil and type(opts.title) ~= "string" then
-    notify("run(cmd, opts): opts.title must be a string", vim.log.levels.ERROR)
-    return nil
-  end
-  parsed.title = opts.title
 
   return parsed
 end
@@ -305,19 +281,9 @@ local function parse_builders(input)
           auto_scroll = nil
         end
 
-        local title = builder.title
-        if title ~= nil and type(title) ~= "string" then
-          notify(
-            ("setup(opts): builder `%s`.title must be a string"):format(builder_type),
-            vim.log.levels.ERROR
-          )
-          title = nil
-        end
-
         parsed[normalized_builder_type] = {
           cmd = cmd,
           auto_scroll = auto_scroll,
-          title = title,
         }
       end
     end
@@ -466,7 +432,6 @@ autocmd.create({ "WinEnter", "BufEnter", "TabEnter" }, {
 ---@field builders? table<string, qck.BuilderDefinition> Workspace builder definitions.
 ---@class qck.RunOpts
 ---@field id? integer Optional internal terminal id. Must be a positive integer when provided.
----@field title? string Optional reserved field for future tab/title customization.
 ---@class qck.BuildOpts
 ---@field force_new? boolean Restart builder instance when already running.
 ---@field auto_scroll? boolean Override configured auto-scroll behavior for this run.
@@ -511,19 +476,19 @@ end
 ---If another qck terminal window is currently visible, that window is hidden first.
 ---When a qck terminal window is already open, preserves normal mode across the new terminal switch.
 ---When qck is closed, default terminal-mode entry behavior is preserved.
----@param opts? table Optional terminal options (currently reserved/unused).
+---@param _opts? table Optional compatibility parameter (currently ignored).
 ---@return nil
-function qck.new(opts)
-  local parsed_opts = validate_new_opts(opts)
-  parsed_opts.preserve_mode = terminal.get_current_winid() ~= nil
-  terminal.create(state.next_free_id(), parsed_opts)
+function qck.new(_opts)
+  terminal.create(state.next_free_id(), {
+    preserve_mode = terminal.get_current_winid() ~= nil,
+  })
 end
 
 ---Create and start a long-running command terminal.
 ---Long-running terminals are preserved after command exit for output inspection.
 ---Tabbar visual labels (`L1`, `T1`, ...) are display-only; APIs still use internal numeric ids.
 ---@param cmd string|string[] Command to run.
----@param opts? qck.RunOpts Optional options. Supports `id` and reserved `title`.
+---@param opts? qck.RunOpts Optional options. Supports `id`.
 ---@return nil
 function qck.run(cmd, opts)
   local parsed_cmd = validate_run_cmd(cmd)

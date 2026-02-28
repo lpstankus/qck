@@ -96,7 +96,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - All plugin autocmds now share a single `qck` augroup via `autocmd.lua`; modules track and delete autocmd ids for targeted cleanup.
 - When switching terminals, hiding the previous window (`toggle`) is safer than closing it (`close`), because closing may wipe the buffer and terminate the terminal job.
 - `noautocmd` is valid when creating the tab bar float (`nvim_open_win`), but must not be passed to `nvim_win_set_config` for an existing window.
-- `qck.new(opts)` currently accepts an optional table, but terminal title customization is not used.
+- `qck.new(_opts)` keeps a compatibility parameter but no longer validates/uses it internally.
 - State now exposes partition and ordering helpers for mixed terminal kinds:
   - `partitioned_ids()` returns three lists: `all_ids`, `long_running_ids`, `default_ids`,
   - `ordered_ids()` returns long-running ids first, then default ids, preserving per-kind in-session manual order.
@@ -116,7 +116,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - `terminal.lua` now manages per-terminal buffer hook groups to keep lifecycle cleanup centralized when terminals are deleted/wiped.
 - Autoscroll for long-running/builder terminals is enabled by default and follows output only when near bottom or unfocused.
 - Autoscroll output tracking is now attached with `nvim_buf_attach(..., { on_lines = ... })` instead of `TextChanged` autocmds, improving long-running/background output handling.
-- Builder `title` in `setup({ builders = ... })` and `qck.run(..., { title = ... })` are currently accepted/validated but reserved for future UI usage.
+- Builder/run `title` option plumbing was removed because it had no runtime effect.
 - Tabbar rendering now decouples visual ids from internal ids:
   - long-running rows are labeled `L1`, `L2`, ... from per-group generation labels,
   - default rows are labeled `T1`, `T2`, ... from per-group generation labels,

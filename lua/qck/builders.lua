@@ -320,7 +320,6 @@ function builders.set_definitions(definitions)
     configured_builders[builder_type] = {
       cmd = clone_cmd(builder.cmd),
       auto_scroll = builder.auto_scroll,
-      title = builder.title,
     }
   end
 end

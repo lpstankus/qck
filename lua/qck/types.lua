@@ -26,7 +26,6 @@
 ---@class qck.BuilderDefinition
 ---@field cmd qck.Command
 ---@field auto_scroll? boolean
----@field title? string
 
 ---@class qck.BuilderBuildOpts
 ---@field force_new? boolean
@@ -38,7 +37,6 @@
 ---@field cmd? qck.Command
 ---@field preserve_mode? boolean
 ---@field auto_scroll? boolean
----@field title? string
 
 ---@class qck.StorageBuilderState
 ---@field cmd qck.Command
