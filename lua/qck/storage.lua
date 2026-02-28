@@ -1,4 +1,5 @@
 local storage = {}
+local cmd_util = require("qck.cmd")
 
 local STORAGE_VERSION = "0.1.0"
 local storage_path = vim.fn.stdpath("data") .. "/qck.json"
@@ -7,45 +8,6 @@ storage.ok = false
 storage.version = STORAGE_VERSION
 storage.workspaces = {}
 storage.last_error = nil
-
----@param cmd qck.Command
----@return qck.Command
-local function clone_cmd(cmd)
-  if type(cmd) == "string" then
-    return cmd
-  end
-
-  local copy = {}
-  for i, part in ipairs(cmd) do
-    copy[i] = part
-  end
-  return copy
-end
-
----@param value any
----@return qck.Command|nil
-local function normalize_cmd(value)
-  if type(value) == "string" then
-    if vim.trim(value) == "" then
-      return nil
-    end
-    return value
-  end
-
-  if type(value) ~= "table" or #value == 0 then
-    return nil
-  end
-
-  local parsed = {}
-  for i, part in ipairs(value) do
-    if type(part) ~= "string" or vim.trim(part) == "" then
-      return nil
-    end
-    parsed[i] = part
-  end
-
-  return parsed
-end
 
 ---@param data any
 ---@return qck.StorageState|nil
@@ -73,10 +35,10 @@ local function sanitize_data(data)
           if type(builder_type) == "string" then
             local normalized_builder_type = vim.trim(builder_type)
             if normalized_builder_type ~= "" and not builders[normalized_builder_type] then
-              local cmd = normalize_cmd(type(builder) == "table" and builder.cmd or nil)
+              local cmd = cmd_util.normalize(type(builder) == "table" and builder.cmd or nil)
               if cmd then
                 builders[normalized_builder_type] = {
-                  cmd = clone_cmd(cmd),
+                  cmd = cmd_util.clone(cmd),
                 }
               end
             end
@@ -238,12 +200,12 @@ function storage.get_builder_cmd(workspace, builder_type)
     return nil
   end
 
-  local cmd = normalize_cmd(builder.cmd)
+  local cmd = cmd_util.normalize(builder.cmd)
   if not cmd then
     return nil
   end
 
-  return clone_cmd(cmd)
+  return cmd_util.clone(cmd)
 end
 
 ---@param workspace string
@@ -273,7 +235,7 @@ function storage.set_builder_cmd(workspace, builder_type, cmd)
     ws.builders[normalized_builder_type] = {}
   end
 
-  ws.builders[normalized_builder_type].cmd = clone_cmd(cmd)
+  ws.builders[normalized_builder_type].cmd = cmd_util.clone(cmd)
 end
 
 ---@param workspace string

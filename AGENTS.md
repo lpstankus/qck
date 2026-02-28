@@ -6,6 +6,7 @@ This repository is a Neovim plugin written in Lua.
 - `lua/qck/init.lua`: public plugin API (`setup`, `new`, `run`, `build`, `open_builder`, `toggle_builder`, `kill_builder`, `set_builder_cmd`, `reset_builder_cmd`, `open`, `close`, `toggle`, `cycle_next`, `cycle_prev`, `switch_focus`).
 - `lua/qck/builders.lua`: builder registry and orchestration (builder-type lifecycle, one-instance-per-type enforcement, effective command resolution).
 - `lua/qck/storage.lua`: workspace-persistent storage for builder command overrides.
+- `lua/qck/cmd.lua`: shared command normalization/cloning/validation helpers (`string` or string-list commands).
 - `lua/qck/state.lua`: terminal registry and current-id/cycling state plus terminal record/window validity helpers.
 - `lua/qck/autocmd.lua`: shared plugin autocmd wrapper exposing a single `qck` augroup.
 - `lua/qck/terminal.lua`: terminal lifecycle orchestration over `snacks.terminal`.
@@ -92,6 +93,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - Shared EmmyLua type aliases/classes now live in `lua/qck/types.lua`, and module annotations use these types to tighten internal contracts for LuaLS.
 - A deterministic mocked regression harness now lives under `tests/` (`tests/mock_snacks.lua` + `tests/smoke.lua`) for repeatable headless workflow checks.
 - Unused internal query helpers were removed to reduce surface area (`state.get_terminal_kind`, `tabbar.is_focused`, `storage.get_last_error`, `builders.get_definition`, `builders.get_definitions`).
+- Command normalization/cloning/validation is centralized in `lua/qck/cmd.lua` and reused by `init.lua`, `builders.lua`, and `storage.lua`.
 - Tab bar lifecycle is synchronized from `terminal.lua` and reinforced by a `WinClosed` autocmd watcher in `tabbar.lua`.
 - All plugin autocmds now share a single `qck` augroup via `autocmd.lua`; modules track and delete autocmd ids for targeted cleanup.
 - When switching terminals, hiding the previous window (`toggle`) is safer than closing it (`close`), because closing may wipe the buffer and terminate the terminal job.

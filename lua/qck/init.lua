@@ -1,6 +1,7 @@
 ---@class qck
 local qck = {}
 require("qck.types")
+local cmd_util = require("qck.cmd")
 local state = require("qck.state")
 local terminal = require("qck.terminal")
 local tabbar = require("qck.tabbar")
@@ -32,41 +33,6 @@ local focus_cleanup_in_progress = false
 ---@return boolean
 local function is_valid_id(id)
   return type(id) == "number" and id > 0 and id % 1 == 0
-end
-
----@param cmd any
----@return qck.Command|nil
-local function validate_run_cmd(cmd)
-  if type(cmd) == "string" then
-    if vim.trim(cmd) == "" then
-      notify("run(cmd): cmd must not be empty", vim.log.levels.ERROR)
-      return nil
-    end
-    return cmd
-  end
-
-  if type(cmd) == "table" then
-    if #cmd == 0 then
-      notify("run(cmd): cmd list must not be empty", vim.log.levels.ERROR)
-      return nil
-    end
-
-    local parsed = {}
-    for i, part in ipairs(cmd) do
-      if type(part) ~= "string" or vim.trim(part) == "" then
-        notify(
-          ("run(cmd): cmd[%d] must be a non-empty string"):format(i),
-          vim.log.levels.ERROR
-        )
-        return nil
-      end
-      parsed[i] = part
-    end
-    return parsed
-  end
-
-  notify("run(cmd): cmd must be a string or a list of strings", vim.log.levels.ERROR)
-  return nil
 end
 
 ---@param opts any
@@ -199,43 +165,6 @@ local function parse_mappings(mappings)
   return parsed
 end
 
----@param cmd any
----@param context string
----@return qck.Command|nil
-local function parse_builder_cmd(cmd, context)
-  if type(cmd) == "string" then
-    if vim.trim(cmd) == "" then
-      notify(context .. ": cmd must not be empty", vim.log.levels.ERROR)
-      return nil
-    end
-    return cmd
-  end
-
-  if type(cmd) ~= "table" then
-    notify(context .. ": cmd must be a string or a list of strings", vim.log.levels.ERROR)
-    return nil
-  end
-
-  if #cmd == 0 then
-    notify(context .. ": cmd list must not be empty", vim.log.levels.ERROR)
-    return nil
-  end
-
-  local parsed = {}
-  for i, part in ipairs(cmd) do
-    if type(part) ~= "string" or vim.trim(part) == "" then
-      notify(
-        ("%s: cmd[%d] must be a non-empty string"):format(context, i),
-        vim.log.levels.ERROR
-      )
-      return nil
-    end
-    parsed[i] = part
-  end
-
-  return parsed
-end
-
 ---@param input any
 ---@return table<string, qck.BuilderDefinition>
 local function parse_builders(input)
@@ -270,8 +199,12 @@ local function parse_builders(input)
         vim.log.levels.ERROR
       )
     else
-      local cmd = parse_builder_cmd(builder.cmd, ("setup(opts): builder `%s`"):format(builder_type))
-      if cmd then
+      local parsed_cmd = cmd_util.validate(
+        builder.cmd,
+        ("setup(opts): builder `%s`"):format(builder_type),
+        notify
+      )
+      if parsed_cmd then
         local auto_scroll = builder.auto_scroll
         if auto_scroll ~= nil and type(auto_scroll) ~= "boolean" then
           notify(
@@ -282,7 +215,7 @@ local function parse_builders(input)
         end
 
         parsed[normalized_builder_type] = {
-          cmd = cmd,
+          cmd = parsed_cmd,
           auto_scroll = auto_scroll,
         }
       end
@@ -491,7 +424,7 @@ end
 ---@param opts? qck.RunOpts Optional options. Supports `id`.
 ---@return nil
 function qck.run(cmd, opts)
-  local parsed_cmd = validate_run_cmd(cmd)
+  local parsed_cmd = cmd_util.validate(cmd, "run(cmd)", notify)
   if not parsed_cmd then
     return
   end
@@ -579,7 +512,7 @@ function qck.set_builder_cmd(builder_type, cmd, opts)
     return
   end
 
-  local parsed_cmd = parse_builder_cmd(cmd, "set_builder_cmd(builder_type, cmd, opts)")
+  local parsed_cmd = cmd_util.validate(cmd, "set_builder_cmd(builder_type, cmd, opts)", notify)
   if not parsed_cmd then
     return
   end

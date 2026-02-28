@@ -1,6 +1,7 @@
 local builders = {}
 local state = require("qck.state")
 local terminal = require("qck.terminal")
+local cmd_util = require("qck.cmd")
 
 local default_storage = require("qck.storage")
 
@@ -20,49 +21,6 @@ local function current_workspace()
   return vim.fn.getcwd()
 end
 
----@param cmd qck.Command
----@return qck.Command
-local function clone_cmd(cmd)
-  if type(cmd) == "string" then
-    return cmd
-  end
-
-  local copy = {}
-  for i, part in ipairs(cmd) do
-    copy[i] = part
-  end
-  return copy
-end
-
----@param value any
----@return qck.Command|nil
-local function normalize_cmd(value)
-  if type(value) == "string" then
-    if vim.trim(value) == "" then
-      return nil
-    end
-    return value
-  end
-
-  if type(value) ~= "table" then
-    return nil
-  end
-
-  if #value == 0 then
-    return nil
-  end
-
-  local parsed = {}
-  for i, part in ipairs(value) do
-    if type(part) ~= "string" or vim.trim(part) == "" then
-      return nil
-    end
-    parsed[i] = part
-  end
-
-  return parsed
-end
-
 ---@param builder_type string
 ---@return qck.BuilderDefinition|nil
 local function get_builder(builder_type)
@@ -77,20 +35,20 @@ local function get_persistent_cmd(builder_type)
   end
 
   local cmd = storage.get_builder_cmd(current_workspace(), builder_type)
-  return normalize_cmd(cmd)
+  return cmd_util.normalize(cmd)
 end
 
 ---@param builder_type string
 ---@return qck.Command|nil
 local function get_effective_cmd(builder_type)
-  local temp_cmd = normalize_cmd(temp_builder_cmds[builder_type])
+  local temp_cmd = cmd_util.normalize(temp_builder_cmds[builder_type])
   if temp_cmd then
-    return clone_cmd(temp_cmd)
+    return cmd_util.clone(temp_cmd)
   end
 
   local stored_cmd = get_persistent_cmd(builder_type)
   if stored_cmd then
-    return clone_cmd(stored_cmd)
+    return cmd_util.clone(stored_cmd)
   end
 
   local builder = get_builder(builder_type)
@@ -98,7 +56,7 @@ local function get_effective_cmd(builder_type)
     return nil
   end
 
-  return clone_cmd(builder.cmd)
+  return cmd_util.clone(builder.cmd)
 end
 
 ---@param builder_type string
@@ -242,14 +200,14 @@ function builders.set_builder_cmd(builder_type, cmd, opts)
     return
   end
 
-  local parsed_cmd = normalize_cmd(cmd)
+  local parsed_cmd = cmd_util.normalize(cmd)
   if not parsed_cmd then
     notify(("builder `%s` command must be a non-empty string or list"):format(builder_type), vim.log.levels.ERROR)
     return
   end
 
   if opts and opts.temp then
-    temp_builder_cmds[builder_type] = clone_cmd(parsed_cmd)
+    temp_builder_cmds[builder_type] = cmd_util.clone(parsed_cmd)
     return
   end
 
@@ -318,7 +276,7 @@ function builders.set_definitions(definitions)
 
   for builder_type, builder in pairs(definitions or {}) do
     configured_builders[builder_type] = {
-      cmd = clone_cmd(builder.cmd),
+      cmd = cmd_util.clone(builder.cmd),
       auto_scroll = builder.auto_scroll,
     }
   end
