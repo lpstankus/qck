@@ -9,52 +9,124 @@ storage.version = STORAGE_VERSION
 storage.workspaces = {}
 storage.last_error = nil
 
----@param data any
----@return qck.StorageState|nil
-local function sanitize_data(data)
-  if type(data) ~= "table" then
-    return nil
+---@param tbl table
+---@param allowed table<string, boolean>
+---@return boolean
+local function has_only_allowed_keys(tbl, allowed)
+  for key in pairs(tbl) do
+    if type(key) ~= "string" or not allowed[key] then
+      return false
+    end
   end
+  return true
+end
 
-  local sanitized = {
+---@return qck.StorageState
+local function blank_state()
+  return {
     version = STORAGE_VERSION,
     workspaces = {},
   }
+end
 
-  if type(data.workspaces) ~= "table" then
-    return sanitized
+---@param data any
+---@return qck.StorageState|nil, string|nil
+local function sanitize_data(data)
+  if type(data) ~= "table" then
+    return nil, "storage root must be a table"
   end
 
+  local allowed_root_keys = {
+    version = true,
+    workspaces = true,
+  }
+
+  if not has_only_allowed_keys(data, allowed_root_keys) then
+    return nil, "storage root contains unsupported fields"
+  end
+
+  if data.version ~= STORAGE_VERSION then
+    return nil, "storage file has unsupported version"
+  end
+
+  if type(data.workspaces) ~= "table" then
+    return nil, "storage workspaces must be a table"
+  end
+
+  local sanitized = blank_state()
+
   for workspace, ws in pairs(data.workspaces) do
-    if type(workspace) == "string" and workspace ~= "" and type(ws) == "table" then
-      local builders = {}
-      local ws_builders = ws.builders
+    if type(workspace) ~= "string" or workspace == "" then
+      return nil, "workspace keys must be non-empty strings"
+    end
 
-      if type(ws_builders) == "table" then
-        for builder_type, builder in pairs(ws_builders) do
-          if type(builder_type) == "string" then
-            local normalized_builder_type = vim.trim(builder_type)
-            if normalized_builder_type ~= "" and not builders[normalized_builder_type] then
-              local cmd = cmd_util.normalize(type(builder) == "table" and builder.cmd or nil)
-              if cmd then
-                builders[normalized_builder_type] = {
-                  cmd = cmd_util.clone(cmd),
-                }
-              end
-            end
-          end
-        end
+    if type(ws) ~= "table" then
+      return nil, "workspace state must be a table"
+    end
+
+    local allowed_workspace_keys = {
+      tasks = true,
+    }
+
+    if not has_only_allowed_keys(ws, allowed_workspace_keys) then
+      return nil, ("workspace `%s` contains unsupported fields"):format(workspace)
+    end
+
+    if type(ws.tasks) ~= "table" then
+      return nil, ("workspace `%s`.tasks must be a table"):format(workspace)
+    end
+
+    local tasks = {}
+
+    for task_type, task_state in pairs(ws.tasks) do
+      if type(task_type) ~= "string" then
+        return nil, ("workspace `%s` has non-string task type key"):format(workspace)
       end
 
-      if next(builders) then
-        sanitized.workspaces[workspace] = {
-          builders = builders,
-        }
+      local normalized_task_type = vim.trim(task_type)
+      if normalized_task_type == "" then
+        return nil, ("workspace `%s` has empty task type key"):format(workspace)
       end
+
+      if tasks[normalized_task_type] then
+        return nil,
+          ("workspace `%s` has duplicate task `%s` after normalization"):format(
+            workspace,
+            normalized_task_type
+          )
+      end
+
+      if type(task_state) ~= "table" then
+        return nil, ("workspace `%s` task `%s` must be a table"):format(workspace, task_type)
+      end
+
+      local allowed_task_keys = {
+        cmd = true,
+      }
+
+      if not has_only_allowed_keys(task_state, allowed_task_keys) then
+        return nil,
+          ("workspace `%s` task `%s` contains unsupported fields"):format(workspace, task_type)
+      end
+
+      local cmd = cmd_util.normalize(task_state.cmd)
+      if not cmd then
+        return nil, ("workspace `%s` task `%s` has invalid cmd"):format(workspace, task_type)
+      end
+
+      tasks[normalized_task_type] = {
+        cmd = cmd_util.clone(cmd),
+      }
+    end
+
+    if next(tasks) then
+      sanitized.workspaces[workspace] = {
+        tasks = tasks,
+      }
     end
   end
 
-  return sanitized
+  return sanitized, nil
 end
 
 ---@param data qck.StorageState
@@ -64,69 +136,55 @@ local function write_data(data)
   vim.fn.writefile({ encoded }, storage_path)
 end
 
----@return qck.StorageState
-local function clean_data()
-  local blank = {
-    version = STORAGE_VERSION,
-    workspaces = {},
-  }
-  write_data(blank)
-  return blank
-end
-
----@return qck.StorageState
+---@return qck.StorageState, string|nil
 local function read_data()
   if vim.fn.filereadable(storage_path) == 0 then
-    return clean_data()
+    return blank_state(), nil
   end
 
   local lines = vim.fn.readfile(storage_path)
   if not lines or #lines == 0 then
-    return clean_data()
+    return nil, "storage file is empty"
   end
 
   local decoded = vim.json.decode(table.concat(lines, "\n"))
   if type(decoded) ~= "table" then
-    return clean_data()
+    return nil, "storage file is not valid JSON object"
   end
 
-  return decoded
+  return decoded, nil
 end
 
 ---@return boolean, string|nil
 function storage.load()
-  local sanitized = nil
-  local err = nil
-
-  local ok_read, data_or_err = pcall(read_data)
-  if ok_read and type(data_or_err) == "table" and data_or_err.version == STORAGE_VERSION then
-    sanitized = sanitize_data(data_or_err)
-    if not sanitized then
-      err = "failed to sanitize storage data"
-    end
-  elseif not ok_read then
-    err = ("failed to read storage file: %s"):format(tostring(data_or_err))
-  else
-    err = "storage file has unsupported format/version"
+  local ok_read, data_or_err, read_err = pcall(read_data)
+  if not ok_read then
+    storage.ok = false
+    storage.workspaces = {}
+    storage.last_error = ("failed to read storage file: %s"):format(tostring(data_or_err))
+    return false, storage.last_error
   end
 
+  if read_err then
+    storage.ok = false
+    storage.workspaces = {}
+    storage.last_error = read_err
+    return false, storage.last_error
+  end
+
+  local sanitized, sanitize_err = sanitize_data(data_or_err)
   if not sanitized then
-    local ok_reset, reset_or_err = pcall(clean_data)
-    if ok_reset and type(reset_or_err) == "table" then
-      sanitized = sanitize_data(reset_or_err)
-      if not sanitized then
-        err = "failed to sanitize reset storage data"
-      end
-    else
-      err = ("failed to reset storage file: %s"):format(tostring(reset_or_err))
-    end
+    storage.ok = false
+    storage.workspaces = {}
+    storage.last_error = sanitize_err or "failed to validate storage data"
+    return false, storage.last_error
   end
 
-  storage.ok = sanitized ~= nil
+  storage.ok = true
   storage.version = STORAGE_VERSION
-  storage.workspaces = storage.ok and sanitized.workspaces or {}
-  storage.last_error = storage.ok and nil or (err or "failed to load storage")
-  return storage.ok, storage.last_error
+  storage.workspaces = sanitized.workspaces
+  storage.last_error = nil
+  return true, nil
 end
 
 ---@return boolean, string|nil
@@ -158,21 +216,21 @@ function storage.ensure_workspace(workspace)
 
   if not storage.workspaces[workspace] then
     storage.workspaces[workspace] = {
-      builders = {},
+      tasks = {},
     }
   end
 
-  if type(storage.workspaces[workspace].builders) ~= "table" then
-    storage.workspaces[workspace].builders = {}
+  if type(storage.workspaces[workspace].tasks) ~= "table" then
+    storage.workspaces[workspace].tasks = {}
   end
 
   return storage.workspaces[workspace]
 end
 
 ---@param workspace string
----@param builder_type string
+---@param task_type string
 ---@return qck.Command|nil
-function storage.get_builder_cmd(workspace, builder_type)
+function storage.get_task_cmd(workspace, task_type)
   if not storage.ok or type(storage.workspaces) ~= "table" then
     return nil
   end
@@ -181,26 +239,26 @@ function storage.get_builder_cmd(workspace, builder_type)
     return nil
   end
 
-  if type(builder_type) ~= "string" then
+  if type(task_type) ~= "string" then
     return nil
   end
 
-  local normalized_builder_type = vim.trim(builder_type)
-  if normalized_builder_type == "" then
+  local normalized_task_type = vim.trim(task_type)
+  if normalized_task_type == "" then
     return nil
   end
 
   local ws = storage.workspaces[workspace]
-  if type(ws) ~= "table" or type(ws.builders) ~= "table" then
+  if type(ws) ~= "table" or type(ws.tasks) ~= "table" then
     return nil
   end
 
-  local builder = ws.builders[normalized_builder_type]
-  if type(builder) ~= "table" then
+  local task = ws.tasks[normalized_task_type]
+  if type(task) ~= "table" then
     return nil
   end
 
-  local cmd = cmd_util.normalize(builder.cmd)
+  local cmd = cmd_util.normalize(task.cmd)
   if not cmd then
     return nil
   end
@@ -209,10 +267,10 @@ function storage.get_builder_cmd(workspace, builder_type)
 end
 
 ---@param workspace string
----@param builder_type string
+---@param task_type string
 ---@param cmd qck.Command
 ---@return nil
-function storage.set_builder_cmd(workspace, builder_type, cmd)
+function storage.set_task_cmd(workspace, task_type, cmd)
   if not storage.ok then
     return
   end
@@ -221,27 +279,27 @@ function storage.set_builder_cmd(workspace, builder_type, cmd)
     return
   end
 
-  if type(builder_type) ~= "string" then
+  if type(task_type) ~= "string" then
     return
   end
 
-  local normalized_builder_type = vim.trim(builder_type)
-  if normalized_builder_type == "" then
+  local normalized_task_type = vim.trim(task_type)
+  if normalized_task_type == "" then
     return
   end
 
   local ws = storage.ensure_workspace(workspace)
-  if not ws.builders[normalized_builder_type] then
-    ws.builders[normalized_builder_type] = {}
+  if not ws.tasks[normalized_task_type] then
+    ws.tasks[normalized_task_type] = {}
   end
 
-  ws.builders[normalized_builder_type].cmd = cmd_util.clone(cmd)
+  ws.tasks[normalized_task_type].cmd = cmd_util.clone(cmd)
 end
 
 ---@param workspace string
----@param builder_type string
+---@param task_type string
 ---@return nil
-function storage.reset_builder_cmd(workspace, builder_type)
+function storage.reset_task_cmd(workspace, task_type)
   if not storage.ok then
     return
   end
@@ -250,25 +308,43 @@ function storage.reset_builder_cmd(workspace, builder_type)
     return
   end
 
-  if type(builder_type) ~= "string" then
+  if type(task_type) ~= "string" then
     return
   end
 
-  local normalized_builder_type = vim.trim(builder_type)
-  if normalized_builder_type == "" then
+  local normalized_task_type = vim.trim(task_type)
+  if normalized_task_type == "" then
     return
   end
 
   local ws = storage.ensure_workspace(workspace)
-  if not ws.builders[normalized_builder_type] then
+  if not ws.tasks[normalized_task_type] then
     return
   end
 
-  ws.builders[normalized_builder_type].cmd = nil
+  ws.tasks[normalized_task_type].cmd = nil
 
-  if not next(ws.builders[normalized_builder_type]) then
-    ws.builders[normalized_builder_type] = nil
+  if not next(ws.tasks[normalized_task_type]) then
+    ws.tasks[normalized_task_type] = nil
   end
+
+  if not next(ws.tasks) then
+    storage.workspaces[workspace] = nil
+  end
+end
+
+---@param workspace string
+---@return nil
+function storage.clear_workspace(workspace)
+  if not storage.ok then
+    return
+  end
+
+  if type(workspace) ~= "string" or workspace == "" then
+    return
+  end
+
+  storage.workspaces[workspace] = nil
 end
 
 return storage

@@ -341,20 +341,20 @@ end
 
 ---@return qck.TabbarRow[]
 local function build_render_rows()
-  local _, long_running_ids, default_ids = state.partitioned_ids()
+  local _, task_ids, default_ids = state.partitioned_ids()
   local rows = {}
 
-  for i, id in ipairs(long_running_ids) do
+  for i, id in ipairs(task_ids) do
     local label_id = state.get_group_label_id(id) or i
     rows[#rows + 1] = {
       internal_id = id,
-      visual_label = ("L%d"):format(label_id),
-      kind = "long_running",
+      visual_label = ("R%d"):format(label_id),
+      kind = "task",
       selectable = true,
     }
   end
 
-  if #long_running_ids > 0 and #default_ids > 0 then
+  if #task_ids > 0 and #default_ids > 0 then
     rows[#rows + 1] = {
       internal_id = nil,
       visual_label = "---",

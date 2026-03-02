@@ -3,15 +3,18 @@
 ## Project Structure & Module Organization
 This repository is a Neovim plugin written in Lua.
 
-- `lua/qck/init.lua`: public plugin API (`setup`, `new`, `run`, `build`, `open_builder`, `toggle_builder`, `kill_builder`, `set_builder_cmd`, `reset_builder_cmd`, `open`, `close`, `toggle`, `cycle_next`, `cycle_prev`, `switch_focus`).
-- `lua/qck/builders.lua`: builder registry and orchestration (builder-type lifecycle, one-instance-per-type enforcement, effective command resolution).
-- `lua/qck/storage.lua`: workspace-persistent storage for builder command overrides.
+- `lua/qck/init.lua`: public plugin API (`setup`, `clear_storage`, `new`, `open`, `close`, `toggle`, `cycle_next`, `cycle_prev`, `switch_focus`).
+- `lua/qck/tasks.lua`: internal task registry and orchestration (task-type lifecycle, one-instance-per-type enforcement, effective command resolution).
+- `lua/qck/storage.lua`: workspace-persistent storage for task command overrides.
 - `lua/qck/cmd.lua`: shared command normalization/cloning/validation helpers (`string` or string-list commands).
 - `lua/qck/mappings.lua`: shared mapping state helpers for tracking/removing user-configured buffer mappings.
 - `lua/qck/state.lua`: terminal registry and current-id/cycling state plus terminal record/window validity helpers.
 - `lua/qck/autocmd.lua`: shared plugin autocmd wrapper exposing a single `qck` augroup.
 - `lua/qck/terminal.lua`: terminal lifecycle orchestration over `snacks.terminal`.
-- `lua/qck/tabbar.lua`: floating vertical tab bar that renders live terminal IDs.
+- `lua/qck/tabbar.lua`: floating vertical tab bar that renders live terminal ids.
+- `lua/qck/types.lua`: shared EmmyLua type aliases/classes.
+- `tests/mock_snacks.lua`: deterministic Snacks terminal mock for headless smoke tests.
+- `tests/smoke.lua`: headless smoke regression harness.
 - `LICENSE`: project license.
 
 Keep new runtime code under `lua/qck/`. `init.lua` should remain the public entrypoint; internal behavior should be split by responsibility across focused modules.
@@ -19,15 +22,15 @@ Keep new runtime code under `lua/qck/`. `init.lua` should remain the public entr
 ## Build, Test, and Development Commands
 There is no build system or package manifest. Use Neovim headless/manual checks:
 
-- `nvim --headless --clean +"set rtp+=." +"lua require('qck')" +qa`  
+- `nvim --headless --clean +"set rtp+=." +"lua require('qck')" +qa`
   Verifies plugin load and runtime syntax (requires `snacks.nvim` on `runtimepath`).
-- `nvim --headless --clean +"set rtp+=/path/to/snacks.nvim" +"set rtp+=." +"lua require('qck')"`  
+- `nvim --headless --clean +"set rtp+=/path/to/snacks.nvim" +"set rtp+=." +"lua require('qck')"`
   Verifies behavior with Snacks dependency on `runtimepath`.
-- `luac -p lua/qck/*.lua`  
+- `luac -p lua/qck/*.lua`
   Fast syntax check for all Lua modules.
-- `nvim --headless --clean -u NONE +"set rtp+=." +"luafile tests/smoke.lua"`  
+- `nvim --headless --clean -u NONE +"set rtp+=." +"luafile tests/smoke.lua"`
   Runs the mocked smoke regression harness (`tests/mock_snacks.lua` + `tests/smoke.lua`) and exits non-zero on failure.
-- `nvim --clean +"set rtp+=."`  
+- `nvim --clean +"set rtp+=."`
   Opens an interactive clean session for manual testing.
 
 ## Coding Style & Naming Conventions
@@ -42,18 +45,13 @@ Minimal automated smoke coverage is available under `tests/`. Validate changes w
 
 1. Mocked headless smoke check (`tests/smoke.lua`).
 2. Headless load check.
-3. Manual workflow checks: `new`, `run`, `open`, `close`, `toggle`, `cycle_next`, `cycle_prev`.
-   - `setup({ mappings = ... })` should apply mappings buffer-locally to qck terminal buffers and the qck tabbar buffer.
-   - legacy mapping entries (`lhs = rhs`) should map in terminal normal+terminal modes and tabbar normal mode.
-   - mapping spec entries (`lhs = { rhs = ..., mode = ... }`) should honor terminal `mode` (`"n"`, `"t"`, or both) while tabbar remains normal mode only.
-   - `cycle_next`/`cycle_prev` should preserve normal mode when switching terminals.
-   - `new()` should preserve normal mode only when a qck terminal window is already open; creating while qck is closed should keep default terminal-mode entry.
-4. Builder workflow checks:
-   - `setup({ builders = { compilation = ..., server = ... } })` should register builder types,
-   - `build("type")` should open an existing running instance for that builder type,
-   - `build("type", { force_new = true })` should restart only that builder type,
-   - only one running terminal instance per builder type should exist,
-   - multiple different builder types should run concurrently.
+3. Manual workflow checks: `new`, `open`, `close`, `toggle`, `cycle_next`, `cycle_prev`, `clear_storage`.
+4. Internal task workflow checks (via internal modules):
+   - definitions registration,
+   - run/reuse/force-restart behavior,
+   - one running terminal per task type,
+   - concurrent runs across different task types,
+   - command override persistence and reset precedence.
 5. Multi-terminal visibility checks:
    - creating/opening a different terminal should hide the previously visible terminal window,
    - `toggle` should affect only the current terminal visibility,
@@ -63,16 +61,16 @@ Minimal automated smoke coverage is available under `tests/`. Validate changes w
    - closes when the terminal window is closed manually (for example `:q`),
    - closing the tabbar window manually (for example `:q`) should hide the current terminal window,
    - pressing `<Esc>` in the tabbar focuses the current terminal window,
-   - pressing `K`/`J` in the tabbar should move the selected terminal up/down within its own group (`L*` or `T*`),
-   - `L*`/`T*` labels should stay with the same terminal when rows are reordered,
+   - pressing `K`/`J` in the tabbar should move the selected terminal up/down within its own group (`R*` or `T*`),
+   - `R*`/`T*` labels should stay with the same terminal when rows are reordered,
    - creating a new terminal should assign the lowest missing label number within its group for the current session,
    - current terminal line uses full-row reverse highlight.
-7. Persistence checks:
-   - `set_builder_cmd("type", cmd)` should persist command override per workspace cwd,
-   - `set_builder_cmd("type", cmd, { temp = true })` should be session-only,
-   - `reset_builder_cmd("type")` should clear temp override first, then persisted override.
+7. Storage behavior checks:
+   - unsupported or invalid schema should fail load and warn users,
+   - `clear_storage()` should clear persisted data for current workspace,
+   - no implicit storage reset should happen on failed load.
 8. Terminal exit checks (`exit`, `exit 1`) to verify close/error behavior.
-9. Autoscroll checks for long-running/builder terminals:
+9. Autoscroll checks for task terminals:
    - output should follow when cursor is near bottom or terminal window is unfocused,
    - output should not force-scroll when user is inspecting older lines away from bottom.
 
@@ -84,63 +82,54 @@ Additional tests should be placed under `tests/` and documented in this section.
   - `state.lua`: record/window validity checks,
   - `init.lua`: API input validation and notifications,
   - `terminal.lua`: Snacks and terminal-handle safety checks.
-- State validity checks now guard terminal-handle method calls with `pcall`, so stale/invalid handle behavior cannot break prune/cycle paths.
-- `terminal.create(...)` now closes partially opened terminal handles when handle initialization fails, preventing leaked untracked terminal resources.
-- Builder definitions are configured via `qck.setup({ builders = ... })` and normalized/validated in `init.lua`.
-- Builder orchestration lives in `builders.lua` and keeps `init.lua` as a thin public API facade.
-- Workspace persistence lives in `storage.lua` (`stdpath("data") .. "/qck.json"`) and currently stores per-workspace builder command overrides.
-- `storage.load()` / `storage.save()` now return `(ok, err)` and track `storage.last_error`, so callers can report concrete persistence failure details.
-- Workspace LuaLS defaults now live in `.luarc.json` (LuaJIT runtime path + `vim` global) to improve editor diagnostics consistency for the plugin codebase.
-- Shared EmmyLua type aliases/classes now live in `lua/qck/types.lua`, and module annotations use these types to tighten internal contracts for LuaLS.
-- A deterministic mocked regression harness now lives under `tests/` (`tests/mock_snacks.lua` + `tests/smoke.lua`) for repeatable headless workflow checks.
-- Unused internal query helpers were removed to reduce surface area (`state.get_terminal_kind`, `tabbar.is_focused`, `storage.get_last_error`, `builders.get_definition`, `builders.get_definitions`).
-- Command normalization/cloning/validation is centralized in `lua/qck/cmd.lua` and reused by `init.lua`, `builders.lua`, and `storage.lua`.
-- Builder action dispatch now shares helpers in `init.lua` and `builders.lua` to avoid repeated builder-type/running-instance checks.
+- State validity checks guard terminal-handle method calls with `pcall`, so stale/invalid handle behavior cannot break prune/cycle paths.
+- `terminal.create(...)` closes partially opened terminal handles when handle initialization fails, preventing leaked untracked terminal resources.
+- Workspace persistence lives in `storage.lua` (`stdpath("data") .. "/qck.json"`) and stores per-workspace task command overrides.
+- `storage.load()` / `storage.save()` return `(ok, err)` and track `storage.last_error`, so callers can report concrete persistence failure details.
+- Storage loading is fail-fast on unsupported/invalid schema and does not mutate files automatically.
+- `qck.clear_storage()` is the explicit user-triggered storage reset entrypoint for current workspace state.
+- Shared EmmyLua type aliases/classes live in `lua/qck/types.lua`, and module annotations use these types to tighten internal contracts for LuaLS.
+- Command normalization/cloning/validation is centralized in `lua/qck/cmd.lua` and reused by `init.lua`, `tasks.lua`, and `storage.lua`.
 - Mapping-state diff/cleanup helpers are centralized in `lua/qck/mappings.lua` and reused by both terminal and tabbar mapping application paths.
 - Tab bar lifecycle is synchronized from `terminal.lua` and reinforced by a `WinClosed` autocmd watcher in `tabbar.lua`.
-- All plugin autocmds now share a single `qck` augroup via `autocmd.lua`; modules track and delete autocmd ids for targeted cleanup.
+- All plugin autocmds share a single `qck` augroup via `autocmd.lua`; modules track and delete autocmd ids for targeted cleanup.
 - When switching terminals, hiding the previous window (`toggle`) is safer than closing it (`close`), because closing may wipe the buffer and terminate the terminal job.
 - `noautocmd` is valid when creating the tab bar float (`nvim_open_win`), but must not be passed to `nvim_win_set_config` for an existing window.
 - `qck.new(_opts)` keeps a compatibility parameter but no longer validates/uses it internally.
-- State now exposes partition and ordering helpers for mixed terminal kinds:
-  - `partitioned_ids()` returns three lists: `all_ids`, `long_running_ids`, `default_ids`,
-  - `ordered_ids()` returns long-running ids first, then default ids, preserving per-kind in-session manual order.
-  - `move_id_within_kind(id, direction)` reorders a terminal within its own kind (`long_running` or `default`) for the current session.
-  - `get_group_label_id(id)` returns a stable per-kind generation label id (`T#`/`L#`) for the terminal in the current session.
-- State now exposes builder helpers:
-  - `find_terminal_id_by_builder_type(builder_type)` returns the running terminal id for a builder type,
-  - `get_builder_type(id)` returns the builder type metadata for a terminal id when present.
-- `terminal.create(id, opts)` now accepts terminal kind metadata (`default` or `long_running`) and optional command input for command-driven terminal startup.
-- Long-running terminals are marked with `rec.meta.kind = "long_running"` and created with `auto_close = false` to preserve output after process exit.
-- `qck.run(cmd, opts?)` is the public command-driven API for long-running tasks; it validates command shape (`string` or string list), enforces internal-id collision checks, and creates long-running terminals via `terminal.create(...)`.
-- Builder terminals include `rec.meta.builder_type`; this metadata is used to enforce one running instance per builder type while allowing concurrent runs across different types.
-- `qck.build(builder_type, opts?)` opens the existing running builder instance by default; restart requires `{ force_new = true }`.
-- Builder command resolution precedence is: temporary override (`set_builder_cmd(..., { temp = true })`) > persisted workspace override > setup default.
-- Calling `qck.setup(...)` replaces builder definitions and resets all temporary (`temp = true`) builder command overrides for the current session.
-- `terminal.lua` now manages per-terminal buffer hook groups to keep lifecycle cleanup centralized when terminals are deleted/wiped.
-- Autoscroll for long-running/builder terminals is enabled by default and follows output only when near bottom or unfocused.
-- Autoscroll output tracking is now attached with `nvim_buf_attach(..., { on_lines = ... })` instead of `TextChanged` autocmds, improving long-running/background output handling.
-- Builder/run `title` option plumbing was removed because it had no runtime effect.
-- Tabbar rendering now decouples visual ids from internal ids:
-  - long-running rows are labeled `L1`, `L2`, ... from per-group generation labels,
+- State exposes partition and ordering helpers for mixed terminal kinds:
+  - `partitioned_ids()` returns three lists: `all_ids`, `task_ids`, `default_ids`,
+  - `ordered_ids()` returns task ids first, then default ids, preserving per-kind in-session manual order.
+  - `move_id_within_kind(id, direction)` reorders a terminal within its own kind (`task` or `default`) for the current session.
+  - `get_group_label_id(id)` returns a stable per-kind generation label id (`T#`/`R#`) for the terminal in the current session.
+- Internal task orchestration exposes helper lookup:
+  - `tasks.get_running_id(task_type)` returns the running terminal id for a task type when present.
+- `terminal.create(id, opts)` accepts terminal kind metadata (`default` or `task`) and optional command input.
+- Task terminals store `rec.meta.task_name` for task-instance lookup and include `rec.meta.kind = "task"`; task terminals use `auto_close = false` to preserve output after process exit.
+- Task command resolution precedence is: temporary override (`set_task_cmd(..., { temp = true })`) > persisted workspace override > definition default.
+- Calling `tasks.set_definitions(...)` replaces task definitions and resets all temporary (`temp = true`) task command overrides for the current session.
+- `terminal.lua` manages per-terminal buffer hook groups to keep lifecycle cleanup centralized when terminals are deleted/wiped.
+- Autoscroll for task terminals is enabled by default and follows output only when near bottom or unfocused.
+- Autoscroll output tracking is attached with `nvim_buf_attach(..., { on_lines = ... })` instead of `TextChanged` autocmds, improving long-running/background output handling.
+- Tabbar rendering decouples visual ids from internal ids:
+  - task rows are labeled `R1`, `R2`, ... from per-group generation labels,
   - default rows are labeled `T1`, `T2`, ... from per-group generation labels,
   - generation labels are stable per terminal instance and do not change when rows are reordered,
   - label numbers reuse the lowest missing value per group when terminals are deleted and new ones are created,
   - row actions (`<CR>`, `dd`) resolve labels back to internal terminal ids.
 - Tabbar supports manual reordering in normal mode with `K` (move selected terminal up) and `J` (move selected terminal down), scoped to the selected terminal kind group.
-- User mappings configured via `qck.setup({ mappings = ... })` are now normalized in `init.lua` and applied to both terminal buffers and the tabbar buffer:
+- User mappings configured via `qck.setup({ mappings = ... })` are normalized in `init.lua` and applied to both terminal buffers and the tabbar buffer:
   - legacy entries (`lhs = rhs`) default to terminal `n`+`t`,
   - mapping specs (`lhs = { rhs = ..., mode = ... }`) allow terminal-mode scoping (`n`, `t`, or both),
   - tabbar user mappings remain normal-mode-only.
-- Tabbar cursor placement now lands on the centered row label's numeric part (or first non-space character when no number is present).
+- Tabbar cursor placement lands on the centered row label's numeric part (or first non-space character when no number is present).
 - Tabbar includes a built-in normal-mode `<Esc>` mapping that returns focus to the current terminal window.
-- Tabbar now watches its own `WinClosed` event; manual tabbar closes trigger hiding the current terminal window while internal tabbar closes suppress this action.
+- Tabbar watches its own `WinClosed` event; manual tabbar closes trigger hiding the current terminal window while internal tabbar closes suppress this action.
 - `init.lua` wires tabbar actions (`open`, `delete`, `move_up`, `move_down`, `close_current`, `focus_current`) to terminal behavior; `close_current` delegates to `terminal.hide_current_if_open()` to avoid wiping terminal buffers/jobs.
-- `init.lua` now installs a global focus watcher (`WinEnter`, `BufEnter`, `TabEnter`) that hides qck terminal and tabbar windows when focus leaves both qck windows (for example navigating with `<C-w>h`).
-- `init.lua` now resolves `open(id?)` / `close(id?)` target ids through shared helpers to avoid duplicated id-validation and fallback logic.
-- Visual labels are UI-only; public APIs (`open`, `close`, `toggle`, `run`) continue to operate on internal numeric ids.
-- `terminal.open(id, opts?)` and `terminal.create(id, opts?)` now accept internal `opts.preserve_mode` and restore normal mode after switching/creating when requested.
-- `qck.cycle_next()` / `qck.cycle_prev()` now request mode preservation; `qck.new()` requests it only when a qck terminal window is currently open.
+- `init.lua` installs a global focus watcher (`WinEnter`, `BufEnter`, `TabEnter`) that hides qck terminal and tabbar windows when focus leaves both qck windows (for example navigating with `<C-w>h`).
+- `init.lua` resolves `open(id?)` / `close(id?)` target ids through shared helpers to avoid duplicated id-validation and fallback logic.
+- Visual labels are UI-only; public APIs (`open`, `close`, `toggle`) operate on internal numeric ids.
+- `terminal.open(id, opts?)` and `terminal.create(id, opts?)` accept internal `opts.preserve_mode` and restore normal mode after switching/creating when requested.
+- `qck.cycle_next()` / `qck.cycle_prev()` request mode preservation; `qck.new()` requests it only when a qck terminal window is currently open.
 
 ## Commit & Pull Request Guidelines
 - Commit messages should be short, imperative, and scoped (example: `add multi terminal management api`).

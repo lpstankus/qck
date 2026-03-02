@@ -1,13 +1,12 @@
 ---@class qck
 local qck = {}
 require("qck.types")
-local cmd_util = require("qck.cmd")
 local state = require("qck.state")
 local terminal = require("qck.terminal")
 local tabbar = require("qck.tabbar")
 local autocmd = require("qck.autocmd")
 local storage = require("qck.storage")
-local builders = require("qck.builders")
+local tasks = require("qck.tasks")
 
 local ok, Snacks = pcall(require, "snacks")
 if not ok then error("QCK: snacks.nvim is required") end
@@ -17,7 +16,6 @@ tabbar.set_user_mappings({})
 
 local config = {
   mappings = {},
-  builders = {},
 }
 
 ---@param msg string
@@ -53,8 +51,8 @@ end
 ---@param id number|nil
 ---@return integer|nil
 local function resolve_open_target_id(id)
-  local target_id, ok = parse_id_arg(id)
-  if not ok then
+  local target_id, parsed = parse_id_arg(id)
+  if not parsed then
     return nil
   end
   if target_id then
@@ -73,8 +71,8 @@ end
 ---@param id number|nil
 ---@return integer|nil
 local function resolve_close_target_id(id)
-  local target_id, ok = parse_id_arg(id)
-  if not ok then
+  local target_id, parsed = parse_id_arg(id)
+  if not parsed then
     return nil
   end
   if target_id then
@@ -88,31 +86,6 @@ local function resolve_close_target_id(id)
 
   notify("no current terminal selected (no-op)", vim.log.levels.WARN)
   return nil
-end
-
----@param opts any
----@return qck.RunOpts|nil
-local function validate_run_opts(opts)
-  if opts == nil then
-    return {}
-  end
-
-  if type(opts) ~= "table" then
-    notify("run(cmd, opts): opts must be a table", vim.log.levels.ERROR)
-    return nil
-  end
-
-  local parsed = {}
-
-  if opts.id ~= nil then
-    if not is_valid_id(opts.id) then
-      notify("run(cmd, opts): opts.id must be a positive integer", vim.log.levels.ERROR)
-      return nil
-    end
-    parsed.id = opts.id
-  end
-
-  return parsed
 end
 
 local DEFAULT_MAPPING_MODES = { "n", "t" }
@@ -220,149 +193,6 @@ local function parse_mappings(mappings)
   return parsed
 end
 
----@param input any
----@return table<string, qck.BuilderDefinition>
-local function parse_builders(input)
-  if input == nil then
-    return {}
-  end
-
-  if type(input) ~= "table" then
-    notify("setup(opts): opts.builders must be a table", vim.log.levels.ERROR)
-    return {}
-  end
-
-  local parsed = {}
-  for builder_type, builder in pairs(input) do
-    local normalized_builder_type = nil
-    if type(builder_type) == "string" then
-      normalized_builder_type = vim.trim(builder_type)
-    end
-
-    if not normalized_builder_type or normalized_builder_type == "" then
-      notify("setup(opts): builder type must be a non-empty string", vim.log.levels.ERROR)
-    elseif parsed[normalized_builder_type] then
-      notify(
-        (
-          "setup(opts): duplicate builder type `%s` after normalization (original key `%s`)"
-        ):format(normalized_builder_type, builder_type),
-        vim.log.levels.ERROR
-      )
-    elseif type(builder) ~= "table" then
-      notify(
-        ("setup(opts): builder `%s` must be a table"):format(builder_type),
-        vim.log.levels.ERROR
-      )
-    else
-      local parsed_cmd = cmd_util.validate(
-        builder.cmd,
-        ("setup(opts): builder `%s`"):format(builder_type),
-        notify
-      )
-      if parsed_cmd then
-        local auto_scroll = builder.auto_scroll
-        if auto_scroll ~= nil and type(auto_scroll) ~= "boolean" then
-          notify(
-            ("setup(opts): builder `%s`.auto_scroll must be a boolean"):format(builder_type),
-            vim.log.levels.ERROR
-          )
-          auto_scroll = nil
-        end
-
-        parsed[normalized_builder_type] = {
-          cmd = parsed_cmd,
-          auto_scroll = auto_scroll,
-        }
-      end
-    end
-  end
-
-  return parsed
-end
-
----@param builder_type any
----@param context string
----@return string|nil
-local function validate_builder_type(builder_type, context)
-  if type(builder_type) ~= "string" or vim.trim(builder_type) == "" then
-    notify(context .. ": builder_type must be a non-empty string", vim.log.levels.ERROR)
-    return nil
-  end
-
-  return vim.trim(builder_type)
-end
-
----@param builder_type any
----@param context string
----@param action fun(parsed_builder_type: string)
----@return nil
-local function run_builder_action(builder_type, context, action)
-  local parsed_builder_type = validate_builder_type(builder_type, context)
-  if not parsed_builder_type then
-    return
-  end
-
-  action(parsed_builder_type)
-end
-
----@param opts any
----@return qck.BuildOpts|nil
-local function validate_build_opts(opts)
-  if opts == nil then
-    return {}
-  end
-
-  if type(opts) ~= "table" then
-    notify("build(builder_type, opts): opts must be a table", vim.log.levels.ERROR)
-    return nil
-  end
-
-  local parsed = {}
-
-  if opts.force_new ~= nil then
-    if type(opts.force_new) ~= "boolean" then
-      notify("build(builder_type, opts): opts.force_new must be a boolean", vim.log.levels.ERROR)
-      return nil
-    end
-    parsed.force_new = opts.force_new
-  end
-
-  if opts.auto_scroll ~= nil then
-    if type(opts.auto_scroll) ~= "boolean" then
-      notify("build(builder_type, opts): opts.auto_scroll must be a boolean", vim.log.levels.ERROR)
-      return nil
-    end
-    parsed.auto_scroll = opts.auto_scroll
-  end
-
-  return parsed
-end
-
----@param opts any
----@return qck.SetBuilderCmdOpts|nil
-local function validate_builder_cmd_opts(opts)
-  if opts == nil then
-    return {}
-  end
-
-  if type(opts) ~= "table" then
-    notify("set_builder_cmd(builder_type, cmd, opts): opts must be a table", vim.log.levels.ERROR)
-    return nil
-  end
-
-  local parsed = {}
-
-  if opts.temp ~= nil then
-    if type(opts.temp) ~= "boolean" then
-      notify("set_builder_cmd(builder_type, cmd, opts): opts.temp must be a boolean", vim.log.levels.ERROR)
-      return nil
-    end
-    parsed.temp = opts.temp
-  end
-
-  return parsed
-end
-
 local function focus_current_terminal()
   local term_win = terminal.get_current_winid()
   if not term_win then
@@ -430,14 +260,6 @@ autocmd.create({ "WinEnter", "BufEnter", "TabEnter" }, {
 ---@field mode? qck.MappingMode|qck.MappingMode[] Terminal modes to apply (`n`, `t`, or both). Defaults to both when omitted.
 ---@class qck.SetupOpts
 ---@field mappings? table<string, string|function|qck.MappingSpec> Buffer-local mappings for qck buffers.
----@field builders? table<string, qck.BuilderDefinition> Workspace builder definitions.
----@class qck.RunOpts
----@field id? integer Optional internal terminal id. Must be a positive integer when provided.
----@class qck.BuildOpts
----@field force_new? boolean Restart builder instance when already running.
----@field auto_scroll? boolean Override configured auto-scroll behavior for this run.
----@class qck.SetBuilderCmdOpts
----@field temp? boolean Use a temporary in-memory override that is not persisted.
 
 ---Configure qck behavior.
 ---Mappings defined here are active inside qck terminal and tabbar buffers.
@@ -455,22 +277,55 @@ function qck.setup(opts)
   end
 
   config.mappings = parse_mappings(opts and opts.mappings)
-  config.builders = parse_builders(opts and opts.builders)
 
-  builders.set_storage(storage)
+  tasks.set_storage(storage)
+  tasks.set_definitions({})
   terminal.set_user_mappings(config.mappings)
   tabbar.set_user_mappings(config.mappings)
-  builders.set_definitions(config.builders)
   terminal.apply_user_mappings()
   tabbar.apply_user_mappings()
 
   local ok_load, load_err = storage.load()
   if not ok_load then
     notify(
-      ("failed to load workspace storage: %s"):format(load_err or "unknown error"),
-      vim.log.levels.ERROR
+      (
+        "failed to load workspace storage: %s; run qck.clear_storage() to reset persisted workspace data"
+      ):format(load_err or "unknown error"),
+      vim.log.levels.WARN
     )
   end
+end
+
+---Clear persisted qck data for the current workspace.
+---This operation is explicit and user-triggered; no automatic storage reset is performed.
+---@return nil
+function qck.clear_storage()
+  local ok_load, load_err = storage.load()
+  if not ok_load then
+    notify(
+      ("storage is invalid/unavailable (%s); rewriting storage with empty state"):format(
+        load_err or "unknown error"
+      ),
+      vim.log.levels.WARN
+    )
+    storage.ok = true
+    storage.workspaces = {}
+    storage.last_error = nil
+  end
+
+  local workspace = vim.fn.getcwd()
+  storage.clear_workspace(workspace)
+
+  local ok_save, save_err = storage.save()
+  if not ok_save then
+    notify(
+      ("failed to clear storage for `%s`: %s"):format(workspace, save_err or "unknown error"),
+      vim.log.levels.ERROR
+    )
+    return
+  end
+
+  notify(("cleared storage for `%s`"):format(workspace), vim.log.levels.INFO)
 end
 
 ---Create a new qck terminal using the next available numeric id.
@@ -483,125 +338,6 @@ function qck.new(_opts)
   terminal.create(state.next_free_id(), {
     preserve_mode = terminal.get_current_winid() ~= nil,
   })
-end
-
----Create and start a long-running command terminal.
----Long-running terminals are preserved after command exit for output inspection.
----Tabbar visual labels (`L1`, `T1`, ...) are display-only; APIs still use internal numeric ids.
----@param cmd string|string[] Command to run.
----@param opts? qck.RunOpts Optional options. Supports `id`.
----@return nil
-function qck.run(cmd, opts)
-  local parsed_cmd = cmd_util.validate(cmd, "run(cmd)", notify)
-  if not parsed_cmd then
-    return
-  end
-
-  local parsed_opts = validate_run_opts(opts)
-  if not parsed_opts then
-    return
-  end
-
-  local id = parsed_opts.id or state.next_free_id()
-  state.prune_stale()
-  if state.get_terminal(id) then
-    notify(
-      ("terminal %d already exists; choose a different id"):format(id),
-      vim.log.levels.ERROR
-    )
-    return
-  end
-
-  terminal.create(id, {
-    kind = "long_running",
-    cmd = parsed_cmd,
-  })
-end
-
----Build using a configured builder type.
----Only one runtime instance is allowed per builder type.
----If that builder type is already running, this opens the existing instance unless `opts.force_new = true`.
----@param builder_type string Configured builder type.
----@param opts? qck.BuildOpts Optional build options.
----@return nil
-function qck.build(builder_type, opts)
-  local parsed_builder_type = validate_builder_type(builder_type, "build(builder_type, opts)")
-  if not parsed_builder_type then
-    return
-  end
-
-  local parsed_opts = validate_build_opts(opts)
-  if not parsed_opts then
-    return
-  end
-
-  builders.build(parsed_builder_type, parsed_opts)
-end
-
----Open a running builder terminal by type.
----This does not create a new builder instance.
----@param builder_type string Configured builder type.
----@return nil
-function qck.open_builder(builder_type)
-  run_builder_action(builder_type, "open_builder(builder_type)", builders.open)
-end
-
----Toggle a running builder terminal window by type.
----This does not create a new builder instance.
----@param builder_type string Configured builder type.
----@return nil
-function qck.toggle_builder(builder_type)
-  run_builder_action(builder_type, "toggle_builder(builder_type)", builders.toggle)
-end
-
----Kill a running builder instance by type.
----@param builder_type string Configured builder type.
----@return nil
-function qck.kill_builder(builder_type)
-  run_builder_action(builder_type, "kill_builder(builder_type)", builders.kill)
-end
-
----Override the command for a configured builder type.
----By default the override is persisted for the current workspace.
----When `opts.temp = true`, override is kept in-memory only for this session.
----@param builder_type string Configured builder type.
----@param cmd string|string[] Builder command override.
----@param opts? qck.SetBuilderCmdOpts Optional override behavior.
----@return nil
-function qck.set_builder_cmd(builder_type, cmd, opts)
-  local parsed_builder_type = validate_builder_type(
-    builder_type,
-    "set_builder_cmd(builder_type, cmd, opts)"
-  )
-  if not parsed_builder_type then
-    return
-  end
-
-  local parsed_cmd = cmd_util.validate(cmd, "set_builder_cmd(builder_type, cmd, opts)", notify)
-  if not parsed_cmd then
-    return
-  end
-
-  local parsed_opts = validate_builder_cmd_opts(opts)
-  if not parsed_opts then
-    return
-  end
-
-  builders.set_builder_cmd(parsed_builder_type, parsed_cmd, parsed_opts)
-end
-
----Reset command override for a configured builder type.
----If a temporary override exists, it is cleared first.
----Otherwise the persisted workspace override is removed.
----@param builder_type string Configured builder type.
----@return nil
-function qck.reset_builder_cmd(builder_type)
-  local parsed_builder_type = validate_builder_type(builder_type, "reset_builder_cmd(builder_type)")
-  if not parsed_builder_type then
-    return
-  end
-
-  builders.reset_builder_cmd(parsed_builder_type)
 end
 
 ---Open a terminal by id.

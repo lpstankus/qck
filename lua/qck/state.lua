@@ -2,7 +2,7 @@ local state = {}
 
 local terminals = {}
 local current_id = nil
-local long_running_order = {}
+local task_order = {}
 local default_order = {}
 
 ---@param value any
@@ -14,8 +14,8 @@ end
 ---@param kind any
 ---@return string
 local function normalize_kind(kind)
-  if kind == "long_running" then
-    return "long_running"
+  if kind == "task" then
+    return "task"
   end
   return "default"
 end
@@ -173,20 +173,20 @@ end
 
 ---@return nil
 function state.sync_orders()
-  local long_running_ids = {}
+  local task_ids = {}
   local default_ids = {}
 
   for id in pairs(terminals) do
-    if state.is_long_running(id) then
-      long_running_ids[#long_running_ids + 1] = id
+    if state.is_task(id) then
+      task_ids[#task_ids + 1] = id
     else
       default_ids[#default_ids + 1] = id
     end
   end
 
-  table.sort(long_running_ids)
+  table.sort(task_ids)
   table.sort(default_ids)
-  long_running_order = sync_kind_order(long_running_order, long_running_ids)
+  task_order = sync_kind_order(task_order, task_ids)
   default_order = sync_kind_order(default_order, default_ids)
 end
 
@@ -219,28 +219,28 @@ end
 
 ---@param id integer
 ---@return boolean
-function state.is_long_running(id)
+function state.is_task(id)
   local rec = terminals[id]
-  return rec and rec.meta and rec.meta.kind == "long_running" or false
+  return rec and rec.meta and rec.meta.kind == "task" or false
 end
 
 ---@param id integer
 ---@return string|nil
-function state.get_builder_type(id)
+function state.get_task_name(id)
   local rec = terminals[id]
-  return rec and rec.meta and rec.meta.builder_type or nil
+  return rec and rec.meta and rec.meta.task_name or nil
 end
 
----@param builder_type string
+---@param task_name string
 ---@return integer|nil
-function state.find_terminal_id_by_builder_type(builder_type)
-  if type(builder_type) ~= "string" or builder_type == "" then
+function state.find_terminal_id_by_task_name(task_name)
+  if type(task_name) ~= "string" or task_name == "" then
     return nil
   end
 
   local ids = state.live_ids()
   for _, id in ipairs(ids) do
-    if state.get_builder_type(id) == builder_type then
+    if state.get_task_name(id) == task_name then
       return id
     end
   end
@@ -259,15 +259,15 @@ function state.partitioned_ids()
 
   table.sort(all_ids)
 
-  return all_ids, copy_ids(long_running_order), copy_ids(default_order)
+  return all_ids, copy_ids(task_order), copy_ids(default_order)
 end
 
 ---@return integer[]
 function state.ordered_ids()
-  local _, long_running_ids, default_ids = state.partitioned_ids()
+  local _, task_ids, default_ids = state.partitioned_ids()
   local ids = {}
 
-  for _, id in ipairs(long_running_ids) do
+  for _, id in ipairs(task_ids) do
     ids[#ids + 1] = id
   end
 
@@ -295,7 +295,7 @@ function state.move_id_within_kind(id, direction)
     return false
   end
 
-  local order = state.is_long_running(id) and long_running_order or default_order
+  local order = state.is_task(id) and task_order or default_order
   local idx = nil
   for i, candidate in ipairs(order) do
     if candidate == id then

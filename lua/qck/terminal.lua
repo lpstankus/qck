@@ -56,20 +56,20 @@ end
 ---@param kind string|nil
 ---@return string
 local function normalize_terminal_kind(kind)
-  if kind == "long_running" then
-    return "long_running"
+  if kind == "task" then
+    return "task"
   end
   return "default"
 end
 
----@param builder_type any
+---@param task_name any
 ---@return string|nil
-local function normalize_builder_type(builder_type)
-  if type(builder_type) ~= "string" then
+local function normalize_task_name(task_name)
+  if type(task_name) ~= "string" then
     return nil
   end
 
-  local trimmed = vim.trim(builder_type)
+  local trimmed = vim.trim(task_name)
   if trimmed == "" then
     return nil
   end
@@ -85,7 +85,7 @@ local function resolve_auto_scroll(kind, auto_scroll)
     return auto_scroll
   end
 
-  return kind == "long_running"
+  return kind == "task"
 end
 
 ---@param snacks_impl { terminal?: { open?: fun(cmd: qck.Command|nil, opts: table|nil): qck.TerminalHandle|nil } }|nil
@@ -490,7 +490,7 @@ end
 function terminal.create(id, opts)
   opts = opts or {}
   local kind = normalize_terminal_kind(opts.kind)
-  local builder_type = normalize_builder_type(opts.builder_type)
+  local task_name = normalize_task_name(opts.task_name)
   local cmd = opts.cmd
   local preserve_mode = opts.preserve_mode == true
   local auto_scroll = resolve_auto_scroll(kind, opts.auto_scroll)
@@ -503,14 +503,14 @@ function terminal.create(id, opts)
     win = nil,
     meta = {
       kind = kind,
-      builder_type = builder_type,
+      task_name = task_name,
       auto_scroll = auto_scroll,
     },
   }
 
   local term_opts = {
     interactive = true,
-    auto_close = kind == "long_running" and false or true,
+    auto_close = kind == "task" and false or true,
     count = id,
     win = {
       position = "float",
