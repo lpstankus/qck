@@ -31,6 +31,10 @@
 ---@field force_new? boolean
 ---@field auto_scroll? boolean
 
+---@class qck.CreateTaskOpts
+---@field overwrite? boolean
+---@field auto_scroll? boolean
+
 ---@class qck.TerminalCreateOpts
 ---@field kind? qck.TerminalKind
 ---@field task_name? string

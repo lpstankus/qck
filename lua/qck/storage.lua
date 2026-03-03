@@ -267,6 +267,36 @@ function storage.get_task_cmd(workspace, task_type)
 end
 
 ---@param workspace string
+---@return table<string, qck.Command>
+function storage.get_workspace_tasks(workspace)
+  if not storage.ok or type(storage.workspaces) ~= "table" then
+    return {}
+  end
+
+  if type(workspace) ~= "string" or workspace == "" then
+    return {}
+  end
+
+  local ws = storage.workspaces[workspace]
+  if type(ws) ~= "table" or type(ws.tasks) ~= "table" then
+    return {}
+  end
+
+  local tasks = {}
+  for task_type, task_state in pairs(ws.tasks) do
+    if type(task_type) == "string" and type(task_state) == "table" then
+      local normalized_task_type = vim.trim(task_type)
+      local cmd = cmd_util.normalize(task_state.cmd)
+      if normalized_task_type ~= "" and cmd then
+        tasks[normalized_task_type] = cmd_util.clone(cmd)
+      end
+    end
+  end
+
+  return tasks
+end
+
+---@param workspace string
 ---@param task_type string
 ---@param cmd qck.Command
 ---@return nil

@@ -4,6 +4,7 @@ require("qck.types")
 local state = require("qck.state")
 local terminal = require("qck.terminal")
 local tabbar = require("qck.tabbar")
+local task_form = require("qck.task_form")
 local autocmd = require("qck.autocmd")
 local storage = require("qck.storage")
 local tasks = require("qck.tasks")
@@ -293,6 +294,8 @@ function qck.setup(opts)
       ):format(load_err or "unknown error"),
       vim.log.levels.WARN
     )
+  else
+    tasks.hydrate_workspace_tasks(vim.fn.getcwd())
   end
 end
 
@@ -338,6 +341,15 @@ function qck.new(_opts)
   terminal.create(state.next_free_id(), {
     preserve_mode = terminal.get_current_winid() ~= nil,
   })
+end
+
+---Open a floating form to create a workspace-scoped task.
+---The form captures task name + command string, supports `<Tab>`/`<S-Tab>` field cycling,
+---and allows normal/insert mode switching while editing.
+---Saved tasks are persisted only for the current workspace.
+---@return nil
+function qck.new_task()
+  task_form.open()
 end
 
 ---Open a terminal by id.

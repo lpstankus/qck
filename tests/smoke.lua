@@ -17,6 +17,22 @@ local function write_storage(data)
   vim.fn.writefile({ vim.json.encode(data) }, path)
 end
 
+local function set_form_fields(buf, name_line, cmd_line)
+  vim.api.nvim_buf_set_lines(buf, 2, 4, false, {
+    name_line,
+    cmd_line,
+  })
+end
+
+local function assert_form_scaffold(buf)
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  assert_eq(#lines, 6, "task form should render six scaffold lines")
+  assert_eq(lines[1], "Please provide the name and command of the new task", "task form should render description")
+  assert_truthy(vim.startswith(lines[3], "Name    | "), "task form should render name field prefix")
+  assert_truthy(vim.startswith(lines[4], "Command | "), "task form should render command field prefix")
+  assert_eq(lines[6], "<Tab>/<S-Tab> switch  <CR> save  <Esc> close", "task form should render help line")
+end
+
 local function run()
   local mock_snacks = require("mock_snacks")
   mock_snacks.install()
@@ -30,8 +46,66 @@ local function run()
   local state = require("qck.state")
   local tasks = require("qck.tasks")
   local storage = require("qck.storage")
+  local task_form = require("qck.task_form")
+  local workspace = vim.fn.getcwd()
 
   qck.setup()
+
+  qck.new_task()
+  local form_win = task_form.get_winid()
+  assert_truthy(type(form_win) == "number", "new_task() should open task form window")
+  qck.new_task()
+  assert_eq(task_form.get_winid(), form_win, "new_task() should focus existing task form window")
+  local form_buf = vim.api.nvim_win_get_buf(form_win)
+  assert_eq(vim.bo[form_buf].filetype, "qck-task-form", "task form should set filetype")
+  assert_form_scaffold(form_buf)
+
+  set_form_fields(form_buf, "Name: lint", "Command: echo lint")
+  task_form.submit()
+  assert_eq(task_form.get_winid(), nil, "task form should close after successful create")
+  assert_truthy(tasks.has_definition("lint"), "created task should register as task definition")
+  assert_eq(storage.get_task_cmd(workspace, "lint"), "echo lint", "created task command should persist")
+
+  qck.new_task()
+  form_win = task_form.get_winid()
+  assert_truthy(type(form_win) == "number", "second new_task() should open task form")
+  form_buf = vim.api.nvim_win_get_buf(form_win)
+  set_form_fields(form_buf, "Name: lint", "Command: echo lint 2")
+  task_form.submit()
+  assert_truthy(task_form.get_winid() ~= nil, "first duplicate save should require confirmation")
+  assert_eq(
+    storage.get_task_cmd(workspace, "lint"),
+    "echo lint",
+    "first duplicate save should not overwrite existing task"
+  )
+  form_buf = vim.api.nvim_win_get_buf(task_form.get_winid())
+  set_form_fields(form_buf, "Name: ", "Command: echo lint 2")
+  task_form.submit()
+  assert_truthy(task_form.get_winid() ~= nil, "empty name validation should keep task form open")
+  set_form_fields(form_buf, "Name: lint", "Command: echo lint 2")
+  task_form.submit()
+  assert_truthy(
+    task_form.get_winid() ~= nil,
+    "changing form contents after duplicate warning should require overwrite confirmation again"
+  )
+  assert_eq(
+    storage.get_task_cmd(workspace, "lint"),
+    "echo lint",
+    "duplicate overwrite confirmation should not persist before second submit"
+  )
+  task_form.submit()
+  assert_eq(task_form.get_winid(), nil, "second duplicate save should close task form")
+  assert_eq(
+    storage.get_task_cmd(workspace, "lint"),
+    "echo lint 2",
+    "second duplicate save should overwrite existing task"
+  )
+
+  tasks.set_definitions({})
+  assert_eq(tasks.has_definition("lint"), false, "set_definitions() should reset configured task definitions")
+  local hydrated_count = tasks.hydrate_workspace_tasks(workspace)
+  assert_eq(hydrated_count, 1, "hydrate_workspace_tasks() should add stored task definitions")
+  assert_truthy(tasks.has_definition("lint"), "hydration should restore workspace-created task")
 
   tasks.set_storage(storage)
   tasks.set_definitions({
@@ -87,7 +161,6 @@ local function run()
   )
 
   tasks.set_task_cmd("compile", { "echo", "override" })
-  local workspace = vim.fn.getcwd()
   assert_truthy(storage.get_task_cmd(workspace, "compile") ~= nil, "task override should persist")
 
   qck.clear_storage()
