@@ -110,6 +110,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - Floating window geometry is centralized in `lua/qck/layout.lua`; terminal and tabbar floats share one width/column calculation so the tabbar consumes space inside the original terminal footprint instead of extending it.
 - Shared terminal/tabbar layout reserves a two-column gap between the tabbar and terminal so both float borders remain visually distinct inside the original terminal footprint.
 - Shared terminal/tabbar layout targets a `90%` editor-width and `90%` editor-height footprint while keeping the tabbar inside that total size budget.
+- Shared terminal/tabbar centering is border-aware: when the available columns/lines leave an odd remainder, the visible bordered float footprint keeps the extra cell on the right/bottom instead of the left/top.
 - All plugin autocmds share a single `qck` augroup via `autocmd.lua`; modules track and delete autocmd ids for targeted cleanup.
 - When switching terminals, hiding the previous window (`toggle`) is safer than closing it (`close`), because closing may wipe the buffer and terminate the terminal job.
 - `noautocmd` is valid when creating the tab bar float (`nvim_open_win`), but must not be passed to `nvim_win_set_config` for an existing window.

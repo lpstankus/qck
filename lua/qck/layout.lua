@@ -4,6 +4,23 @@ local TABBAR_WIDTH = 6
 local WINDOW_GAP_WIDTH = 2
 local TERMINAL_WIDTH_RATIO = 0.9
 local TERMINAL_HEIGHT_RATIO = 0.9
+local FLOAT_BORDER_FOOTPRINT = 2
+
+---@param container integer
+---@param ratio number
+---@param min_size integer
+---@return integer
+local function scaled_size(container, ratio, min_size)
+  local target_size = math.ceil(container * ratio)
+  return math.min(container, math.max(min_size, target_size))
+end
+
+---@param container integer
+---@param size integer
+---@return integer
+local function centered_origin(container, size)
+  return math.max(0, math.floor((container - size) / 2))
+end
 
 ---@return integer
 function layout.get_tabbar_width()
@@ -18,21 +35,13 @@ end
 ---@return integer
 local function get_total_width()
   local editor_width = math.max(1, vim.o.columns)
-  local target_width = math.floor(editor_width * TERMINAL_WIDTH_RATIO)
-  return math.min(editor_width, math.max(TABBAR_WIDTH + WINDOW_GAP_WIDTH + 1, target_width))
+  return scaled_size(editor_width, TERMINAL_WIDTH_RATIO, TABBAR_WIDTH + WINDOW_GAP_WIDTH + 1)
 end
 
 ---@return integer
 local function get_total_height()
   local editor_height = math.max(1, vim.o.lines)
-  local target_height = math.floor(editor_height * TERMINAL_HEIGHT_RATIO)
-  return math.min(editor_height, math.max(1, target_height))
-end
-
----@param value any
----@return integer
-local function to_int(value)
-  return math.floor(tonumber(value) or 0)
+  return scaled_size(editor_height, TERMINAL_HEIGHT_RATIO, 1)
 end
 
 ---@param term_win integer
@@ -46,10 +55,11 @@ function layout.build_shared_float_configs(term_win)
   local total_width = get_total_width()
   local total_height = get_total_height()
   local terminal_width = math.max(1, total_width - TABBAR_WIDTH - WINDOW_GAP_WIDTH)
-  local base_col = math.max(0, math.floor((vim.o.columns - total_width) / 2))
-  local row = to_int(term_cfg.row)
+  local base_col = centered_origin(vim.o.columns, total_width + FLOAT_BORDER_FOOTPRINT)
+  local row = centered_origin(vim.o.lines, total_height + FLOAT_BORDER_FOOTPRINT)
 
   term_cfg.relative = "editor"
+  term_cfg.row = row
   term_cfg.col = base_col + TABBAR_WIDTH + WINDOW_GAP_WIDTH
   term_cfg.width = terminal_width
   term_cfg.height = total_height

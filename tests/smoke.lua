@@ -21,11 +21,11 @@ local function get_expected_layout(layout)
   local expected_gap_width = layout.get_window_gap_width()
   local expected_total_width = math.min(
     vim.o.columns,
-    math.max(expected_tabbar_width + expected_gap_width + 1, math.floor(vim.o.columns * 0.9))
+    math.max(expected_tabbar_width + expected_gap_width + 1, math.ceil(vim.o.columns * 0.9))
   )
   local expected_total_height = math.min(
     vim.o.lines,
-    math.max(1, math.floor(vim.o.lines * 0.9))
+    math.max(1, math.ceil(vim.o.lines * 0.9))
   )
 
   return {
@@ -65,11 +65,12 @@ end
 
 local function force_full_footprint_terminal(term_win)
   local term_cfg = vim.api.nvim_win_get_config(term_win)
-  local full_width = math.min(vim.o.columns, math.max(1, math.floor(vim.o.columns * 0.9)))
-  local full_height = math.min(vim.o.lines, math.max(1, math.floor(vim.o.lines * 0.9)))
+  local full_width = math.min(vim.o.columns, math.max(1, math.ceil(vim.o.columns * 0.9)))
+  local full_height = math.min(vim.o.lines, math.max(1, math.ceil(vim.o.lines * 0.9)))
 
   term_cfg.relative = "editor"
   term_cfg.col = math.max(0, math.floor((vim.o.columns - full_width) / 2))
+  term_cfg.row = math.max(0, math.floor((vim.o.lines - full_height) / 2))
   term_cfg.width = full_width
   term_cfg.height = full_height
 
@@ -102,13 +103,15 @@ local function assert_window_layout(
 )
   local term_cfg = vim.api.nvim_win_get_config(term_win)
   local tab_cfg = vim.api.nvim_win_get_config(tab_win)
+  local border_footprint = 2
   local term_col = to_int(term_cfg.col)
   local tab_col = to_int(tab_cfg.col)
   local term_width = vim.api.nvim_win_get_width(term_win)
   local tab_width = vim.api.nvim_win_get_width(tab_win)
   local term_height = vim.api.nvim_win_get_height(term_win)
   local tab_height = vim.api.nvim_win_get_height(tab_win)
-  local expected_base_col = math.max(0, math.floor((vim.o.columns - expected_total_width) / 2))
+  local expected_base_col = math.max(0, math.floor((vim.o.columns - (expected_total_width + border_footprint)) / 2))
+  local expected_base_row = math.max(0, math.floor((vim.o.lines - (expected_total_height + border_footprint)) / 2))
 
   assert_eq(tab_width, expected_tabbar_width, msg_prefix .. ": tabbar width should match shared width")
   assert_eq(
@@ -122,6 +125,8 @@ local function assert_window_layout(
     expected_base_col + expected_tabbar_width + expected_gap_width,
     msg_prefix .. ": terminal should shift right by tabbar width and gap"
   )
+  assert_eq(to_int(tab_cfg.row), expected_base_row, msg_prefix .. ": tabbar should anchor to the footprint top edge")
+  assert_eq(to_int(term_cfg.row), expected_base_row, msg_prefix .. ": terminal should share the footprint top edge")
   assert_eq(term_col - (tab_col + tab_width), expected_gap_width, msg_prefix .. ": tabbar gap should match configured spacing")
   assert_eq(
     term_width + tab_width + expected_gap_width,
@@ -130,6 +135,16 @@ local function assert_window_layout(
   )
   assert_eq(term_height, expected_total_height, msg_prefix .. ": terminal height should match shared height")
   assert_eq(tab_height, expected_total_height, msg_prefix .. ": tabbar height should match shared height")
+  assert_eq(
+    vim.o.columns - (tab_col + expected_total_width + border_footprint),
+    vim.o.columns - (expected_total_width + border_footprint) - expected_base_col,
+    msg_prefix .. ": horizontal remainder should stay on the right"
+  )
+  assert_eq(
+    vim.o.lines - (to_int(tab_cfg.row) + expected_total_height + border_footprint),
+    vim.o.lines - (expected_total_height + border_footprint) - expected_base_row,
+    msg_prefix .. ": vertical remainder should stay on the bottom"
+  )
 end
 
 local function write_storage(data)
@@ -351,6 +366,26 @@ local function run()
 
   cleanup_terminals(terminal, state, tabbar)
 
+  set_editor_size(101, 45)
+  expected_layout = get_expected_layout(layout)
+  qck.new()
+  local odd_id = state.get_current_id()
+  local odd_rec = state.get_terminal(odd_id)
+  local odd_tab_win = tabbar.get_winid()
+  assert_truthy(odd_rec and odd_rec.win and odd_rec.win.win, "odd-dimension layout should create terminal window")
+  assert_truthy(type(odd_tab_win) == "number", "odd-dimension layout should create tabbar window")
+  assert_window_layout(
+    odd_rec.win.win,
+    odd_tab_win,
+    expected_layout.total_width,
+    expected_layout.total_height,
+    expected_layout.tabbar_width,
+    expected_layout.gap_width,
+    "odd-dimension layout"
+  )
+
+  cleanup_terminals(terminal, state, tabbar)
+
   local function assert_resize_persists_geometry(start_columns, start_lines, end_columns, end_lines, msg_prefix)
     set_editor_size(start_columns, start_lines)
     qck.new()
@@ -370,7 +405,10 @@ local function run()
     local expected_after_resize = get_expected_layout(layout)
     assert_truthy(
       bad_snapshot.term_width ~= expected_after_resize.total_width - expected_after_resize.tabbar_width - expected_after_resize.gap_width
-          or bad_snapshot.term_col ~= math.max(0, math.floor((vim.o.columns - expected_after_resize.total_width) / 2))
+          or bad_snapshot.term_col ~= math.max(
+            0,
+            math.floor((vim.o.columns - (expected_after_resize.total_width + 2)) / 2)
+          )
               + expected_after_resize.tabbar_width + expected_after_resize.gap_width,
       msg_prefix .. ": simulated resize bug should produce a different terminal footprint before deferred repair"
     )
