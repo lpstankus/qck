@@ -2,7 +2,8 @@ local layout = {}
 
 local TABBAR_WIDTH = 6
 local WINDOW_GAP_WIDTH = 2
-local TERMINAL_WIDTH_RATIO = 0.8
+local TERMINAL_WIDTH_RATIO = 0.9
+local TERMINAL_HEIGHT_RATIO = 0.9
 
 ---@return integer
 function layout.get_tabbar_width()
@@ -21,6 +22,13 @@ local function get_total_width()
   return math.min(editor_width, math.max(TABBAR_WIDTH + WINDOW_GAP_WIDTH + 1, target_width))
 end
 
+---@return integer
+local function get_total_height()
+  local editor_height = math.max(1, vim.o.lines)
+  local target_height = math.floor(editor_height * TERMINAL_HEIGHT_RATIO)
+  return math.min(editor_height, math.max(1, target_height))
+end
+
 ---@param value any
 ---@return integer
 local function to_int(value)
@@ -35,8 +43,8 @@ function layout.build_shared_float_configs(term_win)
   end
 
   local term_cfg = vim.api.nvim_win_get_config(term_win)
-  local term_height = vim.api.nvim_win_get_height(term_win)
   local total_width = get_total_width()
+  local total_height = get_total_height()
   local terminal_width = math.max(1, total_width - TABBAR_WIDTH - WINDOW_GAP_WIDTH)
   local base_col = math.max(0, math.floor((vim.o.columns - total_width) / 2))
   local row = to_int(term_cfg.row)
@@ -44,6 +52,7 @@ function layout.build_shared_float_configs(term_win)
   term_cfg.relative = "editor"
   term_cfg.col = base_col + TABBAR_WIDTH + WINDOW_GAP_WIDTH
   term_cfg.width = terminal_width
+  term_cfg.height = total_height
 
   return {
     terminal = term_cfg,
@@ -52,7 +61,7 @@ function layout.build_shared_float_configs(term_win)
       row = row,
       col = base_col,
       width = TABBAR_WIDTH,
-      height = term_height,
+      height = total_height,
       style = "minimal",
       border = "single",
       focusable = true,

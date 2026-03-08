@@ -16,13 +16,23 @@ local function to_int(value)
   return math.floor(tonumber(value) or 0)
 end
 
-local function assert_window_layout(term_win, tab_win, expected_total_width, expected_tabbar_width, expected_gap_width, msg_prefix)
+local function assert_window_layout(
+  term_win,
+  tab_win,
+  expected_total_width,
+  expected_total_height,
+  expected_tabbar_width,
+  expected_gap_width,
+  msg_prefix
+)
   local term_cfg = vim.api.nvim_win_get_config(term_win)
   local tab_cfg = vim.api.nvim_win_get_config(tab_win)
   local term_col = to_int(term_cfg.col)
   local tab_col = to_int(tab_cfg.col)
   local term_width = vim.api.nvim_win_get_width(term_win)
   local tab_width = vim.api.nvim_win_get_width(tab_win)
+  local term_height = vim.api.nvim_win_get_height(term_win)
+  local tab_height = vim.api.nvim_win_get_height(tab_win)
   local expected_base_col = math.max(0, math.floor((vim.o.columns - expected_total_width) / 2))
 
   assert_eq(tab_width, expected_tabbar_width, msg_prefix .. ": tabbar width should match shared width")
@@ -43,6 +53,8 @@ local function assert_window_layout(term_win, tab_win, expected_total_width, exp
     expected_total_width,
     msg_prefix .. ": combined width plus gap should match the terminal footprint"
   )
+  assert_eq(term_height, expected_total_height, msg_prefix .. ": terminal height should match shared height")
+  assert_eq(tab_height, expected_total_height, msg_prefix .. ": tabbar height should match shared height")
 end
 
 local function write_storage(data)
@@ -87,7 +99,11 @@ local function run()
   local expected_gap_width = layout.get_window_gap_width()
   local expected_total_width = math.min(
     vim.o.columns,
-    math.max(expected_tabbar_width + expected_gap_width + 1, math.floor(vim.o.columns * 0.8))
+    math.max(expected_tabbar_width + expected_gap_width + 1, math.floor(vim.o.columns * 0.9))
+  )
+  local expected_total_height = math.min(
+    vim.o.lines,
+    math.max(1, math.floor(vim.o.lines * 0.9))
   )
 
   qck.setup()
@@ -164,6 +180,7 @@ local function run()
     default_rec.win.win,
     tabbar.get_winid(),
     expected_total_width,
+    expected_total_height,
     expected_tabbar_width,
     expected_gap_width,
     "new() layout"
@@ -210,6 +227,7 @@ local function run()
     reopened_compile_rec.win.win,
     tabbar.get_winid(),
     expected_total_width,
+    expected_total_height,
     expected_tabbar_width,
     expected_gap_width,
     "toggle() reopen layout"
@@ -258,6 +276,7 @@ local function run()
     reopened_by_open.win.win,
     tabbar.get_winid(),
     expected_total_width,
+    expected_total_height,
     expected_tabbar_width,
     expected_gap_width,
     "open(id) reopen layout"
