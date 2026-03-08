@@ -2,7 +2,30 @@ local M = {}
 
 local handles = {}
 
-local function create_handle(id, cmd)
+---@param win_opts table|nil
+---@return vim.api.keyset.win_config
+local function normalize_win_config(id, win_opts)
+  local conf = vim.tbl_extend("force", {
+    relative = "editor",
+    row = 1,
+    col = math.max(1, id * 2),
+    width = 40,
+    height = 10,
+    style = "minimal",
+    border = "single",
+    focusable = true,
+  }, win_opts or {})
+
+  conf.row = math.floor(tonumber(conf.row) or 1)
+  conf.col = math.floor(tonumber(conf.col) or math.max(1, id * 2))
+  conf.width = math.max(1, math.floor(tonumber(conf.width) or 40))
+  conf.height = math.max(1, math.floor(tonumber(conf.height) or 10))
+  conf.position = nil
+  conf.noautocmd = true
+  return conf
+end
+
+local function create_handle(id, cmd, win_opts)
   local buf = vim.api.nvim_create_buf(false, true)
   local lines = {}
   if type(cmd) == "string" then
@@ -14,18 +37,10 @@ local function create_handle(id, cmd)
   end
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
 
+  local win_config = normalize_win_config(id, win_opts)
+
   local function open_win()
-    return vim.api.nvim_open_win(buf, false, {
-      relative = "editor",
-      row = 1,
-      col = math.max(1, id * 2),
-      width = 40,
-      height = 10,
-      style = "minimal",
-      border = "single",
-      focusable = true,
-      noautocmd = true,
-    })
+    return vim.api.nvim_open_win(buf, false, vim.deepcopy(win_config))
   end
 
   local handle = {
@@ -92,7 +107,8 @@ function M.install()
     terminal = {
       open = function(cmd, opts)
         local id = type(opts) == "table" and opts.count or 1
-        local handle = create_handle(id, cmd)
+        local win_opts = type(opts) == "table" and opts.win or nil
+        local handle = create_handle(id, cmd, win_opts)
         handles[id] = handle
         return handle
       end,

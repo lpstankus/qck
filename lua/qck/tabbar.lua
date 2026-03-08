@@ -1,10 +1,10 @@
 local state = require("qck.state")
 local autocmd = require("qck.autocmd")
 local mappings = require("qck.mappings")
+local layout = require("qck.layout")
 
 local tabbar = {}
 
-local TABBAR_WIDTH = 6
 local ns = vim.api.nvim_create_namespace("qck_tabbar")
 vim.api.nvim_set_hl(0, "QckTabbarCurrent", { reverse = true, default = true })
 
@@ -577,21 +577,8 @@ end
 ---@param term_win integer
 ---@return table
 local function build_tabbar_window_config(term_win)
-  local cfg = vim.api.nvim_win_get_config(term_win)
-  local term_row = math.floor(tonumber(cfg.row) or 0)
-  local term_col = math.floor(tonumber(cfg.col) or 0)
-  local term_height = vim.api.nvim_win_get_height(term_win)
-
-  return {
-    relative = "editor",
-    row = term_row,
-    col = math.max(0, term_col - TABBAR_WIDTH - 2),
-    width = TABBAR_WIDTH,
-    height = term_height,
-    style = "minimal",
-    border = "single",
-    focusable = true,
-  }
+  local shared_cfg = layout.build_shared_float_configs(term_win)
+  return shared_cfg and shared_cfg.tabbar or nil
 end
 
 ---@param buf integer
@@ -625,6 +612,10 @@ function tabbar.show_for_terminal(rec, current_id)
   watch_terminal_win(term_win)
 
   local conf = build_tabbar_window_config(term_win)
+  if not conf then
+    tabbar.hide()
+    return
+  end
   local buf = ensure_buffer()
 
   ensure_tabbar_window(buf, conf)

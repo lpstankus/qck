@@ -11,6 +11,7 @@ This repository is a Neovim plugin written in Lua.
 - `lua/qck/state.lua`: terminal registry and current-id/cycling state plus terminal record/window validity helpers.
 - `lua/qck/autocmd.lua`: shared plugin autocmd wrapper exposing a single `qck` augroup.
 - `lua/qck/terminal.lua`: terminal lifecycle orchestration over `snacks.terminal`.
+- `lua/qck/layout.lua`: shared floating terminal/tabbar layout calculations.
 - `lua/qck/tabbar.lua`: floating vertical tab bar that renders live terminal ids.
 - `lua/qck/task_form.lua`: floating task-creation form UI (name/cmd fields, Tab cycling, overwrite confirmation, workspace save).
 - `lua/qck/types.lua`: shared EmmyLua type aliases/classes.
@@ -56,7 +57,8 @@ Minimal automated smoke coverage is available under `tests/`. Validate changes w
 5. Multi-terminal visibility checks:
    - creating/opening a different terminal should hide the previously visible terminal window,
    - `toggle` should affect only the current terminal visibility,
-   - moving focus to a non-qck window (for example `<C-w>h`) should hide qck terminal and tabbar windows.
+   - moving focus to a non-qck window (for example `<C-w>h`) should hide qck terminal and tabbar windows,
+   - terminal width should shrink by the tabbar width and shift right so the combined terminal+tabbar footprint matches the original terminal float footprint.
 6. Tab bar checks:
    - opens/closes with the visible terminal window,
    - closes when the terminal window is closed manually (for example `:q`),
@@ -103,6 +105,8 @@ Additional tests should be placed under `tests/` and documented in this section.
 - Command normalization/cloning/validation is centralized in `lua/qck/cmd.lua` and reused by `init.lua`, `tasks.lua`, and `storage.lua`.
 - Mapping-state diff/cleanup helpers are centralized in `lua/qck/mappings.lua` and reused by both terminal and tabbar mapping application paths.
 - Tab bar lifecycle is synchronized from `terminal.lua` and reinforced by a `WinClosed` autocmd watcher in `tabbar.lua`.
+- Floating window geometry is centralized in `lua/qck/layout.lua`; terminal and tabbar floats share one width/column calculation so the tabbar consumes space inside the original terminal footprint instead of extending it.
+- Shared terminal/tabbar layout reserves a two-column gap between the tabbar and terminal so both float borders remain visually distinct inside the original terminal footprint.
 - All plugin autocmds share a single `qck` augroup via `autocmd.lua`; modules track and delete autocmd ids for targeted cleanup.
 - When switching terminals, hiding the previous window (`toggle`) is safer than closing it (`close`), because closing may wipe the buffer and terminate the terminal job.
 - `noautocmd` is valid when creating the tab bar float (`nvim_open_win`), but must not be passed to `nvim_win_set_config` for an existing window.

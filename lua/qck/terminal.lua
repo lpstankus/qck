@@ -1,6 +1,7 @@
 local state = require("qck.state")
 local tabbar = require("qck.tabbar")
 local mappings = require("qck.mappings")
+local layout = require("qck.layout")
 
 local terminal = {}
 
@@ -199,6 +200,31 @@ local function terminal_winid(rec)
   end
 
   return nil
+end
+
+---@param rec qck.TerminalRecord|nil
+---@return boolean
+local function apply_terminal_layout(rec)
+  local winid = terminal_winid(rec)
+  if not winid then
+    return false
+  end
+
+  local shared_cfg = layout.build_shared_float_configs(winid)
+  if not shared_cfg then
+    return false
+  end
+
+  local ok, err = pcall(vim.api.nvim_win_set_config, winid, shared_cfg.terminal)
+  if not ok then
+    notify(
+      ("failed to update terminal layout: %s"):format(tostring(err)),
+      vim.log.levels.ERROR
+    )
+    return false
+  end
+
+  return true
 end
 
 ---@param mode string|nil
@@ -541,6 +567,7 @@ function terminal.create(id, opts)
   end
 
   state.set_terminal(id, rec)
+  apply_terminal_layout(rec)
   if previous_visible_id then
     hide_window_if_open(previous_visible_id)
   end
@@ -607,6 +634,8 @@ function terminal.open(id, opts)
       return nil
     end
   end
+
+  apply_terminal_layout(rec)
 
   if previous_visible_id then
     hide_window_if_open(previous_visible_id)
@@ -687,6 +716,7 @@ function terminal.toggle(id)
 
   state.set_current_id(id)
   if state.is_window_open(rec) then
+    apply_terminal_layout(rec)
     tabbar.sync(rec, id)
   else
     tabbar.hide()

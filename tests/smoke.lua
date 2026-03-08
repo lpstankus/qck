@@ -12,6 +12,39 @@ local function assert_truthy(value, msg)
   end
 end
 
+local function to_int(value)
+  return math.floor(tonumber(value) or 0)
+end
+
+local function assert_window_layout(term_win, tab_win, expected_total_width, expected_tabbar_width, expected_gap_width, msg_prefix)
+  local term_cfg = vim.api.nvim_win_get_config(term_win)
+  local tab_cfg = vim.api.nvim_win_get_config(tab_win)
+  local term_col = to_int(term_cfg.col)
+  local tab_col = to_int(tab_cfg.col)
+  local term_width = vim.api.nvim_win_get_width(term_win)
+  local tab_width = vim.api.nvim_win_get_width(tab_win)
+  local expected_base_col = math.max(0, math.floor((vim.o.columns - expected_total_width) / 2))
+
+  assert_eq(tab_width, expected_tabbar_width, msg_prefix .. ": tabbar width should match shared width")
+  assert_eq(
+    term_width,
+    expected_total_width - expected_tabbar_width - expected_gap_width,
+    msg_prefix .. ": terminal width should shrink by tabbar width and gap"
+  )
+  assert_eq(tab_col, expected_base_col, msg_prefix .. ": tabbar should anchor to the footprint left edge")
+  assert_eq(
+    term_col,
+    expected_base_col + expected_tabbar_width + expected_gap_width,
+    msg_prefix .. ": terminal should shift right by tabbar width and gap"
+  )
+  assert_eq(term_col - (tab_col + tab_width), expected_gap_width, msg_prefix .. ": tabbar gap should match configured spacing")
+  assert_eq(
+    term_width + tab_width + expected_gap_width,
+    expected_total_width,
+    msg_prefix .. ": combined width plus gap should match the terminal footprint"
+  )
+end
+
 local function write_storage(data)
   local path = vim.fn.stdpath("data") .. "/qck.json"
   vim.fn.writefile({ vim.json.encode(data) }, path)
@@ -47,7 +80,15 @@ local function run()
   local tasks = require("qck.tasks")
   local storage = require("qck.storage")
   local task_form = require("qck.task_form")
+  local tabbar = require("qck.tabbar")
+  local layout = require("qck.layout")
   local workspace = vim.fn.getcwd()
+  local expected_tabbar_width = layout.get_tabbar_width()
+  local expected_gap_width = layout.get_window_gap_width()
+  local expected_total_width = math.min(
+    vim.o.columns,
+    math.max(expected_tabbar_width + expected_gap_width + 1, math.floor(vim.o.columns * 0.8))
+  )
 
   qck.setup()
 
@@ -117,6 +158,16 @@ local function run()
   assert_eq(#state.live_ids(), 1, "new() should create one terminal")
   assert_eq(state.get_current_id(), 1, "new() should set current id")
   assert_eq(state.is_task(1), false, "new() terminal should be default kind")
+  local default_rec = state.get_terminal(1)
+  assert_truthy(default_rec and default_rec.win and default_rec.win.win, "new() should create a terminal window")
+  assert_window_layout(
+    default_rec.win.win,
+    tabbar.get_winid(),
+    expected_total_width,
+    expected_tabbar_width,
+    expected_gap_width,
+    "new() layout"
+  )
 
   tasks.run("compile")
   local compile_id = tasks.get_running_id("compile")
@@ -153,6 +204,16 @@ local function run()
     state.is_window_open(state.get_terminal(restarted_compile_id)),
     "toggle() should re-open current terminal window"
   )
+  local reopened_compile_rec = state.get_terminal(restarted_compile_id)
+  assert_truthy(reopened_compile_rec and reopened_compile_rec.win and reopened_compile_rec.win.win, "toggle() should reopen terminal window")
+  assert_window_layout(
+    reopened_compile_rec.win.win,
+    tabbar.get_winid(),
+    expected_total_width,
+    expected_tabbar_width,
+    expected_gap_width,
+    "toggle() reopen layout"
+  )
 
   tasks.kill("server")
   assert(
@@ -183,6 +244,24 @@ local function run()
   qck.clear_storage()
   local ok_after_repair = storage.load()
   assert_truthy(ok_after_repair, "clear_storage() should restore valid storage state")
+
+  qck.open(restarted_compile_id)
+  qck.toggle()
+  assert(
+    not state.is_window_open(state.get_terminal(restarted_compile_id)),
+    "toggle() should hide the current terminal window before reopen-by-open coverage"
+  )
+  qck.open(restarted_compile_id)
+  local reopened_by_open = state.get_terminal(restarted_compile_id)
+  assert_truthy(reopened_by_open and reopened_by_open.win and reopened_by_open.win.win, "open(id) should reopen hidden terminal")
+  assert_window_layout(
+    reopened_by_open.win.win,
+    tabbar.get_winid(),
+    expected_total_width,
+    expected_tabbar_width,
+    expected_gap_width,
+    "open(id) reopen layout"
+  )
 
   qck.close(restarted_compile_id)
   assert(state.get_terminal(restarted_compile_id) == nil, "close(id) should remove terminal record")
