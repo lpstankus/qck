@@ -27,6 +27,7 @@ local function notify(msg, level)
 end
 
 local focus_cleanup_in_progress = false
+local resize_refresh_pending = false
 
 ---@param id number
 ---@return boolean
@@ -253,6 +254,20 @@ end
 
 autocmd.create({ "WinEnter", "BufEnter", "TabEnter" }, {
   callback = hide_if_focus_left_qck_windows,
+})
+
+autocmd.create("VimResized", {
+  callback = function()
+    if resize_refresh_pending then
+      return
+    end
+
+    resize_refresh_pending = true
+    vim.schedule(function()
+      resize_refresh_pending = false
+      terminal.refresh_current_layout()
+    end)
+  end,
 })
 
 ---@alias qck.MappingMode "n"|"t"

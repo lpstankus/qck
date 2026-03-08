@@ -16,6 +16,81 @@ local function to_int(value)
   return math.floor(tonumber(value) or 0)
 end
 
+local function get_expected_layout(layout)
+  local expected_tabbar_width = layout.get_tabbar_width()
+  local expected_gap_width = layout.get_window_gap_width()
+  local expected_total_width = math.min(
+    vim.o.columns,
+    math.max(expected_tabbar_width + expected_gap_width + 1, math.floor(vim.o.columns * 0.9))
+  )
+  local expected_total_height = math.min(
+    vim.o.lines,
+    math.max(1, math.floor(vim.o.lines * 0.9))
+  )
+
+  return {
+    tabbar_width = expected_tabbar_width,
+    gap_width = expected_gap_width,
+    total_width = expected_total_width,
+    total_height = expected_total_height,
+  }
+end
+
+local function capture_window_layout(term_win, tab_win)
+  local term_cfg = vim.api.nvim_win_get_config(term_win)
+  local tab_cfg = vim.api.nvim_win_get_config(tab_win)
+
+  return {
+    term_row = to_int(term_cfg.row),
+    term_col = to_int(term_cfg.col),
+    term_width = vim.api.nvim_win_get_width(term_win),
+    term_height = vim.api.nvim_win_get_height(term_win),
+    tab_row = to_int(tab_cfg.row),
+    tab_col = to_int(tab_cfg.col),
+    tab_width = vim.api.nvim_win_get_width(tab_win),
+    tab_height = vim.api.nvim_win_get_height(tab_win),
+  }
+end
+
+local function assert_layout_snapshot_eq(actual, expected, msg_prefix)
+  assert_eq(actual.term_row, expected.term_row, msg_prefix .. ": terminal row should stay stable")
+  assert_eq(actual.term_col, expected.term_col, msg_prefix .. ": terminal col should stay stable")
+  assert_eq(actual.term_width, expected.term_width, msg_prefix .. ": terminal width should stay stable")
+  assert_eq(actual.term_height, expected.term_height, msg_prefix .. ": terminal height should stay stable")
+  assert_eq(actual.tab_row, expected.tab_row, msg_prefix .. ": tabbar row should stay stable")
+  assert_eq(actual.tab_col, expected.tab_col, msg_prefix .. ": tabbar col should stay stable")
+  assert_eq(actual.tab_width, expected.tab_width, msg_prefix .. ": tabbar width should stay stable")
+  assert_eq(actual.tab_height, expected.tab_height, msg_prefix .. ": tabbar height should stay stable")
+end
+
+local function force_full_footprint_terminal(term_win)
+  local term_cfg = vim.api.nvim_win_get_config(term_win)
+  local full_width = math.min(vim.o.columns, math.max(1, math.floor(vim.o.columns * 0.9)))
+  local full_height = math.min(vim.o.lines, math.max(1, math.floor(vim.o.lines * 0.9)))
+
+  term_cfg.relative = "editor"
+  term_cfg.col = math.max(0, math.floor((vim.o.columns - full_width) / 2))
+  term_cfg.width = full_width
+  term_cfg.height = full_height
+
+  vim.api.nvim_win_set_config(term_win, term_cfg)
+end
+
+local function set_editor_size(columns, lines)
+  vim.o.columns = columns
+  vim.o.lines = lines
+  vim.api.nvim_exec_autocmds("VimResized", {})
+  vim.wait(20, function() return false end)
+end
+
+local function cleanup_terminals(terminal, state, tabbar)
+  local ids = state.live_ids()
+  for _, id in ipairs(ids) do
+    terminal.delete(id)
+  end
+  tabbar.hide()
+end
+
 local function assert_window_layout(
   term_win,
   tab_win,
@@ -89,22 +164,14 @@ local function run()
 
   local qck = require("qck")
   local state = require("qck.state")
+  local terminal = require("qck.terminal")
   local tasks = require("qck.tasks")
   local storage = require("qck.storage")
   local task_form = require("qck.task_form")
   local tabbar = require("qck.tabbar")
   local layout = require("qck.layout")
   local workspace = vim.fn.getcwd()
-  local expected_tabbar_width = layout.get_tabbar_width()
-  local expected_gap_width = layout.get_window_gap_width()
-  local expected_total_width = math.min(
-    vim.o.columns,
-    math.max(expected_tabbar_width + expected_gap_width + 1, math.floor(vim.o.columns * 0.9))
-  )
-  local expected_total_height = math.min(
-    vim.o.lines,
-    math.max(1, math.floor(vim.o.lines * 0.9))
-  )
+  local expected_layout = get_expected_layout(layout)
 
   qck.setup()
 
@@ -179,10 +246,10 @@ local function run()
   assert_window_layout(
     default_rec.win.win,
     tabbar.get_winid(),
-    expected_total_width,
-    expected_total_height,
-    expected_tabbar_width,
-    expected_gap_width,
+    expected_layout.total_width,
+    expected_layout.total_height,
+    expected_layout.tabbar_width,
+    expected_layout.gap_width,
     "new() layout"
   )
 
@@ -226,10 +293,10 @@ local function run()
   assert_window_layout(
     reopened_compile_rec.win.win,
     tabbar.get_winid(),
-    expected_total_width,
-    expected_total_height,
-    expected_tabbar_width,
-    expected_gap_width,
+    expected_layout.total_width,
+    expected_layout.total_height,
+    expected_layout.tabbar_width,
+    expected_layout.gap_width,
     "toggle() reopen layout"
   )
 
@@ -275,15 +342,79 @@ local function run()
   assert_window_layout(
     reopened_by_open.win.win,
     tabbar.get_winid(),
-    expected_total_width,
-    expected_total_height,
-    expected_tabbar_width,
-    expected_gap_width,
+    expected_layout.total_width,
+    expected_layout.total_height,
+    expected_layout.tabbar_width,
+    expected_layout.gap_width,
     "open(id) reopen layout"
   )
 
-  qck.close(restarted_compile_id)
-  assert(state.get_terminal(restarted_compile_id) == nil, "close(id) should remove terminal record")
+  cleanup_terminals(terminal, state, tabbar)
+
+  local function assert_resize_persists_geometry(start_columns, start_lines, end_columns, end_lines, msg_prefix)
+    set_editor_size(start_columns, start_lines)
+    qck.new()
+
+    local current_id = state.get_current_id()
+    local rec = state.get_terminal(current_id)
+    local tab_win = tabbar.get_winid()
+    assert_truthy(rec and rec.win and rec.win.win, msg_prefix .. ": resize case should create terminal window")
+    assert_truthy(type(tab_win) == "number", msg_prefix .. ": resize case should create tabbar window")
+
+    vim.o.columns = end_columns
+    vim.o.lines = end_lines
+    vim.api.nvim_exec_autocmds("VimResized", {})
+    force_full_footprint_terminal(rec.win.win)
+
+    local bad_snapshot = capture_window_layout(rec.win.win, tab_win)
+    local expected_after_resize = get_expected_layout(layout)
+    assert_truthy(
+      bad_snapshot.term_width ~= expected_after_resize.total_width - expected_after_resize.tabbar_width - expected_after_resize.gap_width
+          or bad_snapshot.term_col ~= math.max(0, math.floor((vim.o.columns - expected_after_resize.total_width) / 2))
+              + expected_after_resize.tabbar_width + expected_after_resize.gap_width,
+      msg_prefix .. ": simulated resize bug should produce a different terminal footprint before deferred repair"
+    )
+
+    vim.wait(20, function() return false end)
+
+    rec = state.get_terminal(current_id)
+    tab_win = tabbar.get_winid()
+    assert_truthy(rec and rec.win and rec.win.win, msg_prefix .. ": resize case should keep terminal window open after deferred repair")
+    assert_truthy(type(tab_win) == "number", msg_prefix .. ": resize case should keep tabbar window open after deferred repair")
+
+    local expected = get_expected_layout(layout)
+    assert_window_layout(
+      rec.win.win,
+      tab_win,
+      expected.total_width,
+      expected.total_height,
+      expected.tabbar_width,
+      expected.gap_width,
+      msg_prefix
+    )
+
+    local resized_snapshot = capture_window_layout(rec.win.win, tab_win)
+
+    qck.toggle()
+    assert_truthy(not state.is_window_open(rec), msg_prefix .. ": toggle should hide the resized terminal")
+
+    qck.open(current_id)
+
+    local reopened_rec = state.get_terminal(current_id)
+    local reopened_tab_win = tabbar.get_winid()
+    assert_truthy(reopened_rec and reopened_rec.win and reopened_rec.win.win, msg_prefix .. ": reopen should restore terminal window")
+    assert_truthy(type(reopened_tab_win) == "number", msg_prefix .. ": reopen should restore tabbar window")
+    assert_layout_snapshot_eq(
+      capture_window_layout(reopened_rec.win.win, reopened_tab_win),
+      resized_snapshot,
+      msg_prefix
+    )
+
+    cleanup_terminals(terminal, state, tabbar)
+  end
+
+  assert_resize_persists_geometry(80, 30, 160, 50, "resize small-to-large")
+  assert_resize_persists_geometry(160, 50, 80, 30, "resize large-to-small")
 
   mock_snacks.reset()
 end

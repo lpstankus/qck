@@ -58,7 +58,9 @@ Minimal automated smoke coverage is available under `tests/`. Validate changes w
    - creating/opening a different terminal should hide the previously visible terminal window,
    - `toggle` should affect only the current terminal visibility,
    - moving focus to a non-qck window (for example `<C-w>h`) should hide qck terminal and tabbar windows,
-   - terminal width should shrink by the tabbar width and shift right so the combined terminal+tabbar footprint matches the original terminal float footprint.
+   - terminal width should shrink by the tabbar width and shift right so the combined terminal+tabbar footprint matches the original terminal float footprint,
+   - resizing from small -> large and from large -> small should preserve qck terminal/tabbar geometry when the resized terminal is hidden and reopened,
+   - resize regression coverage should simulate the observed failure mode where the terminal temporarily expands to the full 90% footprint and covers the tabbar area before deferred qck layout repair runs.
 6. Tab bar checks:
    - opens/closes with the visible terminal window,
    - closes when the terminal window is closed manually (for example `:q`),
@@ -148,9 +150,11 @@ Additional tests should be placed under `tests/` and documented in this section.
 - Tabbar watches its own `WinClosed` event; manual tabbar closes trigger hiding the current terminal window while internal tabbar closes suppress this action.
 - `init.lua` wires tabbar actions (`open`, `delete`, `move_up`, `move_down`, `close_current`, `focus_current`) to terminal behavior; `close_current` delegates to `terminal.hide_current_if_open()` to avoid wiping terminal buffers/jobs.
 - `init.lua` installs a global focus watcher (`WinEnter`, `BufEnter`, `TabEnter`) that hides qck terminal and tabbar windows when focus leaves both qck windows (for example navigating with `<C-w>h`).
+- `init.lua` installs a deferred `VimResized` watcher that reapplies the shared qck terminal/tabbar layout for the current visible terminal after resize-driven float updates settle.
 - `init.lua` resolves `open(id?)` / `close(id?)` target ids through shared helpers to avoid duplicated id-validation and fallback logic.
 - Visual labels are UI-only; public APIs (`open`, `close`, `toggle`) operate on internal numeric ids.
 - `terminal.open(id, opts?)` and `terminal.create(id, opts?)` accept internal `opts.preserve_mode` and restore normal mode after switching/creating when requested.
+- `terminal.refresh_current_layout()` reapplies shared geometry to the current visible qck terminal and resyncs the tabbar; hidden terminals are laid out when reopened.
 - `qck.cycle_next()` / `qck.cycle_prev()` request mode preservation; `qck.new()` requests it only when a qck terminal window is currently open.
 
 ## Commit & Pull Request Guidelines

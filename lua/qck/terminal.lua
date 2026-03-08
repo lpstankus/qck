@@ -462,6 +462,24 @@ local function sync_tabbar_for_current()
   tabbar.sync(current_rec, current_id)
 end
 
+---@return nil
+function terminal.refresh_current_layout()
+  local current_id = state.get_current_id()
+  if not current_id then
+    tabbar.hide()
+    return
+  end
+
+  local current_rec = state.get_terminal(current_id)
+  if not state.is_window_open(current_rec) then
+    tabbar.hide()
+    return
+  end
+
+  apply_terminal_layout(current_rec)
+  tabbar.sync(current_rec, current_id)
+end
+
 ---@param id integer
 ---@return nil
 local function hide_window_if_open(id)
