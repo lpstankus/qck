@@ -2,19 +2,13 @@ local tasks = {}
 local state = require("qck.state")
 local terminal = require("qck.terminal")
 local cmd_util = require("qck.cmd")
+local notify = require("qck.helpers").notify
 
 local default_storage = require("qck.storage")
 
 local configured_tasks = {}
 local temp_task_cmds = {}
 local storage = default_storage
-
----@param msg string
----@param level integer|nil
----@return nil
-local function notify(msg, level)
-  vim.notify("QCK: " .. msg, level or vim.log.levels.INFO)
-end
 
 ---@return string
 local function current_workspace()

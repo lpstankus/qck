@@ -18,7 +18,7 @@ local terminal_hook_bufnrs = {}
 ---@param level integer|nil
 ---@return nil
 local function notify(msg, level)
-  vim.notify("QCK: " .. msg, level or vim.log.levels.INFO)
+  return require("qck.helpers").notify(msg, level)
 end
 
 ---@param rec qck.TerminalRecord|nil

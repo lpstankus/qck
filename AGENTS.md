@@ -7,6 +7,7 @@ This repository is a Neovim plugin written in Lua.
 - `lua/qck/tasks.lua`: internal task registry and orchestration (task-type lifecycle, one-instance-per-type enforcement, effective command resolution).
 - `lua/qck/storage.lua`: workspace-persistent storage for task command overrides and workspace-created task definitions.
 - `lua/qck/cmd.lua`: shared command normalization/cloning/validation helpers (`string` or string-list commands).
+- `lua/qck/helpers.lua`: shared init-level helpers for notifications, API arg/mapping parsing, target-id resolution, and global qck/tabbar autocmd wiring.
 - `lua/qck/mappings.lua`: shared mapping state helpers for tracking/removing user-configured buffer mappings.
 - `lua/qck/state.lua`: terminal registry and current-id/cycling state plus terminal record/window validity helpers.
 - `lua/qck/autocmd.lua`: shared plugin autocmd wrapper exposing a single `qck` augroup.
@@ -104,7 +105,9 @@ Additional tests should be placed under `tests/` and documented in this section.
 - Storage loading is fail-fast on unsupported/invalid schema and does not mutate files automatically.
 - `qck.clear_storage()` is the explicit user-triggered storage reset entrypoint for current workspace state.
 - Shared EmmyLua type aliases/classes live in `lua/qck/types.lua`, and module annotations use these types to tighten internal contracts for LuaLS.
+- `lua/qck/init.lua` is limited to the public API surface plus imports; init-only helper logic lives in `lua/qck/helpers.lua`.
 - Command normalization/cloning/validation is centralized in `lua/qck/cmd.lua` and reused by `init.lua`, `tasks.lua`, and `storage.lua`.
+- Shared `QCK:` notifications are centralized in `lua/qck/helpers.lua` and reused by `init.lua`, `tasks.lua`, `task_form.lua`, and `terminal.lua`.
 - Mapping-state diff/cleanup helpers are centralized in `lua/qck/mappings.lua` and reused by both terminal and tabbar mapping application paths.
 - Tab bar lifecycle is synchronized from `terminal.lua` and reinforced by a `WinClosed` autocmd watcher in `tabbar.lua`.
 - Floating window geometry is centralized in `lua/qck/layout.lua`; terminal and tabbar floats share one width/column calculation so the tabbar consumes space inside the original terminal footprint instead of extending it.

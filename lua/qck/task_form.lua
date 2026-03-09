@@ -1,6 +1,7 @@
 local task_form = {}
 local tasks = require("qck.tasks")
 local autocmd = require("qck.autocmd")
+local notify = require("qck.helpers").notify
 
 local TITLE = "QCK Create Task"
 local DESCRIPTION = "Please provide the name and command of the new task"
@@ -23,10 +24,6 @@ local state = {
   is_sanitizing = false,
   autocmd_ids = {},
 }
-
-local function notify(msg, level)
-  vim.notify("QCK: " .. msg, level or vim.log.levels.INFO)
-end
 
 local function is_valid_buf(buf)
   return type(buf) == "number" and vim.api.nvim_buf_is_valid(buf)
