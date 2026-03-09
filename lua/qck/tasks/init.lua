@@ -1,10 +1,10 @@
 local tasks = {}
-local state = require("qck.state")
-local terminal = require("qck.terminal")
-local cmd_util = require("qck.cmd")
-local notify = require("qck.helpers").notify
+local state = require("qck.terminal.state")
+local terminal = require("qck.terminal.service")
+local cmd_util = require("qck.shared.cmd")
+local notify = require("qck.shared.notify").notify
 
-local default_storage = require("qck.storage")
+local default_storage = require("qck.tasks.storage")
 
 local configured_tasks = {}
 local temp_task_cmds = {}
@@ -266,10 +266,7 @@ function tasks.set_task_cmd(task_type, cmd, opts)
 
   local parsed_cmd = cmd_util.normalize(cmd)
   if not parsed_cmd then
-    notify(
-      ("task `%s` command must be a non-empty string or list"):format(normalized_task_type),
-      vim.log.levels.ERROR
-    )
+    notify(("task `%s` command must be a non-empty string or list"):format(normalized_task_type), vim.log.levels.ERROR)
     return
   end
 
@@ -287,10 +284,7 @@ function tasks.set_task_cmd(task_type, cmd, opts)
   if type(storage.save) == "function" then
     local ok, err = storage.save()
     if not ok then
-      notify(
-        ("failed to save workspace storage: %s"):format(err or "unknown error"),
-        vim.log.levels.ERROR
-      )
+      notify(("failed to save workspace storage: %s"):format(err or "unknown error"), vim.log.levels.ERROR)
     end
   end
 end
@@ -317,10 +311,7 @@ function tasks.reset_task_cmd(task_type)
   if type(storage.save) == "function" then
     local ok, err = storage.save()
     if not ok then
-      notify(
-        ("failed to save workspace storage: %s"):format(err or "unknown error"),
-        vim.log.levels.ERROR
-      )
+      notify(("failed to save workspace storage: %s"):format(err or "unknown error"), vim.log.levels.ERROR)
     end
   end
 end

@@ -1,19 +1,20 @@
 ---@class qck
 local qck = {}
-require("qck.types")
-local state = require("qck.state")
-local terminal = require("qck.terminal")
-local tabbar = require("qck.tabbar")
-local task_form = require("qck.task_form")
-local storage = require("qck.storage")
-local tasks = require("qck.tasks")
-local helpers = require("qck.helpers")
+require("qck.shared.types")
+local state = require("qck.terminal.state")
+local terminal = require("qck.terminal.service")
+local tabbar = require("qck.terminal.tabbar")
+local task_form = require("qck.tasks.form")
+local storage = require("qck.tasks.storage")
+local tasks = require("qck.tasks.init")
+local app_setup = require("qck.app.setup")
+local targets = require("qck.app.targets")
+require("qck.app.focus").setup()
 
-local config = helpers.config
-local notify = helpers.notify
-local parse_mappings = helpers.parse_mappings
-local resolve_open_target_id = helpers.resolve_open_target_id
-local resolve_close_target_id = helpers.resolve_close_target_id
+local config = app_setup.config
+local notify = require("qck.shared.notify").notify
+local resolve_open_target_id = targets.resolve_open_target_id
+local resolve_close_target_id = targets.resolve_close_target_id
 
 ---@alias qck.MappingMode "n"|"t"
 ---@class qck.MappingSpec
@@ -37,26 +38,7 @@ function qck.setup(opts)
     return
   end
 
-  config.mappings = parse_mappings(opts and opts.mappings)
-
-  tasks.set_storage(storage)
-  tasks.set_definitions({})
-  terminal.set_user_mappings(config.mappings)
-  tabbar.set_user_mappings(config.mappings)
-  terminal.apply_user_mappings()
-  tabbar.apply_user_mappings()
-
-  local ok_load, load_err = storage.load()
-  if not ok_load then
-    notify(
-      (
-        "failed to load workspace storage: %s; run qck.clear_storage() to reset persisted workspace data"
-      ):format(load_err or "unknown error"),
-      vim.log.levels.WARN
-    )
-  else
-    tasks.hydrate_workspace_tasks(vim.fn.getcwd())
-  end
+  app_setup.initialize(opts and opts.mappings)
 end
 
 ---Clear persisted qck data for the current workspace.

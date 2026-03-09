@@ -1,5 +1,5 @@
 local storage = {}
-local cmd_util = require("qck.cmd")
+local cmd_util = require("qck.shared.cmd")
 
 local STORAGE_VERSION = "0.1.0"
 local storage_path = vim.fn.stdpath("data") .. "/qck.json"
@@ -89,11 +89,7 @@ local function sanitize_data(data)
       end
 
       if tasks[normalized_task_type] then
-        return nil,
-          ("workspace `%s` has duplicate task `%s` after normalization"):format(
-            workspace,
-            normalized_task_type
-          )
+        return nil, ("workspace `%s` has duplicate task `%s` after normalization"):format(workspace, normalized_task_type)
       end
 
       if type(task_state) ~= "table" then
@@ -105,8 +101,7 @@ local function sanitize_data(data)
       }
 
       if not has_only_allowed_keys(task_state, allowed_task_keys) then
-        return nil,
-          ("workspace `%s` task `%s` contains unsupported fields"):format(workspace, task_type)
+        return nil, ("workspace `%s` task `%s` contains unsupported fields"):format(workspace, task_type)
       end
 
       local cmd = cmd_util.normalize(task_state.cmd)

@@ -1,7 +1,7 @@
-local state = require("qck.state")
-local autocmd = require("qck.autocmd")
-local mappings = require("qck.mappings")
-local layout = require("qck.layout")
+local state = require("qck.terminal.state")
+local autocmd = require("qck.shared.autocmd")
+local mappings = require("qck.shared.mappings")
+local layout = require("qck.terminal.layout")
 
 local tabbar = {}
 
@@ -35,7 +35,6 @@ local function is_valid_buf(buf)
   return buf and vim.api.nvim_buf_is_valid(buf) or false
 end
 
-
 ---@param win integer|nil
 ---@return boolean
 local function is_valid_win(win)
@@ -49,9 +48,7 @@ local function get_terminal_window_id(rec)
     return nil
   end
 
-  if type(rec.win.win) == "number" and
-      vim.api.nvim_win_is_valid(rec.win.win)
-  then
+  if type(rec.win.win) == "number" and vim.api.nvim_win_is_valid(rec.win.win) then
     return rec.win.win
   end
 
@@ -191,64 +188,26 @@ end
 
 ---@param buf integer
 local function set_buffer_mappings(buf)
-  vim.keymap.set(
-    "n",
-    "j",
-    function() move_selection(1) end,
-    { buffer = buf, noremap = true, silent = true }
-  )
+  vim.keymap.set("n", "j", function() move_selection(1) end, { buffer = buf, noremap = true, silent = true })
+  vim.keymap.set("n", "k", function() move_selection(-1) end, { buffer = buf, noremap = true, silent = true })
+  vim.keymap.set("n", "J", function() move_selected_terminal(1) end, { buffer = buf, noremap = true, silent = true })
+  vim.keymap.set("n", "K", function() move_selected_terminal(-1) end, { buffer = buf, noremap = true, silent = true })
 
-  vim.keymap.set(
-    "n",
-    "k",
-    function() move_selection(-1) end,
-    { buffer = buf, noremap = true, silent = true }
-  )
+  vim.keymap.set("n", "<CR>", function()
+    local id = get_selected_terminal_id()
+    if not id then return end
+    actions.open(id)
+    actions.focus_current()
+  end, { buffer = buf, noremap = true, silent = true })
 
-  vim.keymap.set(
-    "n",
-    "J",
-    function() move_selected_terminal(1) end,
-    { buffer = buf, noremap = true, silent = true }
-  )
+  vim.keymap.set("n", "dd", function()
+    local id = get_selected_terminal_id()
+    if not id then return end
+    actions.delete(id)
+    actions.focus_current()
+  end, { buffer = buf, noremap = true, silent = true })
 
-  vim.keymap.set(
-    "n",
-    "K",
-    function() move_selected_terminal(-1) end,
-    { buffer = buf, noremap = true, silent = true }
-  )
-
-  vim.keymap.set(
-    "n",
-    "<CR>",
-    function()
-      local id = get_selected_terminal_id()
-      if not id then return end
-      actions.open(id)
-      actions.focus_current()
-    end,
-    { buffer = buf, noremap = true, silent = true }
-  )
-
-  vim.keymap.set(
-    "n",
-    "dd",
-    function()
-      local id = get_selected_terminal_id()
-      if not id then return end
-      actions.delete(id)
-      actions.focus_current()
-    end,
-    { buffer = buf, noremap = true, silent = true }
-  )
-
-  vim.keymap.set(
-    "n",
-    "<Esc>",
-    function() actions.focus_current() end,
-    { buffer = buf, noremap = true, silent = true }
-  )
+  vim.keymap.set("n", "<Esc>", function() actions.focus_current() end, { buffer = buf, noremap = true, silent = true })
 end
 
 ---@param buf integer

@@ -1,7 +1,7 @@
 local task_form = {}
-local tasks = require("qck.tasks")
-local autocmd = require("qck.autocmd")
-local notify = require("qck.helpers").notify
+local tasks = require("qck.tasks.init")
+local autocmd = require("qck.shared.autocmd")
+local notify = require("qck.shared.notify").notify
 
 local TITLE = "QCK Create Task"
 local DESCRIPTION = "Please provide the name and command of the new task"
@@ -223,12 +223,7 @@ function task_form.submit()
   end
 
   state.pending_overwrite_name = nil
-  notify(
-    (overwrite and "updated task `%s` for current workspace" or "created task `%s` for current workspace"):format(
-      name
-    ),
-    vim.log.levels.INFO
-  )
+  notify((overwrite and "updated task `%s` for current workspace" or "created task `%s` for current workspace"):format(name), vim.log.levels.INFO)
   task_form.close()
 end
 

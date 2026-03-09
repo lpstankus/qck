@@ -1,7 +1,8 @@
-local state = require("qck.state")
-local tabbar = require("qck.tabbar")
-local mappings = require("qck.mappings")
-local layout = require("qck.layout")
+local state = require("qck.terminal.state")
+local tabbar = require("qck.terminal.tabbar")
+local mappings = require("qck.shared.mappings")
+local layout = require("qck.terminal.layout")
+local notify = require("qck.shared.notify").notify
 
 local terminal = {}
 
@@ -13,13 +14,6 @@ local deleting_ids = {}
 local terminal_mapping_modes = { "n", "t" }
 local buffer_hook_autocmd_ids = {}
 local terminal_hook_bufnrs = {}
-
----@param msg string
----@param level integer|nil
----@return nil
-local function notify(msg, level)
-  return require("qck.helpers").notify(msg, level)
-end
 
 ---@param rec qck.TerminalRecord|nil
 ---@return qck.TerminalHandle|nil
@@ -107,9 +101,7 @@ local function terminal_bufnr(rec)
     return nil
   end
 
-  if type(rec_win.buf) == "number" and
-      vim.api.nvim_buf_is_valid(rec_win.buf)
-  then
+  if type(rec_win.buf) == "number" and vim.api.nvim_buf_is_valid(rec_win.buf) then
     return rec_win.buf
   end
 
@@ -217,10 +209,7 @@ local function apply_terminal_layout(rec)
 
   local ok, err = pcall(vim.api.nvim_win_set_config, winid, shared_cfg.terminal)
   if not ok then
-    notify(
-      ("failed to update terminal layout: %s"):format(tostring(err)),
-      vim.log.levels.ERROR
-    )
+    notify(("failed to update terminal layout: %s"):format(tostring(err)), vim.log.levels.ERROR)
     return false
   end
 
@@ -348,10 +337,7 @@ local function attach_terminal_buffer_hooks(id, rec)
   })
 
   if not attached then
-    notify(
-      ("failed to attach terminal output hook for terminal %d"):format(id),
-      vim.log.levels.ERROR
-    )
+    notify(("failed to attach terminal output hook for terminal %d"):format(id), vim.log.levels.ERROR)
     return
   end
 
@@ -495,10 +481,7 @@ local function hide_window_if_open(id)
 
   local ok_hide, err = pcall(function() rec_win:toggle() end)
   if not ok_hide then
-    notify(
-      ("failed to hide terminal %d: %s"):format(id, tostring(err)),
-      vim.log.levels.ERROR
-    )
+    notify(("failed to hide terminal %d: %s"):format(id, tostring(err)), vim.log.levels.ERROR)
   end
 end
 
@@ -568,7 +551,7 @@ function terminal.create(id, opts)
   local ok_open, term_or_err = pcall(snacks.terminal.open, cmd, term_opts)
   if not ok_open or not term_or_err then
     local msg = ok_open and "failed to open terminal"
-        or ("failed to open terminal: " .. tostring(term_or_err))
+      or ("failed to open terminal: " .. tostring(term_or_err))
     notify(msg, vim.log.levels.ERROR)
     return nil
   end
@@ -577,10 +560,7 @@ function terminal.create(id, opts)
   local rec_win = get_terminal_handle(rec)
   if not rec_win then
     safe_close_handle(term_or_err)
-    notify(
-      ("failed to initialize terminal %d handle"):format(id),
-      vim.log.levels.ERROR
-    )
+    notify(("failed to initialize terminal %d handle"):format(id), vim.log.levels.ERROR)
     return nil
   end
 
@@ -645,10 +625,7 @@ function terminal.open(id, opts)
   if not state.is_window_open(rec) then
     local ok_show, err = pcall(function() rec_win:show() end)
     if not ok_show then
-      notify(
-        ("failed to open terminal %d: %s"):format(id, tostring(err)),
-        vim.log.levels.ERROR
-      )
+      notify(("failed to open terminal %d: %s"):format(id, tostring(err)), vim.log.levels.ERROR)
       return nil
     end
   end
@@ -672,36 +649,24 @@ function terminal.close_if_open(id)
 
   local rec = state.get_terminal(id)
   if not rec then
-    notify(
-      ("terminal %d does not exist (no-op)"):format(id),
-      vim.log.levels.WARN
-    )
+    notify(("terminal %d does not exist (no-op)"):format(id), vim.log.levels.WARN)
     return
   end
 
   if not state.is_window_open(rec) then
-    notify(
-      ("terminal %d window is closed (no-op)"):format(id),
-      vim.log.levels.WARN
-    )
+    notify(("terminal %d window is closed (no-op)"):format(id), vim.log.levels.WARN)
     return
   end
 
   local rec_win = get_terminal_handle(rec)
   if not rec_win then
-    notify(
-      ("terminal %d has an invalid handle (no-op)"):format(id),
-      vim.log.levels.WARN
-    )
+    notify(("terminal %d has an invalid handle (no-op)"):format(id), vim.log.levels.WARN)
     return
   end
 
   local ok_close, err = pcall(function() rec_win:close() end)
   if not ok_close then
-    notify(
-      ("failed to close terminal %d: %s"):format(id, tostring(err)),
-      vim.log.levels.ERROR
-    )
+    notify(("failed to close terminal %d: %s"):format(id, tostring(err)), vim.log.levels.ERROR)
     return
   end
 
@@ -725,10 +690,7 @@ function terminal.toggle(id)
 
   local ok_toggle, err = pcall(function() rec_win:toggle() end)
   if not ok_toggle then
-    notify(
-      ("failed to toggle terminal %d: %s"):format(id, tostring(err)),
-      vim.log.levels.ERROR
-    )
+    notify(("failed to toggle terminal %d: %s"):format(id, tostring(err)), vim.log.levels.ERROR)
     return
   end
 
@@ -782,10 +744,7 @@ function terminal.delete(id)
 
   local rec = state.get_terminal(id)
   if not rec then
-    notify(
-      ("terminal %d does not exist (no-op)"):format(id),
-      vim.log.levels.WARN
-    )
+    notify(("terminal %d does not exist (no-op)"):format(id), vim.log.levels.WARN)
     return
   end
 
@@ -811,10 +770,7 @@ function terminal.delete(id)
   local ok_close, err = pcall(function() rec_win:close() end)
   deleting_ids[id] = nil
   if not ok_close then
-    notify(
-      ("failed to delete terminal %d: %s"):format(id, tostring(err)),
-      vim.log.levels.ERROR
-    )
+    notify(("failed to delete terminal %d: %s"):format(id, tostring(err)), vim.log.levels.ERROR)
     return
   end
 
