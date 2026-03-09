@@ -58,6 +58,7 @@ There is no build system or package manifest. Use Neovim headless/manual checks:
 - Prefer `local` functions/state; expose only intentional public API on `qck`.
 - Use `snake_case` for functions/locals (`cycle_next`, `current_id`).
 - Keep window/terminal side effects centralized and explicit.
+- Public API comments in `lua/qck/init.lua` should stay user-facing: a one-line summary, brief parameter notes, and a small usage example for each exported function.
 
 ## Testing Guidelines
 Minimal automated coverage is available under `tests/`. Validate changes with:

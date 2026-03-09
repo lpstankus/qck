@@ -6,12 +6,10 @@ local terminal = require("qck.terminal.service")
 local tabbar = require("qck.terminal.tabbar")
 local task_form = require("qck.tasks.form")
 local storage = require("qck.tasks.storage")
-local tasks = require("qck.tasks.init")
 local app_setup = require("qck.app.setup")
 local targets = require("qck.app.targets")
 require("qck.app.focus").setup()
 
-local config = app_setup.config
 local notify = require("qck.shared.notify").notify
 local resolve_open_target_id = targets.resolve_open_target_id
 local resolve_close_target_id = targets.resolve_close_target_id
@@ -23,13 +21,21 @@ local resolve_close_target_id = targets.resolve_close_target_id
 ---@class qck.SetupOpts
 ---@field mappings? table<string, string|function|qck.MappingSpec> Buffer-local mappings for qck buffers.
 
----Configure qck behavior.
----Mappings defined here are active inside qck terminal and tabbar buffers.
----For terminal buffers, mappings default to both normal (`n`) and terminal (`t`) modes.
----To scope terminal mapping modes, use `{ rhs = ..., mode = "n" }`, `{ rhs = ..., mode = "t" }`, or `{ rhs = ..., mode = { "n", "t" } }`.
----Tabbar mappings are always applied in normal mode (`n`).
----Calling setup again replaces previously configured qck buffer-local mappings.
----Invalid options are ignored with error notifications.
+---Configure qck's buffer-local behavior, mainly custom mappings for qck windows.
+---
+---Parameters:
+---  - `opts`: Optional setup table.
+---  - `opts.mappings`: Keymaps to apply inside qck terminal buffers and the tab bar.
+---
+---Example:
+---```lua
+---require("qck").setup({
+---  mappings = {
+---    ["<leader>tn"] = "<cmd>lua require('qck').cycle_next()<CR>",
+---    ["<Esc>"] = { rhs = "<C-\\><C-n>", mode = "t" },
+---  },
+---})
+---```
 ---@param opts? qck.SetupOpts
 ---@return nil
 function qck.setup(opts)
@@ -41,8 +47,15 @@ function qck.setup(opts)
   app_setup.initialize(opts and opts.mappings)
 end
 
----Clear persisted qck data for the current workspace.
----This operation is explicit and user-triggered; no automatic storage reset is performed.
+---Delete qck's saved task data for the current working directory.
+---
+---Parameters:
+---  - None.
+---
+---Example:
+---```lua
+---require("qck").clear_storage()
+---```
 ---@return nil
 function qck.clear_storage()
   local ok_load, load_err = storage.load()
@@ -73,31 +86,46 @@ function qck.clear_storage()
   notify(("cleared storage for `%s`"):format(workspace), vim.log.levels.INFO)
 end
 
----Create a new qck terminal using the next available numeric id.
----If another qck terminal window is currently visible, that window is hidden first.
----When a qck terminal window is already open, preserves normal mode across the new terminal switch.
----When qck is closed, default terminal-mode entry behavior is preserved.
----@param _opts? table Optional compatibility parameter (currently ignored).
+---Create a new qck terminal with the next free numeric id and show it.
+---
+---Parameters:
+---  - None.
+---
+---Example:
+---```lua
+---require("qck").new()
+---```
 ---@return nil
-function qck.new(_opts)
+function qck.new()
   terminal.create(state.next_free_id(), {
     preserve_mode = terminal.get_current_winid() ~= nil,
   })
 end
 
----Open a floating form to create a workspace-scoped task.
----The form captures task name + command string, supports `<Tab>`/`<S-Tab>` field cycling,
----and allows normal/insert mode switching while editing.
----Saved tasks are persisted only for the current workspace.
+---Open the task-creation form for adding a saved task in this workspace.
+---
+---Parameters:
+---  - None.
+---
+---Example:
+---```lua
+---require("qck").new_task()
+---```
 ---@return nil
 function qck.new_task()
   task_form.open()
 end
 
----Open a terminal by id.
----If the id exists, opens the existing terminal; if it does not exist, creates and opens it.
----When omitted, opens the current terminal, otherwise the first live terminal, or creates a new one.
----When switching ids, the previously current visible terminal window is hidden.
+---Show a qck terminal by id, creating it first when needed.
+---
+---Parameters:
+---  - `id`: Optional terminal id. When omitted, qck reuses the current terminal or picks a sensible fallback.
+---
+---Example:
+---```lua
+---require("qck").open(2)
+---require("qck").open()
+---```
 ---@param id? number Terminal id to open or create.
 ---@return nil
 function qck.open(id)
@@ -109,10 +137,16 @@ function qck.open(id)
   terminal.open(target_id)
 end
 
----Close a terminal window by id only if its window is currently open.
----If the id exists but the window is already closed/hidden, this is a no-op with a warning.
----If `id` is omitted, uses the current terminal id.
----Successful close removes the terminal record from qck state.
+---Close an open qck terminal window and remove that terminal from qck state.
+---
+---Parameters:
+---  - `id`: Optional terminal id to close. When omitted, qck uses the current terminal.
+---
+---Example:
+---```lua
+---require("qck").close(2)
+---require("qck").close()
+---```
 ---@param id? number Terminal id whose open window should be closed.
 ---@return nil
 function qck.close(id)
@@ -124,9 +158,15 @@ function qck.close(id)
   terminal.close_if_open(target_id)
 end
 
----Toggle visibility of the current terminal.
----If none exists, a new terminal is created and opened.
----If no current id is set but live terminals exist, selects the first live id then toggles it.
+---Hide the current qck terminal if it is visible, or show it if it is hidden.
+---
+---Parameters:
+---  - None.
+---
+---Example:
+---```lua
+---require("qck").toggle()
+---```
 ---@return nil
 function qck.toggle()
   local current_id = state.get_current_id()
@@ -144,9 +184,15 @@ function qck.toggle()
   terminal.toggle(current_id)
 end
 
----Switch to the next live terminal id (cyclic order).
----When cycling from normal mode, the destination terminal stays in normal mode.
----No-op when no live terminals exist.
+---Move to the next live qck terminal, wrapping around at the end.
+---
+---Parameters:
+---  - None.
+---
+---Example:
+---```lua
+---require("qck").cycle_next()
+---```
 ---@return nil
 function qck.cycle_next()
   local target_id = state.get_cycle_id(1)
@@ -155,9 +201,15 @@ function qck.cycle_next()
   terminal.open(target_id, { preserve_mode = true })
 end
 
----Switch to the previous live terminal id (cyclic order).
----When cycling from normal mode, the destination terminal stays in normal mode.
----No-op when no live terminals exist.
+---Move to the previous live qck terminal, wrapping around at the beginning.
+---
+---Parameters:
+---  - None.
+---
+---Example:
+---```lua
+---require("qck").cycle_prev()
+---```
 ---@return nil
 function qck.cycle_prev()
   local target_id = state.get_cycle_id(-1)
@@ -166,9 +218,15 @@ function qck.cycle_prev()
   terminal.open(target_id, { preserve_mode = true })
 end
 
----Toggle focus between the current qck terminal window and the qck tab bar window.
----If only one is available, focus that one; if neither exists, this is a no-op.
----This function does not create/open windows.
+---Switch cursor focus between the current qck terminal and its tab bar.
+---
+---Parameters:
+---  - None.
+---
+---Example:
+---```lua
+---require("qck").switch_focus()
+---```
 ---@return nil
 function qck.switch_focus()
   local tab_win = tabbar.get_winid()
