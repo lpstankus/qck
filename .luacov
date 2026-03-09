@@ -3,9 +3,9 @@ return {
   reportfile = "tests/.coverage/luacov.report.out",
   runreport = false,
   deletestats = false,
-  modules = {
-    ["qck"] = "lua/qck/init.lua",
-    ["qck.*"] = "lua",
+  include = {
+    ".*/lua/qck/init$",
+    ".*/lua/qck/.+$",
   },
   exclude = {
     ".*/tests/.*",
