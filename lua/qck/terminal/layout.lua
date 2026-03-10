@@ -2,25 +2,9 @@ local layout = {}
 
 local TABBAR_WIDTH = 6
 local WINDOW_GAP_WIDTH = 2
-local TERMINAL_WIDTH_RATIO = 0.9
-local TERMINAL_HEIGHT_RATIO = 0.9
+local HORIZONTAL_MARGIN = 3
+local VERTICAL_MARGIN = 1
 local FLOAT_BORDER_FOOTPRINT = 2
-
----@param container integer
----@param ratio number
----@param min_size integer
----@return integer
-local function scaled_size(container, ratio, min_size)
-  local target_size = math.ceil(container * ratio)
-  return math.min(container, math.max(min_size, target_size))
-end
-
----@param container integer
----@param size integer
----@return integer
-local function centered_origin(container, size)
-  return math.max(0, math.floor((container - size) / 2))
-end
 
 ---@return integer
 function layout.get_tabbar_width()
@@ -33,15 +17,53 @@ function layout.get_window_gap_width()
 end
 
 ---@return integer
+function layout.get_horizontal_margin()
+  return HORIZONTAL_MARGIN
+end
+
+---@return integer
+function layout.get_vertical_margin()
+  return VERTICAL_MARGIN
+end
+
+---@return integer
 local function get_total_width()
   local editor_width = math.max(1, vim.o.columns)
-  return scaled_size(editor_width, TERMINAL_WIDTH_RATIO, TABBAR_WIDTH + WINDOW_GAP_WIDTH + 1)
+  local min_width = TABBAR_WIDTH + WINDOW_GAP_WIDTH + 1
+  return math.max(min_width, math.min(editor_width, editor_width - (HORIZONTAL_MARGIN * 2 + FLOAT_BORDER_FOOTPRINT)))
 end
 
 ---@return integer
 local function get_total_height()
   local editor_height = math.max(1, vim.o.lines)
-  return scaled_size(editor_height, TERMINAL_HEIGHT_RATIO, 1)
+  return math.max(1, math.min(editor_height, editor_height - (VERTICAL_MARGIN * 2 + FLOAT_BORDER_FOOTPRINT)))
+end
+
+---@param term_cfg vim.api.keyset.win_config|nil
+---@return vim.api.keyset.win_config
+local function build_terminal_float_config(term_cfg)
+  term_cfg = vim.tbl_extend("force", term_cfg or {}, {})
+  local total_width = get_total_width()
+  local total_height = get_total_height()
+  local terminal_width = math.max(1, total_width - TABBAR_WIDTH - WINDOW_GAP_WIDTH)
+  local base_col = math.max(0, HORIZONTAL_MARGIN)
+  local row = math.max(0, VERTICAL_MARGIN)
+
+  term_cfg.relative = "editor"
+  term_cfg.row = row
+  term_cfg.col = base_col + TABBAR_WIDTH + WINDOW_GAP_WIDTH
+  term_cfg.width = terminal_width
+  term_cfg.height = total_height
+
+  return term_cfg
+end
+
+---@return vim.api.keyset.win_config
+function layout.build_initial_terminal_config()
+  return build_terminal_float_config({
+    relative = "editor",
+    border = "single",
+  })
 end
 
 ---@param term_win integer
@@ -51,18 +73,10 @@ function layout.build_shared_float_configs(term_win)
     return nil
   end
 
-  local term_cfg = vim.api.nvim_win_get_config(term_win)
-  local total_width = get_total_width()
+  local term_cfg = build_terminal_float_config(vim.api.nvim_win_get_config(term_win))
   local total_height = get_total_height()
-  local terminal_width = math.max(1, total_width - TABBAR_WIDTH - WINDOW_GAP_WIDTH)
-  local base_col = centered_origin(vim.o.columns, total_width + FLOAT_BORDER_FOOTPRINT)
-  local row = centered_origin(vim.o.lines, total_height + FLOAT_BORDER_FOOTPRINT)
-
-  term_cfg.relative = "editor"
-  term_cfg.row = row
-  term_cfg.col = base_col + TABBAR_WIDTH + WINDOW_GAP_WIDTH
-  term_cfg.width = terminal_width
-  term_cfg.height = total_height
+  local base_col = math.max(0, HORIZONTAL_MARGIN)
+  local row = math.max(0, VERTICAL_MARGIN)
 
   return {
     terminal = term_cfg,

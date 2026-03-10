@@ -82,18 +82,24 @@ end
 function M.expected_layout(layout)
   local expected_tabbar_width = layout.get_tabbar_width()
   local expected_gap_width = layout.get_window_gap_width()
-  local expected_total_width = math.min(
-    vim.o.columns,
-    math.max(expected_tabbar_width + expected_gap_width + 1, math.ceil(vim.o.columns * 0.9))
+  local horizontal_margin = layout.get_horizontal_margin()
+  local vertical_margin = layout.get_vertical_margin()
+  local border_footprint = 2
+  local min_total_width = expected_tabbar_width + expected_gap_width + 1
+  local expected_total_width = math.max(
+    min_total_width,
+    math.min(vim.o.columns, vim.o.columns - (horizontal_margin * 2 + border_footprint))
   )
-  local expected_total_height = math.min(
-    vim.o.lines,
-    math.max(1, math.ceil(vim.o.lines * 0.9))
+  local expected_total_height = math.max(
+    1,
+    math.min(vim.o.lines, vim.o.lines - (vertical_margin * 2 + border_footprint))
   )
 
   return {
     tabbar_width = expected_tabbar_width,
     gap_width = expected_gap_width,
+    horizontal_margin = horizontal_margin,
+    vertical_margin = vertical_margin,
     total_width = expected_total_width,
     total_height = expected_total_height,
   }
@@ -109,8 +115,8 @@ function M.assert_window_layout(term_win, tab_win, expected, msg_prefix)
   local tab_width = vim.api.nvim_win_get_width(tab_win)
   local term_height = vim.api.nvim_win_get_height(term_win)
   local tab_height = vim.api.nvim_win_get_height(tab_win)
-  local expected_base_col = math.max(0, math.floor((vim.o.columns - (expected.total_width + border_footprint)) / 2))
-  local expected_base_row = math.max(0, math.floor((vim.o.lines - (expected.total_height + border_footprint)) / 2))
+  local expected_base_col = math.max(0, expected.horizontal_margin)
+  local expected_base_row = math.max(0, expected.vertical_margin)
 
   M.assert_eq(tab_width, expected.tabbar_width, msg_prefix .. ": tabbar width should match shared width")
   M.assert_eq(
@@ -148,13 +154,13 @@ function M.assert_window_layout(term_win, tab_win, expected, msg_prefix)
   M.assert_eq(tab_height, expected.total_height, msg_prefix .. ": tabbar height should match shared height")
   M.assert_eq(
     vim.o.columns - (tab_col + expected.total_width + border_footprint),
-    vim.o.columns - (expected.total_width + border_footprint) - expected_base_col,
-    msg_prefix .. ": horizontal remainder should stay on the right"
+    expected.horizontal_margin,
+    msg_prefix .. ": right margin should match configured spacing"
   )
   M.assert_eq(
     vim.o.lines - (math.floor(tonumber(tab_cfg.row) or 0) + expected.total_height + border_footprint),
-    vim.o.lines - (expected.total_height + border_footprint) - expected_base_row,
-    msg_prefix .. ": vertical remainder should stay on the bottom"
+    expected.vertical_margin,
+    msg_prefix .. ": bottom margin should match configured spacing"
   )
 end
 
@@ -187,12 +193,13 @@ end
 
 function M.force_full_footprint_terminal(term_win)
   local term_cfg = vim.api.nvim_win_get_config(term_win)
-  local full_width = math.min(vim.o.columns, math.max(1, math.ceil(vim.o.columns * 0.9)))
-  local full_height = math.min(vim.o.lines, math.max(1, math.ceil(vim.o.lines * 0.9)))
+  local border_footprint = 2
+  local full_width = math.max(1, vim.o.columns - border_footprint)
+  local full_height = math.max(1, vim.o.lines - border_footprint)
 
   term_cfg.relative = "editor"
-  term_cfg.col = math.max(0, math.floor((vim.o.columns - full_width) / 2))
-  term_cfg.row = math.max(0, math.floor((vim.o.lines - full_height) / 2))
+  term_cfg.col = 0
+  term_cfg.row = 0
   term_cfg.width = full_width
   term_cfg.height = full_height
 

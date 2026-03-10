@@ -539,13 +539,9 @@ function terminal.create(id, opts)
     interactive = true,
     auto_close = kind == "task" and false or true,
     count = id,
-    win = {
+    win = vim.tbl_extend("force", layout.build_initial_terminal_config(), {
       position = "float",
-      relative = "editor",
-      border = "single",
-      width = 0.9,
-      height = 0.9,
-    },
+    }),
   }
 
   local ok_open, term_or_err = pcall(snacks.terminal.open, cmd, term_opts)

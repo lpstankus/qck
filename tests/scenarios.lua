@@ -195,11 +195,11 @@ function scenarios.terminals_and_layout()
     local expected_after_resize = helpers.expected_layout(layout)
     helpers.assert_truthy(
       bad_snapshot.term_width ~= expected_after_resize.total_width - expected_after_resize.tabbar_width - expected_after_resize.gap_width
-        or bad_snapshot.term_col ~= math.max(
-          0,
-          math.floor((vim.o.columns - (expected_after_resize.total_width + 2)) / 2)
-        ) + expected_after_resize.tabbar_width + expected_after_resize.gap_width,
-      msg_prefix .. ": simulated resize bug should produce a different terminal footprint before deferred repair"
+        or bad_snapshot.term_col ~= expected_after_resize.horizontal_margin
+          + expected_after_resize.tabbar_width
+          + expected_after_resize.gap_width
+        or bad_snapshot.term_row ~= expected_after_resize.vertical_margin,
+      msg_prefix .. ": simulated resize bug should produce a different fixed-margin footprint before deferred repair"
     )
 
     vim.wait(20, function() return false end)
