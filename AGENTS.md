@@ -89,18 +89,22 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
    - no implicit storage reset should happen on failed load.
 9. Terminal exit checks (`exit`, `exit 1`) to verify close/error behavior.
 10. Autoscroll checks for terminals created with `auto_scroll = true`:
-   - output should follow when cursor is near bottom or terminal window is unfocused,
-   - output should not force-scroll when user is inspecting older lines away from bottom.
+    - output should follow when cursor is near bottom or terminal window is unfocused,
+    - output should not force-scroll when user is inspecting older lines away from bottom.
 11. Task form checks:
-   - `new_task()` opens a floating form with task name/command fields,
-   - calling `new_task()` while the form is already open should focus/reuse the same window,
-   - form scaffold lines (description/prefix/help) should be rendered and preserved,
-   - `Tab`/`Shift-Tab` cycles fields in both normal and insert modes,
-   - first save on duplicate name warns and keeps form open,
-   - validation errors (for example empty task name) keep the form open and clear pending duplicate overwrite confirmation,
-   - after changing form contents following a duplicate warning, overwrite must require confirmation again,
-   - second save on the same duplicate name overwrites and closes form,
-   - successful save persists task command for the current workspace only.
+    - `new_task()` opens a floating form with task name/command fields,
+    - calling `new_task()` while the form is already open should focus/reuse the same window,
+    - form scaffold lines (description/prefix/help) should be rendered and preserved,
+    - `Tab`/`Shift-Tab` cycles fields in both normal and insert modes,
+    - first save on duplicate name warns and keeps form open,
+    - validation errors (for example empty task name) keep the form open and clear pending duplicate overwrite confirmation,
+    - after changing form contents following a duplicate warning, overwrite must require confirmation again,
+    - second save on the same duplicate name overwrites and closes form,
+    - successful save persists task command for the current workspace only.
+12. Storage-only task checks:
+    - storage load/save round-trips normalized workspace task commands,
+    - workspace task data remains isolated per working directory,
+    - `reset_task_cmd()` removes only the targeted workspace task entry.
 
 Additional tests should be placed under `tests/` and documented in this section.
 
@@ -113,7 +117,7 @@ Additional tests should be placed under `tests/` and documented in this section.
   - `app/`: top-level setup/focus/target orchestration used by `init.lua`.
 - State validity checks guard terminal-handle method calls with `pcall`, so stale/invalid handle behavior cannot break prune/cycle paths.
 - `terminal.create(...)` closes partially opened terminal handles when handle initialization fails, preventing leaked untracked terminal resources.
-- Workspace persistence lives in `tasks/storage.lua` (`stdpath("data") .. "/qck.json"`) and stores per-workspace commands for workspace-created tasks.
+- Workspace persistence lives in `tasks/storage.lua` (`stdpath("data") .. "/qck.json"`) and stores only per-workspace saved task commands created through `qck.new_task()`.
 - `storage.load()` / `storage.save()` return `(ok, err)` and track `storage.last_error`, so callers can report concrete persistence failure details.
 - Storage loading is fail-fast on unsupported/invalid schema and does not mutate files automatically.
 - `qck.clear_storage()` is the explicit user-triggered storage reset entrypoint for current workspace state.
@@ -134,7 +138,8 @@ Additional tests should be placed under `tests/` and documented in this section.
   - `ordered_ids()` preserves in-session manual order across all live terminals,
   - `move_id(id, direction)` reorders a terminal within that single list,
   - `get_label_id(id)` returns a stable session label id used for `T#` tabbar rows.
-- `terminal.create(id, opts)` accepts optional command input plus generic terminal options; the terminal runtime no longer tracks task-specific metadata.
+- Terminal runtime is fully generic: `terminal.create(id, opts)` accepts optional command input plus generic terminal options and does not distinguish task terminals from ad hoc terminals.
+- Task support is intentionally limited to `qck.new_task()`, `tasks/storage.lua`, and `qck.clear_storage()`; there is no task execution, hydration, override, or task-linked terminal runtime.
 - `qck.new_task()` opens `tasks/form.lua` floating UI for creating workspace-scoped tasks; form saves trimmed task commands into workspace storage.
 - Task form duplicate protection is explicit two-step overwrite: first submit on an existing task warns, second submit with the same name confirms overwrite.
 - `tasks/form.lua` keeps runtime UI state in a single local state table (`bufnr`/`winid`/selection/pending overwrite/autocmd ids) instead of scattered module globals.
@@ -166,6 +171,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - Automated tests now run through vendored `mini.test` with repo-local `luacov` wiring:
   - `tests/scenarios.lua` defines the shared smoke-behavior scenario functions,
   - `tests/test_smoke.lua` ports the old smoke harness into isolated `mini.test` cases with shared reset helpers,
+  - smoke coverage focuses on generic terminal runtime plus task form/storage behavior only,
   - `tests/coverage.lua` executes the same scenarios directly under `luacov` to produce deterministic coverage stats,
   - `.luacov` limits coverage reporting to loaded `lua/qck/**` files, excludes tests/vendor code, and writes outputs under `tests/.coverage/`,
   - `tests/smoke.lua` is deprecated and exists only as a forwarding shim to the new test runner.

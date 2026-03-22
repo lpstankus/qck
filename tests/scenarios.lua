@@ -2,6 +2,27 @@ local helpers = require("helpers")
 
 local scenarios = {}
 
+local function trim_lines(lines)
+  local out = {}
+  for i, line in ipairs(lines) do
+    out[i] = vim.trim(line)
+  end
+  return out
+end
+
+local function assert_ids(actual, expected, msg)
+  helpers.assert_truthy(vim.deep_equal(actual, expected), msg)
+end
+
+local function assert_cmd(actual, expected, msg)
+  helpers.assert_truthy(vim.deep_equal(actual, expected), msg)
+end
+
+local function tabbar_labels(tabbar_win)
+  local buf = vim.api.nvim_win_get_buf(tabbar_win)
+  return trim_lines(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+end
+
 function scenarios.task_form_create_and_overwrite()
   local env = helpers.load_qck()
   local qck, storage, task_form, workspace =
@@ -61,99 +82,144 @@ function scenarios.task_form_create_and_overwrite()
     "echo lint 2",
     "second duplicate save should overwrite existing task"
   )
+  helpers.assert_eq(
+    storage.get_task_cmd(workspace .. "-other", "lint"),
+    nil,
+    "task form should only persist to the current workspace"
+  )
 end
 
-function scenarios.hydrate_workspace_tasks()
+function scenarios.storage_roundtrip()
   local env = helpers.load_qck()
-  local tasks = env.tasks
+  local storage = env.storage
+  local workspace = env.workspace
+  local other_workspace = workspace .. "-other"
 
-  local ok = tasks.create_workspace_task("lint", "echo lint")
-  helpers.assert_truthy(ok, "workspace task should be created")
+  storage.set_task_cmd(workspace, "lint", { "echo", "lint" })
+  storage.set_task_cmd(other_workspace, "test", "echo test")
 
-  tasks.set_definitions({})
-  helpers.assert_eq(tasks.has_definition("lint"), false, "set_definitions() should reset configured task definitions")
+  local ok_save = storage.save()
+  helpers.assert_truthy(ok_save, "storage save should persist workspace tasks")
 
-  local hydrated_count = tasks.hydrate_workspace_tasks(env.workspace)
-  helpers.assert_eq(hydrated_count, 1, "hydrate_workspace_tasks() should add stored task definitions")
-  helpers.assert_truthy(tasks.has_definition("lint"), "hydration should restore workspace-created task")
+  storage.workspaces = {}
+  local ok_load = storage.load()
+  helpers.assert_truthy(ok_load, "storage load should restore saved workspace tasks")
+
+  assert_cmd(
+    storage.get_task_cmd(workspace, "lint"),
+    { "echo", "lint" },
+    "storage should round-trip list commands for the current workspace"
+  )
+  helpers.assert_eq(
+    storage.get_task_cmd(other_workspace, "test"),
+    "echo test",
+    "storage should keep other workspace task commands separate"
+  )
+  assert_cmd(
+    storage.get_workspace_tasks(workspace),
+    { lint = { "echo", "lint" } },
+    "storage should expose normalized workspace task definitions"
+  )
+
+  storage.reset_task_cmd(workspace, "lint")
+  local ok_save_after_reset = storage.save()
+  helpers.assert_truthy(ok_save_after_reset, "storage save should persist task removal")
+
+  storage.workspaces = {}
+  local ok_reload_after_reset = storage.load()
+  helpers.assert_truthy(ok_reload_after_reset, "storage load should succeed after task removal")
+  helpers.assert_eq(storage.get_task_cmd(workspace, "lint"), nil, "reset_task_cmd() should remove the task from storage")
+  helpers.assert_eq(
+    storage.get_task_cmd(other_workspace, "test"),
+    "echo test",
+    "reset_task_cmd() should leave other workspaces untouched"
+  )
 end
 
 function scenarios.terminals_and_layout()
   local env = helpers.load_qck()
-  local qck, state, terminal, tasks, storage, tabbar, layout, workspace =
-    env.qck, env.state, env.terminal, env.tasks, env.storage, env.tabbar, env.layout, env.workspace
+  local qck, state, terminal, tabbar, layout =
+    env.qck, env.state, env.terminal, env.tabbar, env.layout
   local expected = helpers.expected_layout(layout)
-
-  tasks.set_storage(storage)
-  tasks.set_definitions({
-    compile = { cmd = { "echo", "compile" }, auto_scroll = true },
-    server = { cmd = "echo server", auto_scroll = false },
-  })
 
   qck.new()
   helpers.assert_eq(#state.live_ids(), 1, "new() should create one terminal")
   helpers.assert_eq(state.get_current_id(), 1, "new() should set current id")
-  helpers.assert_eq(state.is_task(1), false, "new() terminal should be default kind")
 
   local default_rec = state.get_terminal(1)
   helpers.assert_truthy(default_rec and default_rec.win and default_rec.win.win, "new() should create a terminal window")
   helpers.assert_window_layout(default_rec.win.win, tabbar.get_winid(), expected, "new() layout")
+  assert_ids(state.ordered_ids(), { 1 }, "single terminal should seed ordered ids")
+  helpers.assert_eq(state.get_label_id(1), 1, "first terminal should use T1 label")
 
-  tasks.run("compile")
-  local compile_id = tasks.get_running_id("compile")
-  helpers.assert_truthy(type(compile_id) == "number", "tasks.run() should start task terminal")
-  helpers.assert_truthy(state.get_terminal(compile_id) ~= nil, "task terminal should exist")
-  helpers.assert_eq(state.is_task(compile_id), true, "task terminal kind should be task")
+  qck.new()
+  local second_id = state.get_current_id()
+  local second_rec = state.get_terminal(second_id)
+  helpers.assert_eq(second_id, 2, "second new() should create terminal 2")
+  helpers.assert_truthy(second_rec and second_rec.win and second_rec.win.win, "second new() should create second terminal window")
+  helpers.assert_truthy(not state.is_window_open(default_rec), "creating another terminal should hide the previous terminal window")
+  helpers.assert_window_layout(second_rec.win.win, tabbar.get_winid(), expected, "second terminal layout")
+  assert_ids(state.ordered_ids(), { 1, 2 }, "new terminals should append to the single terminal order")
+  helpers.assert_eq(state.get_label_id(2), 2, "second terminal should use T2 label")
+  assert_ids(tabbar_labels(tabbar.get_winid()), { "T1", "T2" }, "tabbar should render generic T labels")
 
-  tasks.run("compile")
-  helpers.assert_eq(tasks.get_running_id("compile"), compile_id, "tasks.run() should reuse running task by default")
-
-  tasks.run("compile", { force_new = true })
-  local restarted_compile_id = tasks.get_running_id("compile")
-  helpers.assert_truthy(type(restarted_compile_id) == "number", "force_new should leave compile task running")
-
-  tasks.run("server")
-  local server_id = tasks.get_running_id("server")
-  helpers.assert_truthy(type(server_id) == "number", "second task type should run concurrently")
-  helpers.assert_truthy(server_id ~= restarted_compile_id, "different task types should use different terminals")
-
-  qck.open(restarted_compile_id)
-  helpers.assert_eq(state.get_current_id(), restarted_compile_id, "open(id) should focus requested terminal")
+  qck.open(1)
+  helpers.assert_eq(state.get_current_id(), 1, "open(id) should focus requested terminal")
+  helpers.assert_truthy(state.is_window_open(default_rec), "open(id) should re-open hidden terminal")
+  helpers.assert_truthy(not state.is_window_open(second_rec), "open(id) should hide the previously visible terminal")
+  helpers.assert_window_layout(default_rec.win.win, tabbar.get_winid(), expected, "open(id) layout")
 
   qck.toggle()
-  helpers.assert_truthy(
-    not state.is_window_open(state.get_terminal(restarted_compile_id)),
-    "toggle() should hide current terminal window"
-  )
+  helpers.assert_truthy(not state.is_window_open(default_rec), "toggle() should hide the current terminal window")
+  helpers.assert_eq(tabbar.get_winid(), nil, "toggle() should hide the tabbar with the terminal")
 
   qck.toggle()
-  helpers.assert_truthy(
-    state.is_window_open(state.get_terminal(restarted_compile_id)),
-    "toggle() should re-open current terminal window"
-  )
+  helpers.assert_truthy(state.is_window_open(default_rec), "toggle() should re-open the current terminal window")
+  helpers.assert_window_layout(default_rec.win.win, tabbar.get_winid(), expected, "toggle() reopen layout")
 
-  local reopened_compile_rec = state.get_terminal(restarted_compile_id)
-  helpers.assert_truthy(
-    reopened_compile_rec and reopened_compile_rec.win and reopened_compile_rec.win.win,
-    "toggle() should reopen terminal window"
-  )
-  helpers.assert_window_layout(reopened_compile_rec.win.win, tabbar.get_winid(), expected, "toggle() reopen layout")
+  qck.new()
+  local third_id = state.get_current_id()
+  local third_rec = state.get_terminal(third_id)
+  helpers.assert_eq(third_id, 3, "third new() should create terminal 3")
+  helpers.assert_truthy(third_rec and third_rec.win and third_rec.win.win, "third new() should create third terminal window")
+  assert_ids(state.ordered_ids(), { 1, 2, 3 }, "ordered ids should track all live terminals")
+  assert_ids(tabbar_labels(tabbar.get_winid()), { "T1", "T2", "T3" }, "tabbar should render all live terminals")
 
-  tasks.kill("server")
-  helpers.assert_eq(tasks.get_running_id("server"), nil, "tasks.kill() should remove running task terminal")
+  local moved_up = terminal.move_up(3)
+  helpers.assert_truthy(moved_up, "move_up() should reorder generic terminals")
+  assert_ids(state.ordered_ids(), { 1, 3, 2 }, "move_up() should update the shared terminal order")
+  assert_ids(tabbar_labels(tabbar.get_winid()), { "T1", "T3", "T2" }, "tabbar should reflect reordered terminal rows")
 
-  tasks.set_task_cmd("compile", { "echo", "override" })
-  helpers.assert_truthy(storage.get_task_cmd(workspace, "compile") ~= nil, "task override should persist")
+  local moved_down = terminal.move_down(3)
+  helpers.assert_truthy(moved_down, "move_down() should reorder generic terminals")
+  assert_ids(state.ordered_ids(), { 1, 2, 3 }, "move_down() should restore the original order")
 
-  qck.open(restarted_compile_id)
+  qck.cycle_prev()
+  helpers.assert_eq(state.get_current_id(), 2, "cycle_prev() should follow the generic terminal order")
+  qck.cycle_next()
+  helpers.assert_eq(state.get_current_id(), 3, "cycle_next() should wrap back through the generic terminal order")
+
+  terminal.delete(2)
+  helpers.assert_eq(state.get_terminal(2), nil, "delete() should remove the requested terminal record")
+  assert_ids(state.ordered_ids(), { 1, 3 }, "delete() should remove the terminal from the shared order")
+  helpers.assert_eq(state.get_label_id(1), 1, "existing terminal labels should remain stable after delete")
+  helpers.assert_eq(state.get_label_id(3), 3, "existing terminal labels should remain stable after delete")
+
+  qck.new()
+  local reused_id = state.get_current_id()
+  helpers.assert_eq(reused_id, 2, "new() should reuse the lowest missing terminal id")
+  helpers.assert_eq(state.get_label_id(reused_id), 2, "new terminals should reuse the lowest missing label id")
+  assert_ids(tabbar_labels(tabbar.get_winid()), { "T1", "T3", "T2" }, "recreated terminals should keep stable labels for survivors")
+
+  qck.open(3)
   qck.toggle()
   helpers.assert_truthy(
-    not state.is_window_open(state.get_terminal(restarted_compile_id)),
+    not state.is_window_open(state.get_terminal(3)),
     "toggle() should hide the current terminal window before reopen-by-open coverage"
   )
 
-  qck.open(restarted_compile_id)
-  local reopened_by_open = state.get_terminal(restarted_compile_id)
+  qck.open(3)
+  local reopened_by_open = state.get_terminal(3)
   helpers.assert_truthy(
     reopened_by_open and reopened_by_open.win and reopened_by_open.win.win,
     "open(id) should reopen hidden terminal"
@@ -276,8 +342,8 @@ end
 function scenarios.ordered()
   return {
     { name = "task form | creates and overwrites workspace task", run = scenarios.task_form_create_and_overwrite },
-    { name = "tasks | hydrates persisted workspace task definitions", run = scenarios.hydrate_workspace_tasks },
-    { name = "terminals | manages default and task terminals with shared layout", run = scenarios.terminals_and_layout },
+    { name = "storage | persists workspace task commands across load/save", run = scenarios.storage_roundtrip },
+    { name = "terminals | manages generic terminals with shared layout", run = scenarios.terminals_and_layout },
     { name = "storage | clears workspace data for current workspace", run = scenarios.clear_storage },
     { name = "storage | fails invalid load and repairs storage through clear_storage", run = scenarios.invalid_storage_repair },
   }
