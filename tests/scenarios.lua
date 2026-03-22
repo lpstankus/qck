@@ -4,8 +4,8 @@ local scenarios = {}
 
 function scenarios.task_form_create_and_overwrite()
   local env = helpers.load_qck()
-  local qck, tasks, storage, task_form, workspace =
-    env.qck, env.tasks, env.storage, env.task_form, env.workspace
+  local qck, storage, task_form, workspace =
+    env.qck, env.storage, env.task_form, env.workspace
 
   qck.new_task()
   local form_win = task_form.get_winid()
@@ -21,7 +21,6 @@ function scenarios.task_form_create_and_overwrite()
   helpers.set_form_fields(form_buf, "Name: lint", "Command: echo lint")
   task_form.submit()
   helpers.assert_eq(task_form.get_winid(), nil, "task form should close after successful create")
-  helpers.assert_truthy(tasks.has_definition("lint"), "created task should register as task definition")
   helpers.assert_eq(storage.get_task_cmd(workspace, "lint"), "echo lint", "created task command should persist")
 
   qck.new_task()
@@ -241,9 +240,10 @@ end
 
 function scenarios.clear_storage()
   local env = helpers.load_qck()
-  local qck, tasks, storage, workspace = env.qck, env.tasks, env.storage, env.workspace
+  local qck, storage, workspace = env.qck, env.storage, env.workspace
 
-  local ok = tasks.create_workspace_task("compile", "echo compile")
+  storage.set_task_cmd(workspace, "compile", "echo compile")
+  local ok = storage.save()
   helpers.assert_truthy(ok, "workspace task should be created")
 
   qck.clear_storage()

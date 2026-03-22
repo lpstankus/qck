@@ -70,7 +70,6 @@ function M.load_qck(opts)
     qck = qck,
     state = require("qck.terminal.state"),
     terminal = require("qck.terminal.service"),
-    tasks = require("qck.tasks.init"),
     storage = require("qck.tasks.storage"),
     task_form = require("qck.tasks.form"),
     tabbar = require("qck.terminal.tabbar"),

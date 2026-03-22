@@ -1,7 +1,8 @@
 local task_form = {}
-local tasks = require("qck.tasks.init")
 local autocmd = require("qck.shared.autocmd")
+local cmd_util = require("qck.shared.cmd")
 local notify = require("qck.shared.notify").notify
+local storage = require("qck.tasks.storage")
 
 local TITLE = "QCK Create Task"
 local DESCRIPTION = "Please provide the name and command of the new task"
@@ -36,6 +37,10 @@ end
 local function in_insert_mode()
   local mode = vim.api.nvim_get_mode().mode
   return type(mode) == "string" and mode:sub(1, 1) == "i"
+end
+
+local function current_workspace()
+  return vim.fn.getcwd()
 end
 
 local function wrapped_field_idx(idx)
@@ -79,15 +84,6 @@ local function parse_field_value(field_def)
   end
 
   return line
-end
-
-local function set_field_value(field_def, value)
-  if not is_valid_buf(state.bufnr) then
-    return
-  end
-  vim.api.nvim_buf_set_lines(state.bufnr, field_def.line - 1, field_def.line, false, {
-    field_def.prefix .. (value or ""),
-  })
 end
 
 local function clamp_cursor_to_field()
@@ -177,7 +173,7 @@ function task_form.submit()
 
   sanitize_buffer()
   local name = vim.trim(parse_field_value(field(1)))
-  local cmd = vim.trim(parse_field_value(field(2)))
+  local normalized_cmd = cmd_util.normalize(vim.trim(parse_field_value(field(2))))
 
   if name == "" then
     notify("task name must not be empty", vim.log.levels.ERROR)
@@ -186,7 +182,7 @@ function task_form.submit()
     return
   end
 
-  if cmd == "" then
+  if not normalized_cmd then
     notify("task command must not be empty", vim.log.levels.ERROR)
     state.pending_overwrite_name = nil
     focus_field(2)
@@ -197,8 +193,9 @@ function task_form.submit()
     state.pending_overwrite_name = nil
   end
 
+  local workspace = current_workspace()
   local overwrite = false
-  if tasks.has_definition(name) then
+  if storage.get_task_cmd(workspace, name) ~= nil then
     if state.pending_overwrite_name ~= name then
       state.pending_overwrite_name = name
       notify(("task `%s` already exists; press <CR> again to overwrite"):format(name), vim.log.levels.WARN)
@@ -208,17 +205,16 @@ function task_form.submit()
     overwrite = true
   end
 
-  local ok, err, detail = tasks.create_workspace_task(name, cmd, { overwrite = overwrite })
+  if storage.ok ~= true then
+    notify(("workspace storage is unavailable: %s"):format(storage.last_error or "not loaded"), vim.log.levels.ERROR)
+    return
+  end
+
+  storage.set_task_cmd(workspace, name, normalized_cmd)
+
+  local ok, err = storage.save()
   if not ok then
-    if err == "storage_not_loaded" then
-      notify(("workspace storage is unavailable: %s"):format(detail or "not loaded"), vim.log.levels.ERROR)
-    elseif err == "save_failed" then
-      notify(("failed to save workspace task `%s`: %s"):format(name, detail or "unknown error"), vim.log.levels.ERROR)
-    elseif err == "exists" then
-      notify(("task `%s` already exists"):format(name), vim.log.levels.ERROR)
-    else
-      notify(("failed to create task `%s` (%s)"):format(name, err or "unknown"), vim.log.levels.ERROR)
-    end
+    notify(("failed to save workspace task `%s`: %s"):format(name, err or "unknown error"), vim.log.levels.ERROR)
     return
   end
 

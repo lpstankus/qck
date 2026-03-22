@@ -13,8 +13,7 @@ This repository is a Neovim plugin written in Lua.
 - `lua/qck/terminal/state.lua`: terminal registry and current-id/cycling state plus terminal record/window validity helpers.
 - `lua/qck/terminal/layout.lua`: shared floating terminal/tabbar layout calculations.
 - `lua/qck/terminal/tabbar.lua`: floating vertical tab bar that renders live terminal ids.
-- `lua/qck/tasks/init.lua`: minimal task persistence facade used by the task form for duplicate checks and workspace task creation.
-- `lua/qck/tasks/storage.lua`: workspace-persistent storage for task command overrides and workspace-created task definitions.
+- `lua/qck/tasks/storage.lua`: workspace-persistent storage for workspace-created task definitions.
 - `lua/qck/tasks/form.lua`: floating task-creation form UI (name/cmd fields, Tab cycling, overwrite confirmation, workspace save).
 - `lua/qck/app/setup.lua`: setup-time wiring for Snacks bootstrapping, mapping parsing, and storage load.
 - `lua/qck/app/targets.lua`: shared API target-id validation and fallback resolution for `open(id?)` / `close(id?)`.
@@ -116,7 +115,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - Package boundaries are:
   - `shared/`: leaf utilities only, with no imports from `terminal/`, `tasks/`, or `app/`,
   - `terminal/`: terminal state, layout, tabbar, and terminal lifecycle,
-  - `tasks/`: minimal task persistence helpers, storage, and task form UI,
+  - `tasks/`: workspace-persistent task storage and the floating task form UI,
   - `app/`: top-level setup/focus/target orchestration used by `init.lua`.
 - State validity checks guard terminal-handle method calls with `pcall`, so stale/invalid handle behavior cannot break prune/cycle paths.
 - `terminal.create(...)` closes partially opened terminal handles when handle initialization fails, preventing leaked untracked terminal resources.
@@ -126,8 +125,8 @@ Additional tests should be placed under `tests/` and documented in this section.
 - `qck.clear_storage()` is the explicit user-triggered storage reset entrypoint for current workspace state.
 - Shared EmmyLua type aliases/classes live in `lua/qck/shared/types.lua`, and module annotations use these types to tighten internal contracts for LuaLS.
 - `lua/qck/init.lua` is limited to the public API surface plus imports; app-level orchestration lives under `lua/qck/app/`.
-- Command normalization/cloning/validation is centralized in `lua/qck/shared/cmd.lua` and reused by `tasks/init.lua` and `tasks/storage.lua`.
-- Shared `QCK:` notifications are centralized in `lua/qck/shared/notify.lua` and reused by `init.lua`, `tasks/init.lua`, `tasks/form.lua`, `terminal/service.lua`, and `app/`.
+- Command normalization/cloning/validation is centralized in `lua/qck/shared/cmd.lua` and reused by `tasks/form.lua` and `tasks/storage.lua`.
+- Shared `QCK:` notifications are centralized in `lua/qck/shared/notify.lua` and reused by `init.lua`, `tasks/form.lua`, `terminal/service.lua`, and `app/`.
 - Mapping-state diff/cleanup helpers are centralized in `lua/qck/shared/mappings.lua` and reused by both terminal and tabbar mapping application paths.
 - Tab bar lifecycle is synchronized from `terminal/service.lua` and reinforced by a `WinClosed` autocmd watcher in `terminal/tabbar.lua`.
 - Floating window geometry is centralized in `lua/qck/terminal/layout.lua`; terminal and tabbar floats share one width/column calculation so the tabbar consumes space inside the original terminal footprint instead of extending it.
@@ -144,12 +143,11 @@ Additional tests should be placed under `tests/` and documented in this section.
   - `get_group_label_id(id)` returns a stable per-kind generation label id (`T#`/`R#`) for the terminal in the current session.
 - `terminal.create(id, opts)` accepts terminal kind metadata (`default` or `task`) and optional command input.
 - Task terminals store `rec.meta.task_name` for task-instance lookup and include `rec.meta.kind = "task"`; task terminals use `auto_close = false` to preserve output after process exit.
-- `tasks.create_workspace_task(task_type, cmd, opts?)` persists workspace tasks directly through storage; storage must be loaded (`storage.ok == true`) before creation succeeds.
-- `tasks.has_definition(task_type)` now checks whether a persisted task already exists for the current workspace.
 - `qck.new_task()` opens `tasks/form.lua` floating UI for creating workspace-scoped tasks; form saves trimmed task commands into workspace storage.
 - Task form duplicate protection is explicit two-step overwrite: first submit on an existing task warns, second submit with the same name confirms overwrite.
 - `tasks/form.lua` keeps runtime UI state in a single local state table (`bufnr`/`winid`/selection/pending overwrite/autocmd ids) instead of scattered module globals.
 - Task form submit sanitization preserves support for legacy inline labels (`Name: ...` / `Command: ...`) by normalizing to current prefixed scaffold rows before validation/save.
+- `tasks/form.lua` writes workspace task commands directly through `tasks/storage.lua` and checks duplicates against persisted workspace data.
 - `terminal/service.lua` manages per-terminal buffer hook groups to keep lifecycle cleanup centralized when terminals are deleted/wiped.
 - Autoscroll for task terminals is enabled by default and follows output only when near bottom or unfocused.
 - Autoscroll output tracking is attached with `nvim_buf_attach(..., { on_lines = ... })` instead of `TextChanged` autocmds, improving long-running/background output handling.
