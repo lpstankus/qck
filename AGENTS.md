@@ -129,7 +129,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - All plugin autocmds share a single `qck` augroup via `shared/autocmd.lua`; modules track and delete autocmd ids for targeted cleanup.
 - When switching terminals, hiding the previous window (`toggle`) is safer than closing it (`close`), because closing may wipe the buffer and terminate the terminal job.
 - `noautocmd` is valid when creating the tab bar float (`nvim_open_win`), but must not be passed to `nvim_win_set_config` for an existing window.
-- `qck.new(_opts)` keeps a compatibility parameter but no longer validates/uses it internally.
+- `qck.new()` creates a new ad hoc terminal with the next free numeric id and does not accept task or terminal options.
 - State exposes a single ordered terminal list for cycling and tabbar rendering:
   - `ordered_ids()` preserves in-session manual order across all live terminals,
   - `move_id(id, direction)` reorders a terminal within that single list,
