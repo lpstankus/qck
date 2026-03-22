@@ -158,6 +158,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - `app/focus.lua` installs a global focus watcher (`WinEnter`, `BufEnter`, `TabEnter`) that hides qck terminal and tabbar windows when focus leaves both qck windows (for example navigating with `<C-w>h`).
 - `app/focus.lua` installs a deferred `VimResized` watcher that reapplies the shared qck terminal/tabbar layout for the current visible terminal after resize-driven float updates settle.
 - `app/targets.lua` resolves `open(id?)` / `close(id?)` target ids through shared helpers to avoid duplicated id-validation and fallback logic.
+- Internal helper functions in `app/setup.lua`, `app/focus.lua`, and `app/targets.lua` stay local to their modules unless they are part of the returned module API.
 - Visual labels are UI-only; public APIs (`open`, `close`, `toggle`) operate on internal numeric ids.
 - `terminal.open(id, preserve_mode?)` and `terminal.create(id, preserve_mode?)` accept an internal boolean preserve-mode flag and restore normal mode after switching/creating when requested.
 - `terminal.refresh_current_layout()` reapplies shared geometry to the current visible qck terminal and resyncs the tabbar; hidden terminals are laid out when reopened.

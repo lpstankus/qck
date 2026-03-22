@@ -160,17 +160,15 @@ local function restore_mode_intent(rec, mode_intent)
 end
 
 ---@param id integer
----@param rec qck.TerminalRecord|nil
 ---@return nil
-local function purge_terminal_record(id, rec)
+local function purge_terminal_record(id)
   state.remove_terminal(id)
 end
 
 ---@param id integer
----@param rec qck.TerminalRecord|nil
 ---@return nil
-local function remove_terminal_record(id, rec)
-  purge_terminal_record(id, rec)
+local function remove_terminal_record(id)
+  purge_terminal_record(id)
   state.update_current_after_removal(id)
 end
 
@@ -381,7 +379,7 @@ function terminal.create(id, preserve_mode)
         return
       end
       if state.get_terminal(id) == rec then
-        remove_terminal_record(id, rec)
+        remove_terminal_record(id)
         sync_tabbar_for_current()
       end
     end, { buf = true })
@@ -398,7 +396,7 @@ function terminal.ensure(id)
     return rec
   end
 
-  remove_terminal_record(id, rec)
+  remove_terminal_record(id)
   return terminal.create(id)
 end
 
@@ -417,7 +415,7 @@ function terminal.open(id, preserve_mode)
 
   local rec_win = get_terminal_handle(rec)
   if not rec_win then
-    remove_terminal_record(id, rec)
+    remove_terminal_record(id)
     return nil
   end
 
@@ -469,7 +467,7 @@ function terminal.close_if_open(id)
     return
   end
 
-  remove_terminal_record(id, rec)
+  remove_terminal_record(id)
   sync_tabbar_for_current()
 end
 
@@ -483,7 +481,7 @@ function terminal.toggle(id)
 
   local rec_win = get_terminal_handle(rec)
   if not rec_win then
-    remove_terminal_record(id, rec)
+    remove_terminal_record(id)
     return
   end
 
@@ -560,7 +558,7 @@ function terminal.delete(id)
   local removed_current = state.get_current_id() == id
   local rec_win = get_terminal_handle(rec)
   if not rec_win then
-    purge_terminal_record(id, rec)
+    purge_terminal_record(id)
     sync_tabbar_for_current()
     return
   end
@@ -573,7 +571,7 @@ function terminal.delete(id)
     return
   end
 
-  purge_terminal_record(id, rec)
+  purge_terminal_record(id)
 
   if not removed_current then
     sync_tabbar_for_current()

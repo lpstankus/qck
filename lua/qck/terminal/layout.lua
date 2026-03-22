@@ -30,13 +30,13 @@ end
 local function get_total_width()
   local editor_width = math.max(1, vim.o.columns)
   local min_width = TABBAR_WIDTH + WINDOW_GAP_WIDTH + 1
-  return math.max(min_width, math.min(editor_width, editor_width - (HORIZONTAL_MARGIN * 2 + FLOAT_BORDER_FOOTPRINT)))
+  return math.max(min_width, editor_width - (HORIZONTAL_MARGIN * 2 + FLOAT_BORDER_FOOTPRINT))
 end
 
 ---@return integer
 local function get_total_height()
   local editor_height = math.max(1, vim.o.lines)
-  return math.max(1, math.min(editor_height, editor_height - (VERTICAL_MARGIN * 2 + FLOAT_BORDER_FOOTPRINT)))
+  return math.max(1, editor_height - (VERTICAL_MARGIN * 2 + FLOAT_BORDER_FOOTPRINT))
 end
 
 ---@param term_cfg vim.api.keyset.win_config|nil

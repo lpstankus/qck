@@ -84,8 +84,4 @@ function focus.setup()
     end,
   })
 end
-
-focus.focus_current_terminal = focus_current_terminal
-focus.hide_if_focus_left_qck_windows = hide_if_focus_left_qck_windows
-
 return focus

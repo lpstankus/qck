@@ -131,8 +131,4 @@ function setup.initialize(mappings)
 
   return true
 end
-
-setup.parse_mapping_modes = parse_mapping_modes
-setup.parse_mappings = parse_mappings
-
 return setup

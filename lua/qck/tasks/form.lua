@@ -118,9 +118,7 @@ local function sanitize_buffer()
   local cmd = parse_field_value(field(2))
   local sep_width = math.max(MIN_SEPARATOR_WIDTH, #NAME_PREFIX + math.max(#name, #cmd) + 64)
   local separator = string.rep("-", sep_width)
-  if BAR_COL and BAR_COL <= sep_width then
-    separator = separator:sub(1, BAR_COL - 1) .. "+" .. separator:sub(BAR_COL + 1)
-  end
+  separator = separator:sub(1, BAR_COL - 1) .. "+" .. separator:sub(BAR_COL + 1)
 
   vim.api.nvim_buf_set_lines(state.bufnr, 0, -1, false, {
     DESCRIPTION,

@@ -66,8 +66,6 @@ local function resolve_close_target_id(id)
   return nil
 end
 
-targets.is_valid_id = is_valid_id
-targets.parse_id_arg = parse_id_arg
 targets.resolve_open_target_id = resolve_open_target_id
 targets.resolve_close_target_id = resolve_close_target_id
 
