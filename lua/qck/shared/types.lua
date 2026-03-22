@@ -13,17 +13,11 @@
 ---@field on? fun(self: qck.TerminalHandle, event: string, cb: fun(...), opts?: table)
 
 ---@class qck.TerminalMeta
----@field auto_scroll boolean
 ---@field label_id? integer
 
 ---@class qck.TerminalRecord
 ---@field win qck.TerminalHandle
 ---@field meta qck.TerminalMeta
-
----@class qck.TerminalCreateOpts
----@field cmd? qck.Command
----@field preserve_mode? boolean
----@field auto_scroll? boolean
 
 ---@class qck.StorageTaskState
 ---@field cmd qck.Command

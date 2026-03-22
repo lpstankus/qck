@@ -97,9 +97,7 @@ end
 ---```
 ---@return nil
 function qck.new()
-  terminal.create(state.next_free_id(), {
-    preserve_mode = terminal.get_current_winid() ~= nil,
-  })
+  terminal.create(state.next_free_id(), terminal.get_current_winid() ~= nil)
 end
 
 ---Open the task-creation form for adding a saved task in this workspace.
@@ -198,7 +196,7 @@ function qck.cycle_next()
   local target_id = state.get_cycle_id(1)
   if not target_id then return end
 
-  terminal.open(target_id, { preserve_mode = true })
+  terminal.open(target_id, true)
 end
 
 ---Move to the previous live qck terminal, wrapping around at the beginning.
@@ -215,7 +213,7 @@ function qck.cycle_prev()
   local target_id = state.get_cycle_id(-1)
   if not target_id then return end
 
-  terminal.open(target_id, { preserve_mode = true })
+  terminal.open(target_id, true)
 end
 
 ---Switch cursor focus between the current qck terminal and its tab bar.

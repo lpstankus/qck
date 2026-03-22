@@ -88,10 +88,7 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
    - `clear_storage()` should clear persisted data for current workspace,
    - no implicit storage reset should happen on failed load.
 9. Terminal exit checks (`exit`, `exit 1`) to verify close/error behavior.
-10. Autoscroll checks for terminals created with `auto_scroll = true`:
-    - output should follow when cursor is near bottom or terminal window is unfocused,
-    - output should not force-scroll when user is inspecting older lines away from bottom.
-11. Task form checks:
+10. Task form checks:
     - `new_task()` opens a floating form with task name/command fields,
     - calling `new_task()` while the form is already open should focus/reuse the same window,
     - form scaffold lines (description/prefix/help) should be rendered and preserved,
@@ -101,7 +98,7 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
     - after changing form contents following a duplicate warning, overwrite must require confirmation again,
     - second save on the same duplicate name overwrites and closes form,
     - successful save persists task command for the current workspace only.
-12. Storage-only task checks:
+11. Storage-only task checks:
     - storage load/save round-trips normalized workspace task commands,
     - workspace task data remains isolated per working directory.
 
@@ -137,16 +134,14 @@ Additional tests should be placed under `tests/` and documented in this section.
   - `ordered_ids()` preserves in-session manual order across all live terminals,
   - `move_id(id, direction)` reorders a terminal within that single list,
   - `get_label_id(id)` returns a stable session label id used for `T#` tabbar rows.
-- Terminal runtime is fully generic: `terminal.create(id, opts)` accepts optional command input plus generic terminal options and does not distinguish task terminals from ad hoc terminals.
+- Terminal runtime manages ad hoc qck terminal instances only; it does not accept task-specific command/runtime options.
 - Task support is intentionally limited to `qck.new_task()`, `tasks/storage.lua`, and `qck.clear_storage()`; there is no task execution, hydration, override, or task-linked terminal runtime.
 - `qck.new_task()` opens `tasks/form.lua` floating UI for creating workspace-scoped tasks; form saves trimmed task commands into workspace storage.
 - Task form duplicate protection is explicit two-step overwrite: first submit on an existing task warns, second submit with the same name confirms overwrite.
 - `tasks/form.lua` keeps runtime UI state in a single local state table (`bufnr`/`winid`/selection/pending overwrite/autocmd ids) instead of scattered module globals.
 - Task form submit sanitization preserves support for legacy inline labels (`Name: ...` / `Command: ...`) by normalizing to current prefixed scaffold rows before validation/save.
 - `tasks/form.lua` writes workspace task commands directly through `tasks/storage.lua` and checks duplicates against persisted workspace data.
-- `terminal/service.lua` manages per-terminal buffer hook groups to keep lifecycle cleanup centralized when terminals are deleted/wiped.
-- Autoscroll is opt-in per terminal via `opts.auto_scroll` and follows output only when near bottom or unfocused.
-- Autoscroll output tracking is attached with `nvim_buf_attach(..., { on_lines = ... })` instead of `TextChanged` autocmds, improving long-running/background output handling.
+- `terminal/service.lua` keeps terminal lifecycle cleanup centralized when terminals are deleted/wiped.
 - Tabbar rendering decouples visual ids from internal ids:
   - rows are labeled `T1`, `T2`, ... from stable session label ids,
   - label numbers reuse the lowest missing value when terminals are deleted and new ones are created,
@@ -164,7 +159,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - `app/focus.lua` installs a deferred `VimResized` watcher that reapplies the shared qck terminal/tabbar layout for the current visible terminal after resize-driven float updates settle.
 - `app/targets.lua` resolves `open(id?)` / `close(id?)` target ids through shared helpers to avoid duplicated id-validation and fallback logic.
 - Visual labels are UI-only; public APIs (`open`, `close`, `toggle`) operate on internal numeric ids.
-- `terminal.open(id, opts?)` and `terminal.create(id, opts?)` accept internal `opts.preserve_mode` and restore normal mode after switching/creating when requested.
+- `terminal.open(id, preserve_mode?)` and `terminal.create(id, preserve_mode?)` accept an internal boolean preserve-mode flag and restore normal mode after switching/creating when requested.
 - `terminal.refresh_current_layout()` reapplies shared geometry to the current visible qck terminal and resyncs the tabbar; hidden terminals are laid out when reopened.
 - `qck.cycle_next()` / `qck.cycle_prev()` request mode preservation; `qck.new()` requests it only when a qck terminal window is currently open.
 - Automated tests now run through vendored `mini.test` with repo-local `luacov` wiring:

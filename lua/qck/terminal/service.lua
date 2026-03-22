@@ -12,8 +12,6 @@ local mapping_lhs = {}
 local previous_mapping_lhs = {}
 local deleting_ids = {}
 local terminal_mapping_modes = { "n", "t" }
-local buffer_hook_autocmd_ids = {}
-local terminal_hook_bufnrs = {}
 
 ---@param rec qck.TerminalRecord|nil
 ---@return qck.TerminalHandle|nil
@@ -48,16 +46,6 @@ local function safe_close_handle(handle)
   end
 end
 
----@param auto_scroll any
----@return boolean
-local function resolve_auto_scroll(auto_scroll)
-  if type(auto_scroll) == "boolean" then
-    return auto_scroll
-  end
-
-  return false
-end
-
 ---@param snacks_impl { terminal?: { open?: fun(cmd: qck.Command|nil, opts: table|nil): qck.TerminalHandle|nil } }|nil
 ---@return nil
 function terminal.set_snacks(snacks_impl)
@@ -88,63 +76,6 @@ local function terminal_bufnr(rec)
   end
 
   return nil
-end
-
----@param bufnr integer|nil
----@return nil
-local function clear_buffer_hook_autocmd(bufnr)
-  if not bufnr then
-    return
-  end
-
-  if not buffer_hook_autocmd_ids[bufnr] then
-    return
-  end
-
-  pcall(vim.api.nvim_buf_detach, bufnr)
-  buffer_hook_autocmd_ids[bufnr] = nil
-end
-
----@param id integer
----@return nil
-local function clear_terminal_hook_autocmd(id)
-  local bufnr = terminal_hook_bufnrs[id]
-  terminal_hook_bufnrs[id] = nil
-
-  if not bufnr then
-    return
-  end
-
-  for _, other_bufnr in pairs(terminal_hook_bufnrs) do
-    if other_bufnr == bufnr then
-      return
-    end
-  end
-
-  clear_buffer_hook_autocmd(bufnr)
-end
-
----@param id integer
----@param rec qck.TerminalRecord|nil
----@return nil
-local function clear_terminal_buffer_hooks(id, rec)
-  clear_terminal_hook_autocmd(id)
-  clear_buffer_hook_autocmd(terminal_bufnr(rec))
-end
-
----@param id integer
----@param rec qck.TerminalRecord|nil
----@return integer|nil
-local function reset_terminal_buffer_hook_autocmd(id, rec)
-  local bufnr = terminal_bufnr(rec)
-  if not bufnr then
-    return nil
-  end
-
-  clear_terminal_hook_autocmd(id)
-  clear_buffer_hook_autocmd(bufnr)
-  terminal_hook_bufnrs[id] = bufnr
-  return bufnr
 end
 
 ---@param rec qck.TerminalRecord|nil
@@ -228,102 +159,10 @@ local function restore_mode_intent(rec, mode_intent)
   pcall(vim.cmd, "stopinsert")
 end
 
----@param winid integer
----@param bufnr integer
----@return boolean
-local function should_follow_terminal_output(winid, bufnr)
-  if not vim.api.nvim_win_is_valid(winid) or not vim.api.nvim_buf_is_valid(bufnr) then
-    return false
-  end
-
-  local cursor_row = vim.api.nvim_win_get_cursor(winid)[1]
-  local line_count = vim.api.nvim_buf_line_count(bufnr)
-  local near_bottom = line_count - cursor_row <= 5
-  local not_focused = vim.api.nvim_get_current_win() ~= winid
-  return near_bottom or not_focused
-end
-
----@param winid integer
----@param bufnr integer
----@return nil
-local function scroll_terminal_to_bottom(winid, bufnr)
-  if not vim.api.nvim_win_is_valid(winid) or not vim.api.nvim_buf_is_valid(bufnr) then
-    return
-  end
-
-  local line_count = vim.api.nvim_buf_line_count(bufnr)
-  vim.api.nvim_win_set_cursor(winid, { math.max(1, line_count), 0 })
-end
-
----@param id integer
----@param rec qck.TerminalRecord|nil
----@return nil
-local function attach_terminal_buffer_hooks(id, rec)
-  local bufnr = terminal_bufnr(rec)
-  if not bufnr then
-    return
-  end
-
-  local tracked_bufnr = reset_terminal_buffer_hook_autocmd(id, rec)
-  if not tracked_bufnr then
-    return
-  end
-
-  if not rec or not rec.meta or not rec.meta.auto_scroll then
-    return
-  end
-
-  if buffer_hook_autocmd_ids[tracked_bufnr] then
-    return
-  end
-
-  local attached = vim.api.nvim_buf_attach(tracked_bufnr, false, {
-    on_lines = function()
-      vim.schedule(function()
-        local current_rec = state.get_terminal(id)
-        if not current_rec then
-          return
-        end
-
-        if terminal_bufnr(current_rec) ~= tracked_bufnr then
-          return
-        end
-
-        if not state.is_window_open(current_rec) then
-          return
-        end
-
-        local winid = terminal_winid(current_rec)
-        if not winid then
-          return
-        end
-
-        if should_follow_terminal_output(winid, tracked_bufnr) then
-          scroll_terminal_to_bottom(winid, tracked_bufnr)
-        end
-      end)
-    end,
-    on_detach = function()
-      if terminal_hook_bufnrs[id] == tracked_bufnr then
-        terminal_hook_bufnrs[id] = nil
-      end
-      buffer_hook_autocmd_ids[tracked_bufnr] = nil
-    end,
-  })
-
-  if not attached then
-    notify(("failed to attach terminal output hook for terminal %d"):format(id), vim.log.levels.ERROR)
-    return
-  end
-
-  buffer_hook_autocmd_ids[tracked_bufnr] = true
-end
-
 ---@param id integer
 ---@param rec qck.TerminalRecord|nil
 ---@return nil
 local function purge_terminal_record(id, rec)
-  clear_terminal_buffer_hooks(id, rec)
   state.remove_terminal(id)
 end
 
@@ -487,13 +326,10 @@ function terminal.get_current_winid()
 end
 
 ---@param id integer
----@param opts qck.TerminalCreateOpts|nil
+---@param preserve_mode boolean|nil
 ---@return qck.TerminalRecord|nil
-function terminal.create(id, opts)
-  opts = opts or {}
-  local cmd = opts.cmd
-  local preserve_mode = opts.preserve_mode == true
-  local auto_scroll = resolve_auto_scroll(opts.auto_scroll)
+function terminal.create(id, preserve_mode)
+  preserve_mode = preserve_mode == true
   local previous_visible_id = get_previous_visible_id(id)
   local mode_intent = preserve_mode and capture_mode_intent() or nil
 
@@ -501,9 +337,7 @@ function terminal.create(id, opts)
 
   local rec = {
     win = nil,
-    meta = {
-      auto_scroll = auto_scroll,
-    },
+    meta = {},
   }
 
   local term_opts = {
@@ -515,7 +349,7 @@ function terminal.create(id, opts)
     }),
   }
 
-  local ok_open, term_or_err = pcall(snacks.terminal.open, cmd, term_opts)
+  local ok_open, term_or_err = pcall(snacks.terminal.open, nil, term_opts)
   if not ok_open or not term_or_err then
     local msg = ok_open and "failed to open terminal"
       or ("failed to open terminal: " .. tostring(term_or_err))
@@ -538,7 +372,6 @@ function terminal.create(id, opts)
   end
   state.set_current_id(id)
   apply_user_mappings_to_buf(terminal_bufnr(rec))
-  attach_terminal_buffer_hooks(id, rec)
   tabbar.sync(rec, id)
   restore_mode_intent(rec, mode_intent)
 
@@ -570,11 +403,10 @@ function terminal.ensure(id)
 end
 
 ---@param id integer
----@param opts table|nil
+---@param preserve_mode boolean|nil
 ---@return qck.TerminalRecord|nil
-function terminal.open(id, opts)
-  opts = opts or {}
-  local preserve_mode = opts.preserve_mode == true
+function terminal.open(id, preserve_mode)
+  preserve_mode = preserve_mode == true
   local previous_visible_id = get_previous_visible_id(id)
   local mode_intent = preserve_mode and capture_mode_intent() or nil
 
