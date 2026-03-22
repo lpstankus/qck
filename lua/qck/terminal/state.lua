@@ -2,36 +2,22 @@ local state = {}
 
 local terminals = {}
 local current_id = nil
-local task_order = {}
-local default_order = {}
+local terminal_order = {}
 
 ---@param value any
 ---@return boolean
-local function is_valid_group_label_id(value)
+local function is_valid_label_id(value)
   return type(value) == "number" and value > 0 and value % 1 == 0
 end
 
----@param kind any
----@return string
-local function normalize_kind(kind)
-  if kind == "task" then
-    return "task"
-  end
-  return "default"
-end
-
----@param kind string
 ---@return integer
-local function next_free_group_label_id(kind)
+local function next_free_label_id()
   local used = {}
 
   for _, rec in pairs(terminals) do
-    local rec_kind = normalize_kind(rec and rec.meta and rec.meta.kind)
-    if rec_kind == kind then
-      local label_id = rec and rec.meta and rec.meta.group_label_id
-      if is_valid_group_label_id(label_id) then
-        used[label_id] = true
-      end
+    local label_id = rec and rec.meta and rec.meta.label_id
+    if is_valid_label_id(label_id) then
+      used[label_id] = true
     end
   end
 
@@ -56,7 +42,7 @@ end
 ---@param existing integer[]
 ---@param live_ids integer[]
 ---@return integer[]
-local function sync_kind_order(existing, live_ids)
+local function sync_order(existing, live_ids)
   local live_lookup = {}
   for _, id in ipairs(live_ids) do
     live_lookup[id] = true
@@ -132,20 +118,20 @@ end
 ---@return nil
 function state.set_terminal(id, rec)
   terminals[id] = rec
-  state.assign_group_label_id(id)
-  state.sync_orders()
+  state.assign_label_id(id)
+  state.sync_order()
 end
 
 ---@param id integer
 ---@return nil
 function state.remove_terminal(id)
   terminals[id] = nil
-  state.sync_orders()
+  state.sync_order()
 end
 
 ---@param id integer
 ---@return integer|nil
-function state.assign_group_label_id(id)
+function state.assign_label_id(id)
   local rec = terminals[id]
   if type(rec) ~= "table" then
     return nil
@@ -155,39 +141,31 @@ function state.assign_group_label_id(id)
     rec.meta = {}
   end
 
-  local label_id = rec.meta.group_label_id
-  if is_valid_group_label_id(label_id) then
+  local label_id = rec.meta.label_id
+  if is_valid_label_id(label_id) then
     return label_id
   end
 
-  local kind = normalize_kind(rec.meta.kind)
-  rec.meta.group_label_id = next_free_group_label_id(kind)
-  return rec.meta.group_label_id
+  rec.meta.label_id = next_free_label_id()
+  return rec.meta.label_id
 end
 
 ---@param id integer
 ---@return integer|nil
-function state.get_group_label_id(id)
-  return state.assign_group_label_id(id)
+function state.get_label_id(id)
+  return state.assign_label_id(id)
 end
 
 ---@return nil
-function state.sync_orders()
-  local task_ids = {}
-  local default_ids = {}
+function state.sync_order()
+  local ids = {}
 
   for id in pairs(terminals) do
-    if state.is_task(id) then
-      task_ids[#task_ids + 1] = id
-    else
-      default_ids[#default_ids + 1] = id
-    end
+    ids[#ids + 1] = id
   end
 
-  table.sort(task_ids)
-  table.sort(default_ids)
-  task_order = sync_kind_order(task_order, task_ids)
-  default_order = sync_kind_order(default_order, default_ids)
+  table.sort(ids)
+  terminal_order = sync_order(terminal_order, ids)
 end
 
 ---@return nil
@@ -202,7 +180,7 @@ function state.prune_stale()
     current_id = nil
   end
 
-  state.sync_orders()
+  state.sync_order()
 end
 
 ---@return integer[]
@@ -217,71 +195,16 @@ function state.live_ids()
   return ids
 end
 
----@param id integer
----@return boolean
-function state.is_task(id)
-  local rec = terminals[id]
-  return rec and rec.meta and rec.meta.kind == "task" or false
-end
-
----@param id integer
----@return string|nil
-function state.get_task_name(id)
-  local rec = terminals[id]
-  return rec and rec.meta and rec.meta.task_name or nil
-end
-
----@param task_name string
----@return integer|nil
-function state.find_terminal_id_by_task_name(task_name)
-  if type(task_name) ~= "string" or task_name == "" then
-    return nil
-  end
-
-  local ids = state.live_ids()
-  for _, id in ipairs(ids) do
-    if state.get_task_name(id) == task_name then
-      return id
-    end
-  end
-
-  return nil
-end
-
----@return integer[], integer[], integer[]
-function state.partitioned_ids()
-  state.prune_stale()
-
-  local all_ids = {}
-  for id in pairs(terminals) do
-    all_ids[#all_ids + 1] = id
-  end
-
-  table.sort(all_ids)
-
-  return all_ids, copy_ids(task_order), copy_ids(default_order)
-end
-
 ---@return integer[]
 function state.ordered_ids()
-  local _, task_ids, default_ids = state.partitioned_ids()
-  local ids = {}
-
-  for _, id in ipairs(task_ids) do
-    ids[#ids + 1] = id
-  end
-
-  for _, id in ipairs(default_ids) do
-    ids[#ids + 1] = id
-  end
-
-  return ids
+  state.prune_stale()
+  return copy_ids(terminal_order)
 end
 
 ---@param id integer
 ---@param direction integer
 ---@return boolean
-function state.move_id_within_kind(id, direction)
+function state.move_id(id, direction)
   if type(id) ~= "number" or id % 1 ~= 0 then
     return false
   end
@@ -295,9 +218,8 @@ function state.move_id_within_kind(id, direction)
     return false
   end
 
-  local order = state.is_task(id) and task_order or default_order
   local idx = nil
-  for i, candidate in ipairs(order) do
+  for i, candidate in ipairs(terminal_order) do
     if candidate == id then
       idx = i
       break
@@ -309,11 +231,11 @@ function state.move_id_within_kind(id, direction)
   end
 
   local swap_idx = idx + direction
-  if swap_idx < 1 or swap_idx > #order then
+  if swap_idx < 1 or swap_idx > #terminal_order then
     return false
   end
 
-  order[idx], order[swap_idx] = order[swap_idx], order[idx]
+  terminal_order[idx], terminal_order[swap_idx] = terminal_order[swap_idx], terminal_order[idx]
   return true
 end
 

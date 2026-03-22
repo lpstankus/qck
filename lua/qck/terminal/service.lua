@@ -48,39 +48,14 @@ local function safe_close_handle(handle)
   end
 end
 
----@param kind string|nil
----@return string
-local function normalize_terminal_kind(kind)
-  if kind == "task" then
-    return "task"
-  end
-  return "default"
-end
-
----@param task_name any
----@return string|nil
-local function normalize_task_name(task_name)
-  if type(task_name) ~= "string" then
-    return nil
-  end
-
-  local trimmed = vim.trim(task_name)
-  if trimmed == "" then
-    return nil
-  end
-
-  return trimmed
-end
-
----@param kind string
 ---@param auto_scroll any
 ---@return boolean
-local function resolve_auto_scroll(kind, auto_scroll)
+local function resolve_auto_scroll(auto_scroll)
   if type(auto_scroll) == "boolean" then
     return auto_scroll
   end
 
-  return kind == "task"
+  return false
 end
 
 ---@param snacks_impl { terminal?: { open?: fun(cmd: qck.Command|nil, opts: table|nil): qck.TerminalHandle|nil } }|nil
@@ -516,11 +491,9 @@ end
 ---@return qck.TerminalRecord|nil
 function terminal.create(id, opts)
   opts = opts or {}
-  local kind = normalize_terminal_kind(opts.kind)
-  local task_name = normalize_task_name(opts.task_name)
   local cmd = opts.cmd
   local preserve_mode = opts.preserve_mode == true
-  local auto_scroll = resolve_auto_scroll(kind, opts.auto_scroll)
+  local auto_scroll = resolve_auto_scroll(opts.auto_scroll)
   local previous_visible_id = get_previous_visible_id(id)
   local mode_intent = preserve_mode and capture_mode_intent() or nil
 
@@ -529,15 +502,13 @@ function terminal.create(id, opts)
   local rec = {
     win = nil,
     meta = {
-      kind = kind,
-      task_name = task_name,
       auto_scroll = auto_scroll,
     },
   }
 
   local term_opts = {
     interactive = true,
-    auto_close = kind == "task" and false or true,
+    auto_close = true,
     count = id,
     win = vim.tbl_extend("force", layout.build_initial_terminal_config(), {
       position = "float",
@@ -712,7 +683,7 @@ end
 ---@param id integer
 ---@return boolean
 function terminal.move_up(id)
-  local moved = state.move_id_within_kind(id, -1)
+  local moved = state.move_id(id, -1)
   if not moved then
     return false
   end
@@ -724,7 +695,7 @@ end
 ---@param id integer
 ---@return boolean
 function terminal.move_down(id)
-  local moved = state.move_id_within_kind(id, 1)
+  local moved = state.move_id(id, 1)
   if not moved then
     return false
   end

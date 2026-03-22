@@ -67,37 +67,31 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
 3. Coverage report generation (`tests/luacov_report.lua`).
 4. Headless load check.
 5. Manual workflow checks: `new`, `open`, `close`, `toggle`, `cycle_next`, `cycle_prev`, `clear_storage`.
-6. Internal task workflow checks (via internal modules):
-   - definitions registration,
-   - run/reuse/force-restart behavior,
-   - one running terminal per task type,
-   - concurrent runs across different task types,
-   - command override persistence and reset precedence.
-7. Multi-terminal visibility checks:
+6. Multi-terminal visibility checks:
    - creating/opening a different terminal should hide the previously visible terminal window,
    - `toggle` should affect only the current terminal visibility,
    - moving focus to a non-qck window (for example `<C-w>h`) should hide qck terminal and tabbar windows,
    - terminal width should shrink by the tabbar width and shift right so the combined terminal+tabbar footprint fills the bordered editor footprint,
    - resizing from small -> large and from large -> small should preserve qck terminal/tabbar geometry when the resized terminal is hidden and reopened,
    - resize regression coverage should simulate the observed failure mode where the terminal temporarily expands beyond the allowed bordered editor footprint and covers the tabbar area before deferred qck layout repair runs.
-8. Tab bar checks:
+7. Tab bar checks:
    - opens/closes with the visible terminal window,
    - closes when the terminal window is closed manually (for example `:q`),
    - closing the tabbar window manually (for example `:q`) should hide the current terminal window,
    - pressing `<Esc>` in the tabbar focuses the current terminal window,
-   - pressing `K`/`J` in the tabbar should move the selected terminal up/down within its own group (`R*` or `T*`),
-   - `R*`/`T*` labels should stay with the same terminal when rows are reordered,
-   - creating a new terminal should assign the lowest missing label number within its group for the current session,
+   - pressing `K`/`J` in the tabbar should move the selected terminal up/down within the single terminal list,
+   - `T*` labels should stay with the same terminal when rows are reordered,
+   - creating a new terminal should assign the lowest missing `T*` label number for the current session,
    - current terminal line uses full-row reverse highlight.
-9. Storage behavior checks:
+8. Storage behavior checks:
    - unsupported or invalid schema should fail load and warn users,
    - `clear_storage()` should clear persisted data for current workspace,
    - no implicit storage reset should happen on failed load.
-8. Terminal exit checks (`exit`, `exit 1`) to verify close/error behavior.
-9. Autoscroll checks for task terminals:
+9. Terminal exit checks (`exit`, `exit 1`) to verify close/error behavior.
+10. Autoscroll checks for terminals created with `auto_scroll = true`:
    - output should follow when cursor is near bottom or terminal window is unfocused,
    - output should not force-scroll when user is inspecting older lines away from bottom.
-10. Task form checks:
+11. Task form checks:
    - `new_task()` opens a floating form with task name/command fields,
    - calling `new_task()` while the form is already open should focus/reuse the same window,
    - form scaffold lines (description/prefix/help) should be rendered and preserved,
@@ -136,28 +130,24 @@ Additional tests should be placed under `tests/` and documented in this section.
 - When switching terminals, hiding the previous window (`toggle`) is safer than closing it (`close`), because closing may wipe the buffer and terminate the terminal job.
 - `noautocmd` is valid when creating the tab bar float (`nvim_open_win`), but must not be passed to `nvim_win_set_config` for an existing window.
 - `qck.new(_opts)` keeps a compatibility parameter but no longer validates/uses it internally.
-- State exposes partition and ordering helpers for mixed terminal kinds:
-  - `partitioned_ids()` returns three lists: `all_ids`, `task_ids`, `default_ids`,
-  - `ordered_ids()` returns task ids first, then default ids, preserving per-kind in-session manual order.
-  - `move_id_within_kind(id, direction)` reorders a terminal within its own kind (`task` or `default`) for the current session.
-  - `get_group_label_id(id)` returns a stable per-kind generation label id (`T#`/`R#`) for the terminal in the current session.
-- `terminal.create(id, opts)` accepts terminal kind metadata (`default` or `task`) and optional command input.
-- Task terminals store `rec.meta.task_name` for task-instance lookup and include `rec.meta.kind = "task"`; task terminals use `auto_close = false` to preserve output after process exit.
+- State exposes a single ordered terminal list for cycling and tabbar rendering:
+  - `ordered_ids()` preserves in-session manual order across all live terminals,
+  - `move_id(id, direction)` reorders a terminal within that single list,
+  - `get_label_id(id)` returns a stable session label id used for `T#` tabbar rows.
+- `terminal.create(id, opts)` accepts optional command input plus generic terminal options; the terminal runtime no longer tracks task-specific metadata.
 - `qck.new_task()` opens `tasks/form.lua` floating UI for creating workspace-scoped tasks; form saves trimmed task commands into workspace storage.
 - Task form duplicate protection is explicit two-step overwrite: first submit on an existing task warns, second submit with the same name confirms overwrite.
 - `tasks/form.lua` keeps runtime UI state in a single local state table (`bufnr`/`winid`/selection/pending overwrite/autocmd ids) instead of scattered module globals.
 - Task form submit sanitization preserves support for legacy inline labels (`Name: ...` / `Command: ...`) by normalizing to current prefixed scaffold rows before validation/save.
 - `tasks/form.lua` writes workspace task commands directly through `tasks/storage.lua` and checks duplicates against persisted workspace data.
 - `terminal/service.lua` manages per-terminal buffer hook groups to keep lifecycle cleanup centralized when terminals are deleted/wiped.
-- Autoscroll for task terminals is enabled by default and follows output only when near bottom or unfocused.
+- Autoscroll is opt-in per terminal via `opts.auto_scroll` and follows output only when near bottom or unfocused.
 - Autoscroll output tracking is attached with `nvim_buf_attach(..., { on_lines = ... })` instead of `TextChanged` autocmds, improving long-running/background output handling.
 - Tabbar rendering decouples visual ids from internal ids:
-  - task rows are labeled `R1`, `R2`, ... from per-group generation labels,
-  - default rows are labeled `T1`, `T2`, ... from per-group generation labels,
-  - generation labels are stable per terminal instance and do not change when rows are reordered,
-  - label numbers reuse the lowest missing value per group when terminals are deleted and new ones are created,
+  - rows are labeled `T1`, `T2`, ... from stable session label ids,
+  - label numbers reuse the lowest missing value when terminals are deleted and new ones are created,
   - row actions (`<CR>`, `dd`) resolve labels back to internal terminal ids.
-- Tabbar supports manual reordering in normal mode with `K` (move selected terminal up) and `J` (move selected terminal down), scoped to the selected terminal kind group.
+- Tabbar supports manual reordering in normal mode with `K` (move selected terminal up) and `J` (move selected terminal down) within the single terminal list.
 - User mappings configured via `qck.setup({ mappings = ... })` are normalized in `app/setup.lua` and applied to both terminal buffers and the tabbar buffer:
   - legacy entries (`lhs = rhs`) default to terminal `n`+`t`,
   - mapping specs (`lhs = { rhs = ..., mode = ... }`) allow terminal-mode scoping (`n`, `t`, or both),

@@ -295,39 +295,18 @@ end
 ---@class qck.TabbarRow
 ---@field internal_id integer|nil
 ---@field visual_label string
----@field kind string
 ---@field selectable boolean
 
 ---@return qck.TabbarRow[]
 local function build_render_rows()
-  local _, task_ids, default_ids = state.partitioned_ids()
+  local ids = state.ordered_ids()
   local rows = {}
 
-  for i, id in ipairs(task_ids) do
-    local label_id = state.get_group_label_id(id) or i
-    rows[#rows + 1] = {
-      internal_id = id,
-      visual_label = ("R%d"):format(label_id),
-      kind = "task",
-      selectable = true,
-    }
-  end
-
-  if #task_ids > 0 and #default_ids > 0 then
-    rows[#rows + 1] = {
-      internal_id = nil,
-      visual_label = "---",
-      kind = "separator",
-      selectable = false,
-    }
-  end
-
-  for i, id in ipairs(default_ids) do
-    local label_id = state.get_group_label_id(id) or i
+  for i, id in ipairs(ids) do
+    local label_id = state.get_label_id(id) or i
     rows[#rows + 1] = {
       internal_id = id,
       visual_label = ("T%d"):format(label_id),
-      kind = "default",
       selectable = true,
     }
   end

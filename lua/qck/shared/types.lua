@@ -1,7 +1,6 @@
 ---@meta
 
 ---@alias qck.Command string|string[]
----@alias qck.TerminalKind "default"|"task"
 
 ---@class qck.TerminalHandle
 ---@field buf integer|fun(self: qck.TerminalHandle): integer
@@ -14,30 +13,14 @@
 ---@field on? fun(self: qck.TerminalHandle, event: string, cb: fun(...), opts?: table)
 
 ---@class qck.TerminalMeta
----@field kind qck.TerminalKind
----@field task_name? string
 ---@field auto_scroll boolean
----@field group_label_id? integer
+---@field label_id? integer
 
 ---@class qck.TerminalRecord
 ---@field win qck.TerminalHandle
 ---@field meta qck.TerminalMeta
 
----@class qck.TaskDefinition
----@field cmd qck.Command
----@field auto_scroll? boolean
-
----@class qck.TaskRunOpts
----@field force_new? boolean
----@field auto_scroll? boolean
-
----@class qck.CreateTaskOpts
----@field overwrite? boolean
----@field auto_scroll? boolean
-
 ---@class qck.TerminalCreateOpts
----@field kind? qck.TerminalKind
----@field task_name? string
 ---@field cmd? qck.Command
 ---@field preserve_mode? boolean
 ---@field auto_scroll? boolean
