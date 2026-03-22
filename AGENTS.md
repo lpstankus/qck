@@ -78,9 +78,9 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
    - creating/opening a different terminal should hide the previously visible terminal window,
    - `toggle` should affect only the current terminal visibility,
    - moving focus to a non-qck window (for example `<C-w>h`) should hide qck terminal and tabbar windows,
-   - terminal width should shrink by the tabbar width and shift right so the combined terminal+tabbar footprint fits inside the shared fixed-margin editor footprint,
+   - terminal width should shrink by the tabbar width and shift right so the combined terminal+tabbar footprint fills the bordered editor footprint,
    - resizing from small -> large and from large -> small should preserve qck terminal/tabbar geometry when the resized terminal is hidden and reopened,
-   - resize regression coverage should simulate the observed failure mode where the terminal temporarily expands beyond the allowed fixed-margin footprint and covers the tabbar area before deferred qck layout repair runs.
+   - resize regression coverage should simulate the observed failure mode where the terminal temporarily expands beyond the allowed bordered editor footprint and covers the tabbar area before deferred qck layout repair runs.
 8. Tab bar checks:
    - opens/closes with the visible terminal window,
    - closes when the terminal window is closed manually (for example `:q`),
@@ -132,7 +132,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - Tab bar lifecycle is synchronized from `terminal/service.lua` and reinforced by a `WinClosed` autocmd watcher in `terminal/tabbar.lua`.
 - Floating window geometry is centralized in `lua/qck/terminal/layout.lua`; terminal and tabbar floats share one width/column calculation so the tabbar consumes space inside the original terminal footprint instead of extending it.
 - Shared terminal/tabbar layout reserves a two-column gap between the tabbar and terminal so both float borders remain visually distinct inside the original terminal footprint.
-- Shared terminal/tabbar layout uses `relative = "editor"` and a fixed bordered footprint inset by `3` columns on the left/right and `1` row on the top/bottom while keeping the tabbar inside that total size budget.
+- Shared terminal/tabbar layout uses `relative = "editor"` and a full-editor bordered footprint while keeping the tabbar inside that total size budget.
 - All plugin autocmds share a single `qck` augroup via `shared/autocmd.lua`; modules track and delete autocmd ids for targeted cleanup.
 - When switching terminals, hiding the previous window (`toggle`) is safer than closing it (`close`), because closing may wipe the buffer and terminate the terminal job.
 - `noautocmd` is valid when creating the tab bar float (`nvim_open_win`), but must not be passed to `nvim_win_set_config` for an existing window.

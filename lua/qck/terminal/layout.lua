@@ -2,8 +2,8 @@ local layout = {}
 
 local TABBAR_WIDTH = 6
 local WINDOW_GAP_WIDTH = 2
-local HORIZONTAL_MARGIN = 3
-local VERTICAL_MARGIN = 1
+local HORIZONTAL_MARGIN = 0
+local VERTICAL_MARGIN = 0
 local FLOAT_BORDER_FOOTPRINT = 2
 
 ---@return integer
