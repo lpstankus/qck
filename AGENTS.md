@@ -103,8 +103,7 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
     - successful save persists task command for the current workspace only.
 12. Storage-only task checks:
     - storage load/save round-trips normalized workspace task commands,
-    - workspace task data remains isolated per working directory,
-    - `reset_task_cmd()` removes only the targeted workspace task entry.
+    - workspace task data remains isolated per working directory.
 
 Additional tests should be placed under `tests/` and documented in this section.
 

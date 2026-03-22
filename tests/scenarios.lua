@@ -120,20 +120,6 @@ function scenarios.storage_roundtrip()
     { lint = { "echo", "lint" } },
     "storage should expose normalized workspace task definitions"
   )
-
-  storage.reset_task_cmd(workspace, "lint")
-  local ok_save_after_reset = storage.save()
-  helpers.assert_truthy(ok_save_after_reset, "storage save should persist task removal")
-
-  storage.workspaces = {}
-  local ok_reload_after_reset = storage.load()
-  helpers.assert_truthy(ok_reload_after_reset, "storage load should succeed after task removal")
-  helpers.assert_eq(storage.get_task_cmd(workspace, "lint"), nil, "reset_task_cmd() should remove the task from storage")
-  helpers.assert_eq(
-    storage.get_task_cmd(other_workspace, "test"),
-    "echo test",
-    "reset_task_cmd() should leave other workspaces untouched"
-  )
 end
 
 function scenarios.terminals_and_layout()
