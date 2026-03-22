@@ -1,9 +1,9 @@
-local mappings = {}
+local keymaps = {}
 
 ---@param current_lhs string[]
 ---@param raw_mappings table|nil
 ---@return string[], table, string[]
-function mappings.update_state(current_lhs, raw_mappings)
+function keymaps.update_state(current_lhs, raw_mappings)
   local user_mappings = raw_mappings or {}
   local next_lhs = {}
 
@@ -18,7 +18,7 @@ end
 ---@param previous_lhs string[]
 ---@param current_lhs string[]
 ---@return table<string, boolean>
-function mappings.collect_lhs_to_clear(previous_lhs, current_lhs)
+function keymaps.collect_lhs_to_clear(previous_lhs, current_lhs)
   local lhs_to_clear = {}
   for _, lhs in ipairs(previous_lhs) do
     lhs_to_clear[lhs] = true
@@ -29,4 +29,4 @@ function mappings.collect_lhs_to_clear(previous_lhs, current_lhs)
   return lhs_to_clear
 end
 
-return mappings
+return keymaps

@@ -1,6 +1,6 @@
 local state = require("qck.terminal.state")
 local tabbar = require("qck.terminal.tabbar")
-local mappings = require("qck.shared.mappings")
+local keymaps = require("qck.shared.keymaps")
 local layout = require("qck.terminal.layout")
 local notify = require("qck.shared.notify").notify
 
@@ -181,7 +181,7 @@ local function apply_user_mappings_to_buf(bufnr)
     return
   end
 
-  local lhs_to_clear = mappings.collect_lhs_to_clear(previous_mapping_lhs, mapping_lhs)
+  local lhs_to_clear = keymaps.collect_lhs_to_clear(previous_mapping_lhs, mapping_lhs)
 
   for lhs in pairs(lhs_to_clear) do
     for _, mode in ipairs(terminal_mapping_modes) do
@@ -214,7 +214,7 @@ end
 ---@param raw_mappings table|nil
 ---@return nil
 function terminal.set_user_mappings(raw_mappings)
-  previous_mapping_lhs, user_mappings, mapping_lhs = mappings.update_state(mapping_lhs, raw_mappings)
+  previous_mapping_lhs, user_mappings, mapping_lhs = keymaps.update_state(mapping_lhs, raw_mappings)
 end
 
 ---@return nil

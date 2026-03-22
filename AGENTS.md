@@ -6,7 +6,7 @@ This repository is a Neovim plugin written in Lua.
 - `lua/qck/init.lua`: public plugin API (`setup`, `clear_storage`, `new`, `new_task`, `open`, `close`, `toggle`, `cycle_next`, `cycle_prev`, `switch_focus`).
 - `lua/qck/shared/autocmd.lua`: shared plugin autocmd wrapper exposing a single `qck` augroup.
 - `lua/qck/shared/cmd.lua`: shared command normalization/cloning/validation helpers (`string` or string-list commands).
-- `lua/qck/shared/mappings.lua`: shared mapping state helpers for tracking/removing user-configured buffer mappings.
+- `lua/qck/shared/keymaps.lua`: shared mapping state helpers for tracking/removing user-configured buffer mappings.
 - `lua/qck/shared/notify.lua`: shared `QCK:` notification helper.
 - `lua/qck/shared/types.lua`: shared EmmyLua type aliases/classes.
 - `lua/qck/terminal/service.lua`: terminal lifecycle orchestration over `snacks.terminal`.
@@ -121,7 +121,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - `lua/qck/init.lua` is limited to the public API surface plus imports; app-level orchestration lives under `lua/qck/app/`.
 - Command normalization/cloning/validation is centralized in `lua/qck/shared/cmd.lua` and reused by `tasks/form.lua` and `tasks/storage.lua`.
 - Shared `QCK:` notifications are centralized in `lua/qck/shared/notify.lua` and reused by `init.lua`, `tasks/form.lua`, `terminal/service.lua`, and `app/`.
-- Mapping-state diff/cleanup helpers are centralized in `lua/qck/shared/mappings.lua` and reused by both terminal and tabbar mapping application paths.
+- Mapping-state diff/cleanup helpers are centralized in `lua/qck/shared/keymaps.lua` and reused by both terminal and tabbar mapping application paths.
 - Tab bar lifecycle is synchronized from `terminal/service.lua` and reinforced by a `WinClosed` autocmd watcher in `terminal/tabbar.lua`.
 - Floating window geometry is centralized in `lua/qck/terminal/layout.lua`; terminal and tabbar floats share one width/column calculation so the tabbar consumes space inside the original terminal footprint instead of extending it.
 - Shared terminal/tabbar layout reserves a two-column gap between the tabbar and terminal so both float borders remain visually distinct inside the original terminal footprint.
