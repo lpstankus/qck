@@ -1,6 +1,5 @@
 local terminal = require("qck.terminal.service")
 local tabbar = require("qck.terminal.tabbar")
-local tasks = require("qck.tasks.init")
 local storage = require("qck.tasks.storage")
 local notify = require("qck.shared.notify").notify
 
@@ -124,16 +123,12 @@ end
 function setup.initialize(mappings)
   apply_mappings(mappings)
 
-  tasks.set_storage(storage)
-  tasks.set_definitions({})
-
   local ok_load, load_err = storage.load()
   if not ok_load then
     notify(("failed to load workspace storage: %s; run qck.clear_storage() to reset persisted workspace data"):format(load_err or "unknown error"), vim.log.levels.WARN)
     return false
   end
 
-  tasks.hydrate_workspace_tasks(vim.fn.getcwd())
   return true
 end
 

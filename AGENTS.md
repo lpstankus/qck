@@ -13,10 +13,10 @@ This repository is a Neovim plugin written in Lua.
 - `lua/qck/terminal/state.lua`: terminal registry and current-id/cycling state plus terminal record/window validity helpers.
 - `lua/qck/terminal/layout.lua`: shared floating terminal/tabbar layout calculations.
 - `lua/qck/terminal/tabbar.lua`: floating vertical tab bar that renders live terminal ids.
-- `lua/qck/tasks/init.lua`: internal task registry and orchestration (task-type lifecycle, one-instance-per-type enforcement, effective command resolution).
+- `lua/qck/tasks/init.lua`: minimal task persistence facade used by the task form for duplicate checks and workspace task creation.
 - `lua/qck/tasks/storage.lua`: workspace-persistent storage for task command overrides and workspace-created task definitions.
 - `lua/qck/tasks/form.lua`: floating task-creation form UI (name/cmd fields, Tab cycling, overwrite confirmation, workspace save).
-- `lua/qck/app/setup.lua`: setup-time wiring for Snacks bootstrapping, mapping parsing, storage load, and task hydration.
+- `lua/qck/app/setup.lua`: setup-time wiring for Snacks bootstrapping, mapping parsing, and storage load.
 - `lua/qck/app/targets.lua`: shared API target-id validation and fallback resolution for `open(id?)` / `close(id?)`.
 - `lua/qck/app/focus.lua`: global qck/tabbar focus and resize autocmd wiring.
 - `tests/mock_snacks.lua`: deterministic Snacks terminal mock for headless `mini.test` coverage/integration runs.
@@ -116,11 +116,11 @@ Additional tests should be placed under `tests/` and documented in this section.
 - Package boundaries are:
   - `shared/`: leaf utilities only, with no imports from `terminal/`, `tasks/`, or `app/`,
   - `terminal/`: terminal state, layout, tabbar, and terminal lifecycle,
-  - `tasks/`: task definitions, storage, and task form UI,
+  - `tasks/`: minimal task persistence helpers, storage, and task form UI,
   - `app/`: top-level setup/focus/target orchestration used by `init.lua`.
 - State validity checks guard terminal-handle method calls with `pcall`, so stale/invalid handle behavior cannot break prune/cycle paths.
 - `terminal.create(...)` closes partially opened terminal handles when handle initialization fails, preventing leaked untracked terminal resources.
-- Workspace persistence lives in `tasks/storage.lua` (`stdpath("data") .. "/qck.json"`) and stores per-workspace task command overrides, including commands for workspace-created tasks.
+- Workspace persistence lives in `tasks/storage.lua` (`stdpath("data") .. "/qck.json"`) and stores per-workspace commands for workspace-created tasks.
 - `storage.load()` / `storage.save()` return `(ok, err)` and track `storage.last_error`, so callers can report concrete persistence failure details.
 - Storage loading is fail-fast on unsupported/invalid schema and does not mutate files automatically.
 - `qck.clear_storage()` is the explicit user-triggered storage reset entrypoint for current workspace state.
@@ -142,15 +142,11 @@ Additional tests should be placed under `tests/` and documented in this section.
   - `ordered_ids()` returns task ids first, then default ids, preserving per-kind in-session manual order.
   - `move_id_within_kind(id, direction)` reorders a terminal within its own kind (`task` or `default`) for the current session.
   - `get_group_label_id(id)` returns a stable per-kind generation label id (`T#`/`R#`) for the terminal in the current session.
-- Internal task orchestration exposes helper lookup:
-  - `tasks.get_running_id(task_type)` returns the running terminal id for a task type when present.
 - `terminal.create(id, opts)` accepts terminal kind metadata (`default` or `task`) and optional command input.
 - Task terminals store `rec.meta.task_name` for task-instance lookup and include `rec.meta.kind = "task"`; task terminals use `auto_close = false` to preserve output after process exit.
-- Task command resolution precedence is: temporary override (`set_task_cmd(..., { temp = true })`) > persisted workspace override > definition default.
-- Calling `tasks.set_definitions(...)` replaces task definitions and resets all temporary (`temp = true`) task command overrides for the current session.
-- `tasks.create_workspace_task(task_type, cmd, opts?)` registers new workspace tasks internally and persists command overrides; storage must be loaded (`storage.ok == true`) before creation succeeds.
-- `tasks.hydrate_workspace_tasks(workspace?)` imports persisted workspace task commands as missing in-memory task definitions after setup.
-- `qck.new_task()` opens `tasks/form.lua` floating UI for creating workspace-scoped tasks; form command input is saved as a trimmed string command.
+- `tasks.create_workspace_task(task_type, cmd, opts?)` persists workspace tasks directly through storage; storage must be loaded (`storage.ok == true`) before creation succeeds.
+- `tasks.has_definition(task_type)` now checks whether a persisted task already exists for the current workspace.
+- `qck.new_task()` opens `tasks/form.lua` floating UI for creating workspace-scoped tasks; form saves trimmed task commands into workspace storage.
 - Task form duplicate protection is explicit two-step overwrite: first submit on an existing task warns, second submit with the same name confirms overwrite.
 - `tasks/form.lua` keeps runtime UI state in a single local state table (`bufnr`/`winid`/selection/pending overwrite/autocmd ids) instead of scattered module globals.
 - Task form submit sanitization preserves support for legacy inline labels (`Name: ...` / `Command: ...`) by normalizing to current prefixed scaffold rows before validation/save.
