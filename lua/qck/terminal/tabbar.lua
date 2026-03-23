@@ -8,19 +8,13 @@ local state = require("qck.terminal.state")
 local autocmd = require("qck.shared.autocmd")
 local keymaps = require("qck.shared.keymaps")
 local layout = require("qck.terminal.layout")
+local runtime = require("qck.ui.runtime")
 
 local tabbar = {}
 
 local ns = vim.api.nvim_create_namespace("qck_tabbar")
 vim.api.nvim_set_hl(0, "QckTabbarCurrent", { reverse = true, default = true })
 
-local bufnr = nil
-local winid = nil
-local watched_term_win = nil
-local watched_tabbar_win = nil
-local terminal_watch_autocmd_id = nil
-local tabbar_close_watch_autocmd_id = nil
-local suppress_tabbar_close_action = false
 local render_rows = {}
 local user_mappings = {}
 local mapping_lhs = {}
@@ -34,6 +28,25 @@ local actions = {
   close_current = function() end,
   focus_current = function() end,
 }
+
+local TABBAR_RUNTIME_KEY = "terminal_tabbar"
+
+---@return qck.UiRuntimeWatchers
+local function get_runtime_watchers()
+  return runtime.get_owner_watchers(TABBAR_RUNTIME_KEY)
+end
+
+---@param patch qck.UiRuntimeWatchers
+---@return nil
+local function patch_runtime_watchers(patch)
+  local watchers = get_runtime_watchers()
+
+  for key, value in pairs(patch) do
+    watchers[key] = value
+  end
+
+  runtime.set_owner_watchers(TABBAR_RUNTIME_KEY, watchers)
+end
 
 ---@param buf integer|nil
 ---@return boolean
@@ -70,6 +83,7 @@ end
 
 ---@return integer|nil
 local function get_selected_terminal_id()
+  local winid = runtime.get_tabbar_winid()
   if not winid or not is_valid_win(winid) then
     return nil
   end
@@ -119,6 +133,7 @@ local function get_line_cursor_col(line)
   end
 
   local width = 1
+  local winid = runtime.get_tabbar_winid()
   if winid and is_valid_win(winid) then
     width = math.max(1, vim.api.nvim_win_get_width(winid))
   end
@@ -139,6 +154,7 @@ end
 
 ---@param delta integer
 local function move_selection(delta)
+  local winid = runtime.get_tabbar_winid()
   if not winid or not is_valid_win(winid) then
     return
   end
@@ -180,6 +196,7 @@ local function move_selected_terminal(delta)
     actions.move_down(id)
   end
 
+  local winid = runtime.get_tabbar_winid()
   if not winid or not is_valid_win(winid) then
     return
   end
@@ -265,11 +282,13 @@ end
 
 ---@return integer
 local function ensure_buffer()
+  local bufnr = runtime.get_tabbar_bufnr()
   if bufnr and is_valid_buf(bufnr) then
     return bufnr
   end
 
   bufnr = create_buffer()
+  runtime.set_tabbar_bufnr(bufnr)
   return bufnr
 end
 
@@ -361,6 +380,7 @@ end
 ---@param line_count integer
 ---@param current_idx integer|nil
 local function restore_cursor_position(previous_line, line_count, current_idx)
+  local winid = runtime.get_tabbar_winid()
   if not winid or line_count == 0 then
     return
   end
@@ -384,67 +404,81 @@ end
 
 ---@param term_win integer
 local function watch_terminal_win(term_win)
-  if watched_term_win == term_win then
+  local watchers = get_runtime_watchers()
+  if watchers.watched_term_win == term_win then
     return
   end
 
-  autocmd.delete(terminal_watch_autocmd_id)
-  terminal_watch_autocmd_id = nil
-  watched_term_win = term_win
+  autocmd.delete(watchers.terminal_watch_autocmd_id)
+  patch_runtime_watchers({
+    terminal_watch_autocmd_id = nil,
+    watched_term_win = term_win,
+  })
 
-  terminal_watch_autocmd_id = autocmd.create("WinClosed", {
+  local autocmd_id = autocmd.create("WinClosed", {
     pattern = tostring(term_win),
     callback = function()
-      terminal_watch_autocmd_id = nil
+      patch_runtime_watchers({
+        terminal_watch_autocmd_id = nil,
+        watched_term_win = nil,
+      })
       tabbar.hide()
     end,
     once = true,
   })
+
+  patch_runtime_watchers({ terminal_watch_autocmd_id = autocmd_id })
 end
 
 ---@param tab_win integer
 local function watch_tabbar_win(tab_win)
-  if watched_tabbar_win == tab_win then
+  local watchers = get_runtime_watchers()
+  if watchers.watched_tabbar_win == tab_win then
     return
   end
 
-  autocmd.delete(tabbar_close_watch_autocmd_id)
-  tabbar_close_watch_autocmd_id = nil
-  watched_tabbar_win = tab_win
+  autocmd.delete(watchers.tabbar_close_watch_autocmd_id)
+  patch_runtime_watchers({
+    tabbar_close_watch_autocmd_id = nil,
+    watched_tabbar_win = tab_win,
+  })
 
-  tabbar_close_watch_autocmd_id = autocmd.create("WinClosed", {
+  local autocmd_id = autocmd.create("WinClosed", {
     pattern = tostring(tab_win),
     callback = function()
-      tabbar_close_watch_autocmd_id = nil
-      watched_tabbar_win = nil
-      if suppress_tabbar_close_action then
-        suppress_tabbar_close_action = false
+      local active_watchers = get_runtime_watchers()
+      patch_runtime_watchers({
+        tabbar_close_watch_autocmd_id = nil,
+        watched_tabbar_win = nil,
+      })
+      if active_watchers.suppress_tabbar_close_action then
+        patch_runtime_watchers({ suppress_tabbar_close_action = false })
         return
       end
       actions.close_current()
     end,
     once = true,
   })
+
+  patch_runtime_watchers({ tabbar_close_watch_autocmd_id = autocmd_id })
 end
 
 ---@return nil
 function tabbar.hide()
+  local winid = runtime.get_tabbar_winid()
+  local watchers = get_runtime_watchers()
   if is_valid_win(winid) then
-    suppress_tabbar_close_action = true
+    patch_runtime_watchers({ suppress_tabbar_close_action = true })
     local ok_close = pcall(vim.api.nvim_win_close, winid, true)
     if not ok_close then
-      suppress_tabbar_close_action = false
+      patch_runtime_watchers({ suppress_tabbar_close_action = false })
     end
   end
-  winid = nil
+  runtime.clear_tabbar_winid()
   render_rows = {}
-  watched_term_win = nil
-  watched_tabbar_win = nil
-  autocmd.delete(terminal_watch_autocmd_id)
-  autocmd.delete(tabbar_close_watch_autocmd_id)
-  terminal_watch_autocmd_id = nil
-  tabbar_close_watch_autocmd_id = nil
-  suppress_tabbar_close_action = false
+  autocmd.delete(watchers.terminal_watch_autocmd_id)
+  autocmd.delete(watchers.tabbar_close_watch_autocmd_id)
+  runtime.clear_owner_watchers(TABBAR_RUNTIME_KEY)
 end
 
 ---@param fns { open?: fun(id: integer), delete?: fun(id: integer), move_up?: fun(id: integer), move_down?: fun(id: integer), close_current?: fun(), focus_current?: fun() }|nil
@@ -481,6 +515,7 @@ end
 
 ---@return nil
 function tabbar.apply_user_mappings()
+  local bufnr = runtime.get_tabbar_bufnr()
   if not bufnr or not is_valid_buf(bufnr) then
     return
   end
@@ -490,6 +525,7 @@ end
 
 ---@return integer|nil
 function tabbar.get_winid()
+  local winid = runtime.get_tabbar_winid()
   if not is_valid_win(winid) then
     return nil
   end
@@ -499,6 +535,7 @@ end
 ---@param current_id integer|nil
 ---@return nil
 function tabbar.render(current_id)
+  local winid = runtime.get_tabbar_winid()
   if not winid or not is_valid_win(winid) then
     return
   end
@@ -530,6 +567,7 @@ end
 ---@param conf table
 ---@return nil
 local function ensure_tabbar_window(buf, conf)
+  local winid = runtime.get_tabbar_winid()
   if winid and is_valid_win(winid) then
     vim.api.nvim_win_set_buf(winid, buf)
     vim.api.nvim_win_set_config(winid, conf)
@@ -538,6 +576,7 @@ local function ensure_tabbar_window(buf, conf)
 
   conf.noautocmd = true
   winid = vim.api.nvim_open_win(buf, false, conf)
+  runtime.set_tabbar_winid(winid)
 end
 
 ---@param rec qck.TerminalRecord|nil
@@ -564,6 +603,7 @@ function tabbar.show_for_terminal(rec, current_id)
   local buf = ensure_buffer()
 
   ensure_tabbar_window(buf, conf)
+  local winid = runtime.get_tabbar_winid()
   if not winid then return end
   watch_tabbar_win(winid)
 

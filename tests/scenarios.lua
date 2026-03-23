@@ -231,6 +231,83 @@ function scenarios.ui_state_registration_and_traversal()
   )
 end
 
+function scenarios.ui_runtime_and_layout_scaffolding()
+  local runtime = require("qck.ui.runtime")
+  local ui_layout = require("qck.ui.layout")
+  local terminal_layout = require("qck.terminal.layout")
+
+  runtime.reset()
+
+  local content_buf = vim.api.nvim_create_buf(false, true)
+  local content_win = vim.api.nvim_open_win(content_buf, false, {
+    relative = "editor",
+    row = 0,
+    col = 0,
+    width = 10,
+    height = 4,
+    style = "minimal",
+  })
+  local tabbar_buf = vim.api.nvim_create_buf(false, true)
+  local tabbar_win = vim.api.nvim_open_win(tabbar_buf, false, {
+    relative = "editor",
+    row = 0,
+    col = 0,
+    width = 6,
+    height = 4,
+    style = "minimal",
+  })
+
+  runtime.set_content_winid(content_win)
+  runtime.set_tabbar_surface(tabbar_buf, tabbar_win)
+  helpers.assert_eq(runtime.get_content_winid(), content_win, "ui runtime should track the visible content winid")
+  helpers.assert_eq(runtime.get_tabbar_bufnr(), tabbar_buf, "ui runtime should track the tabbar bufnr")
+  helpers.assert_eq(runtime.get_tabbar_winid(), tabbar_win, "ui runtime should track the tabbar winid")
+  helpers.assert_truthy(runtime.is_visible(), "ui runtime should report visibility when content is open")
+
+  local handle_a = {}
+  local handle_b = {}
+  helpers.assert_truthy(select(1, runtime.register_handle(1, handle_a)), "ui runtime should register owned handles")
+  helpers.assert_eq(runtime.get_registered_handle(1), handle_a, "ui runtime should expose the registered handle by owner id")
+  helpers.assert_eq(runtime.get_handle_owner(handle_a), 1, "ui runtime should reverse-index registered handles")
+  helpers.assert_eq(select(1, runtime.register_handle(2, handle_a)), false, "ui runtime should reject duplicate handle ownership")
+  helpers.assert_eq(select(1, runtime.register_handle(1, handle_b)), false, "ui runtime should reject conflicting owner re-registration")
+  runtime.unregister_handle(1)
+  helpers.assert_eq(runtime.get_registered_handle(1), nil, "ui runtime should unregister owned handles")
+
+  runtime.set_owner_watchers(7, { watched_term_win = 11, terminal_watch_autocmd_id = 12 })
+  local owner_watchers = runtime.get_owner_watchers(7)
+  helpers.assert_eq(owner_watchers.watched_term_win, 11, "ui runtime should store per-owner watcher bookkeeping")
+  owner_watchers.watched_term_win = 99
+  helpers.assert_eq(runtime.get_owner_watchers(7).watched_term_win, 11, "ui runtime should return watcher bookkeeping by copy")
+
+  runtime.set_global_watchers({ focus_leave = 21, resize = 22 })
+  local global_watchers = runtime.get_global_watchers()
+  helpers.assert_eq(global_watchers.focus_leave, 21, "ui runtime should store global watcher bookkeeping")
+  global_watchers.focus_leave = 99
+  helpers.assert_eq(runtime.get_global_watchers().focus_leave, 21, "ui runtime should copy global watcher bookkeeping")
+
+  local shared = ui_layout.build_shared_float_configs(content_win)
+  local terminal_shared = terminal_layout.build_shared_float_configs(content_win)
+  local expected = helpers.expected_layout(ui_layout)
+  helpers.assert_truthy(shared ~= nil, "ui layout should build shared float configs for a valid content window")
+  helpers.assert_truthy(vim.deep_equal(shared, terminal_shared), "terminal layout shim should delegate to ui layout")
+  helpers.assert_eq(shared.tabbar.width, expected.tabbar_width, "ui layout should preserve tabbar width math")
+  helpers.assert_eq(
+    math.floor(tonumber(shared.terminal.col) or 0),
+    expected.horizontal_margin + expected.tabbar_width + expected.gap_width,
+    "ui layout should preserve content offset math"
+  )
+  helpers.assert_eq(shared.terminal.height, expected.total_height, "ui layout should preserve shared height math")
+
+  vim.api.nvim_win_close(tabbar_win, true)
+  helpers.assert_eq(runtime.get_tabbar_winid(), nil, "ui runtime should clear stale tabbar winids on read")
+  helpers.assert_eq(runtime.get_tabbar_bufnr(), tabbar_buf, "ui runtime should keep a valid tabbar buffer across win closes")
+
+  vim.api.nvim_win_close(content_win, true)
+  helpers.assert_eq(runtime.get_content_winid(), nil, "ui runtime should clear stale content winids on read")
+  helpers.assert_eq(runtime.is_visible(), false, "ui runtime should report hidden when content closes")
+end
+
 function scenarios.terminals_and_layout()
   local env = helpers.load_qck()
   local qck, state, terminal, tabbar, layout =
@@ -548,6 +625,7 @@ function scenarios.ordered()
     { name = "task form | creates and overwrites workspace task", run = scenarios.task_form_create_and_overwrite },
     { name = "storage | persists workspace task commands across load/save", run = scenarios.storage_roundtrip },
     { name = "ui state | registers categories and traverses tabs", run = scenarios.ui_state_registration_and_traversal },
+    { name = "ui runtime | tracks windows, handles, and layout scaffolding", run = scenarios.ui_runtime_and_layout_scaffolding },
     { name = "terminals | manages generic terminals with shared layout", run = scenarios.terminals_and_layout },
     { name = "terminals | preserves lifecycle watcher behavior and focus routing", run = scenarios.terminal_lifecycle_watchers_and_focus },
     { name = "terminals | prunes invalid terminals and adopts live fallbacks", run = scenarios.terminal_invalidation_and_active_fallbacks },

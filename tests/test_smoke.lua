@@ -20,6 +20,9 @@ T["storage"]["fails invalid load and repairs storage through clear_storage"] = s
 T["ui state"] = new_set()
 T["ui state"]["registers categories and traverses tabs"] = scenarios.ui_state_registration_and_traversal
 
+T["ui runtime"] = new_set()
+T["ui runtime"]["tracks windows, handles, and layout scaffolding"] = scenarios.ui_runtime_and_layout_scaffolding
+
 T["terminals"] = new_set()
 T["terminals"]["manages generic terminals with shared layout"] = scenarios.terminals_and_layout
 T["terminals"]["preserves lifecycle watcher behavior and focus routing"] = scenarios.terminal_lifecycle_watchers_and_focus

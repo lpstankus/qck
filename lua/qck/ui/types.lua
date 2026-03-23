@@ -22,4 +22,10 @@
 ---@field category_display_id qck.UiDisplayId
 ---@field terminal any
 
+---@class qck.UiLayoutConfigPair
+---@field terminal vim.api.keyset.win_config
+---@field tabbar vim.api.keyset.win_config
+
+---@class qck.UiRuntimeWatchers: table<string, any>
+
 return {}

@@ -13,6 +13,7 @@ local state = require("qck.terminal.state")
 local tabbar = require("qck.terminal.tabbar")
 local keymaps = require("qck.shared.keymaps")
 local layout = require("qck.terminal.layout")
+local runtime = require("qck.ui.runtime")
 local notify = require("qck.shared.notify").notify
 
 local terminal = {}
@@ -116,6 +117,7 @@ end
 local function apply_terminal_layout(rec)
   local winid = terminal_winid(rec)
   if not winid then
+    runtime.clear_content_winid()
     return false
   end
 
@@ -130,6 +132,7 @@ local function apply_terminal_layout(rec)
     return false
   end
 
+  runtime.set_content_winid(winid)
   return true
 end
 
@@ -173,6 +176,8 @@ end
 ---@param id integer
 ---@return nil
 local function purge_terminal_record(id)
+  runtime.unregister_handle(id)
+  runtime.clear_owner_watchers(id)
   state.remove_terminal(id)
 end
 
@@ -275,12 +280,14 @@ end
 function terminal.refresh_current_layout()
   local current_id = state.get_current_id()
   if not current_id then
+    runtime.clear_content_winid()
     tabbar.hide()
     return
   end
 
   local current_rec = state.get_terminal(current_id)
   if not state.is_window_open(current_rec) then
+    runtime.clear_content_winid()
     tabbar.hide()
     return
   end
@@ -294,6 +301,9 @@ end
 local function hide_window_if_open(id)
   local rec = state.get_terminal(id)
   if not state.is_window_open(rec) then
+    if state.get_current_id() == id then
+      runtime.clear_content_winid()
+    end
     return
   end
 
@@ -305,6 +315,11 @@ local function hide_window_if_open(id)
   local ok_hide, err = pcall(function() rec_win:toggle() end)
   if not ok_hide then
     notify(("failed to hide terminal %d: %s"):format(id, tostring(err)), vim.log.levels.ERROR)
+    return
+  end
+
+  if state.get_current_id() == id then
+    runtime.clear_content_winid()
   end
 end
 
@@ -387,6 +402,8 @@ function terminal.create(id, preserve_mode)
   end
 
   state.set_terminal(id, rec)
+  runtime.register_handle(id, rec_win)
+  runtime.set_owner_watchers(id, { buf_wipeout = true })
   apply_terminal_layout(rec)
   if previous_visible_id then
     hide_window_if_open(previous_visible_id)
@@ -519,6 +536,7 @@ function terminal.toggle(id)
     apply_terminal_layout(rec)
     tabbar.sync(rec, id)
   else
+    runtime.clear_content_winid()
     tabbar.hide()
   end
 end
