@@ -128,13 +128,13 @@ function scenarios.terminals_and_layout()
     env.qck, env.state, env.terminal, env.tabbar, env.layout
   local expected = helpers.expected_layout(layout)
 
-  qck.new()
-  helpers.assert_eq(#state.live_ids(), 1, "new() should create one terminal")
-  helpers.assert_eq(state.get_current_id(), 1, "new() should set current id")
+  qck.open()
+  helpers.assert_eq(#state.live_ids(), 1, "open() should create one terminal when none exist")
+  helpers.assert_eq(state.get_current_id(), 1, "open() should set current id when creating the first terminal")
 
   local default_rec = state.get_terminal(1)
-  helpers.assert_truthy(default_rec and default_rec.win and default_rec.win.win, "new() should create a terminal window")
-  helpers.assert_window_layout(default_rec.win.win, tabbar.get_winid(), expected, "new() layout")
+  helpers.assert_truthy(default_rec and default_rec.win and default_rec.win.win, "open() should create a terminal window when none exist")
+  helpers.assert_window_layout(default_rec.win.win, tabbar.get_winid(), expected, "open() creation layout")
   assert_ids(state.ordered_ids(), { 1 }, "single terminal should seed ordered ids")
   helpers.assert_eq(state.get_label_id(1), 1, "first terminal should use T1 label")
 
@@ -149,19 +149,20 @@ function scenarios.terminals_and_layout()
   helpers.assert_eq(state.get_label_id(2), 2, "second terminal should use T2 label")
   assert_ids(tabbar_labels(tabbar.get_winid()), { "T1", "T2" }, "tabbar should render generic T labels")
 
-  qck.open(1)
-  helpers.assert_eq(state.get_current_id(), 1, "open(id) should focus requested terminal")
-  helpers.assert_truthy(state.is_window_open(default_rec), "open(id) should re-open hidden terminal")
-  helpers.assert_truthy(not state.is_window_open(second_rec), "open(id) should hide the previously visible terminal")
-  helpers.assert_window_layout(default_rec.win.win, tabbar.get_winid(), expected, "open(id) layout")
+  qck.cycle_prev()
+  helpers.assert_eq(state.get_current_id(), 1, "cycle_prev() should make terminal 1 active")
+  helpers.assert_truthy(state.is_window_open(default_rec), "cycle_prev() should open terminal 1")
+  helpers.assert_truthy(not state.is_window_open(second_rec), "cycle_prev() should hide the previously visible terminal")
 
   qck.toggle()
   helpers.assert_truthy(not state.is_window_open(default_rec), "toggle() should hide the current terminal window")
   helpers.assert_eq(tabbar.get_winid(), nil, "toggle() should hide the tabbar with the terminal")
 
-  qck.toggle()
-  helpers.assert_truthy(state.is_window_open(default_rec), "toggle() should re-open the current terminal window")
-  helpers.assert_window_layout(default_rec.win.win, tabbar.get_winid(), expected, "toggle() reopen layout")
+  qck.open()
+  helpers.assert_eq(state.get_current_id(), 1, "open() should target the active terminal")
+  helpers.assert_truthy(state.is_window_open(default_rec), "open() should re-open the hidden active terminal")
+  helpers.assert_truthy(not state.is_window_open(second_rec), "open() should hide the previously visible terminal")
+  helpers.assert_window_layout(default_rec.win.win, tabbar.get_winid(), expected, "open() layout")
 
   qck.new()
   local third_id = state.get_current_id()
@@ -197,20 +198,26 @@ function scenarios.terminals_and_layout()
   helpers.assert_eq(state.get_label_id(reused_id), 2, "new terminals should reuse the lowest missing label id")
   assert_ids(tabbar_labels(tabbar.get_winid()), { "T1", "T3", "T2" }, "recreated terminals should keep stable labels for survivors")
 
-  qck.open(3)
+  terminal.open(3)
   qck.toggle()
   helpers.assert_truthy(
     not state.is_window_open(state.get_terminal(3)),
     "toggle() should hide the current terminal window before reopen-by-open coverage"
   )
 
-  qck.open(3)
+  qck.open()
   local reopened_by_open = state.get_terminal(3)
   helpers.assert_truthy(
     reopened_by_open and reopened_by_open.win and reopened_by_open.win.win,
-    "open(id) should reopen hidden terminal"
+    "open() should reopen the hidden active terminal"
   )
-  helpers.assert_window_layout(reopened_by_open.win.win, tabbar.get_winid(), expected, "open(id) reopen layout")
+  helpers.assert_window_layout(reopened_by_open.win.win, tabbar.get_winid(), expected, "open() reopen layout")
+
+  qck.close()
+  helpers.assert_eq(state.get_terminal(3), nil, "close() should remove the active terminal")
+  helpers.assert_eq(state.get_current_id(), 1, "close() should keep selection on the remaining active fallback")
+  helpers.assert_truthy(not state.is_window_open(state.get_terminal(1)), "close() should only target the active terminal window")
+  helpers.assert_eq(tabbar.get_winid(), nil, "close() should hide the tabbar when the active terminal closes")
 
   helpers.cleanup_terminals(terminal, state, tabbar)
 
@@ -271,7 +278,8 @@ function scenarios.terminals_and_layout()
     qck.toggle()
     helpers.assert_truthy(not state.is_window_open(rec), msg_prefix .. ": toggle should hide the resized terminal")
 
-    qck.open(current_id)
+    state.set_current_id(current_id)
+    qck.open()
 
     local reopened_rec = state.get_terminal(current_id)
     local reopened_tab_win = tabbar.get_winid()

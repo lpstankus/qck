@@ -16,7 +16,6 @@ This repository is a Neovim plugin written in Lua.
 - `lua/qck/tasks/storage.lua`: workspace-persistent storage for workspace-created task definitions.
 - `lua/qck/tasks/form.lua`: floating task-creation form UI (name/cmd fields, Tab cycling, overwrite confirmation, workspace save).
 - `lua/qck/app/setup.lua`: setup-time wiring for Snacks bootstrapping, mapping parsing, and storage load.
-- `lua/qck/app/targets.lua`: shared API target-id validation and fallback resolution for `open(id?)` / `close(id?)`.
 - `lua/qck/app/focus.lua`: global qck/tabbar focus and resize autocmd wiring.
 - `tests/mock_snacks.lua`: deterministic Snacks terminal mock for headless `mini.test` coverage/integration runs.
 - `tests/helpers.lua`: shared `mini.test` helper utilities for storage seeding, environment reset, and repeated UI/layout assertions.
@@ -157,9 +156,10 @@ Additional tests should be placed under `tests/` and documented in this section.
 - `app/focus.lua` wires tabbar actions (`open`, `delete`, `move_up`, `move_down`, `close_current`, `focus_current`) to terminal behavior; `close_current` delegates to `terminal.hide_current_if_open()` to avoid wiping terminal buffers/jobs.
 - `app/focus.lua` installs a global focus watcher (`WinEnter`, `BufEnter`, `TabEnter`) that hides qck terminal and tabbar windows when focus leaves both qck windows (for example navigating with `<C-w>h`).
 - `app/focus.lua` installs a deferred `VimResized` watcher that reapplies the shared qck terminal/tabbar layout for the current visible terminal after resize-driven float updates settle.
-- `app/targets.lua` resolves `open(id?)` / `close(id?)` target ids through shared helpers to avoid duplicated id-validation and fallback logic.
-- Internal helper functions in `app/setup.lua`, `app/focus.lua`, and `app/targets.lua` stay local to their modules unless they are part of the returned module API.
-- Visual labels are UI-only; public APIs (`open`, `close`, `toggle`) operate on internal numeric ids.
+- Internal helper functions in `app/setup.lua` and `app/focus.lua` stay local to their modules unless they are part of the returned module API.
+- Visual labels are UI-only; public APIs `open()`, `close()`, and `toggle()` are active-tab-only wrappers over the current internal terminal id state.
+- `qck.open()` reopens the active terminal and falls back to the first live terminal when the current selection is missing; when no live terminals exist it creates and shows a new terminal.
+- `qck.close()` accepts no id argument and closes only the active terminal; when no active terminal exists it warns and becomes a no-op.
 - `terminal.open(id, preserve_mode?)` and `terminal.create(id, preserve_mode?)` accept an internal boolean preserve-mode flag and restore normal mode after switching/creating when requested.
 - `terminal.refresh_current_layout()` reapplies shared geometry to the current visible qck terminal and resyncs the tabbar; hidden terminals are laid out when reopened.
 - `qck.cycle_next()` / `qck.cycle_prev()` request mode preservation; `qck.new()` requests it only when a qck terminal window is currently open.

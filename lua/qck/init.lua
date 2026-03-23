@@ -7,12 +7,9 @@ local tabbar = require("qck.terminal.tabbar")
 local task_form = require("qck.tasks.form")
 local storage = require("qck.tasks.storage")
 local app_setup = require("qck.app.setup")
-local targets = require("qck.app.targets")
 require("qck.app.focus").setup()
 
 local notify = require("qck.shared.notify").notify
-local resolve_open_target_id = targets.resolve_open_target_id
-local resolve_close_target_id = targets.resolve_close_target_id
 
 ---@alias qck.MappingMode "n"|"t"
 ---@class qck.MappingSpec
@@ -114,42 +111,40 @@ function qck.new_task()
   task_form.open()
 end
 
----Show a qck terminal by id, creating it first when needed.
+---Show the active qck terminal, creating a new one when none exist.
 ---
 ---Parameters:
----  - `id`: Optional terminal id. When omitted, qck reuses the current terminal or picks a sensible fallback.
+---  - None.
 ---
 ---Example:
 ---```lua
----require("qck").open(2)
 ---require("qck").open()
 ---```
----@param id? number Terminal id to open or create.
 ---@return nil
-function qck.open(id)
-  local target_id = resolve_open_target_id(id)
+function qck.open()
+  local target_id = state.get_current_id()
   if not target_id then
-    return
+    local ids = state.live_ids()
+    target_id = ids[1] or state.next_free_id()
   end
 
   terminal.open(target_id)
 end
 
----Close an open qck terminal window and remove that terminal from qck state.
+---Close the active qck terminal window and remove that terminal from qck state.
 ---
 ---Parameters:
----  - `id`: Optional terminal id to close. When omitted, qck uses the current terminal.
+---  - None.
 ---
 ---Example:
 ---```lua
----require("qck").close(2)
 ---require("qck").close()
 ---```
----@param id? number Terminal id whose open window should be closed.
 ---@return nil
-function qck.close(id)
-  local target_id = resolve_close_target_id(id)
+function qck.close()
+  local target_id = state.get_current_id()
   if not target_id then
+    notify("no current terminal selected (no-op)", vim.log.levels.WARN)
     return
   end
 
