@@ -308,6 +308,51 @@ function scenarios.ui_runtime_and_layout_scaffolding()
   helpers.assert_eq(runtime.is_visible(), false, "ui runtime should report hidden when content closes")
 end
 
+function scenarios.ui_tabbar_renders_from_ui_state()
+  local ui_state = require("qck.ui.state")
+  local ui_runtime = require("qck.ui.runtime")
+  local ui_tabbar = require("qck.ui.tabbar")
+
+  ui_state.reset()
+  ui_runtime.reset()
+
+  helpers.assert_truthy(
+    ui_state.register_category({ key = "terminal", label = "T" }),
+    "ui tabbar test should register the terminal category"
+  )
+
+  local terminal_a = {}
+  local terminal_b = {}
+  local first_tab_id = select(1, ui_state.register_tab("terminal", terminal_a))
+  local second_tab_id = select(1, ui_state.register_tab("terminal", terminal_b))
+  helpers.assert_truthy(first_tab_id ~= nil and second_tab_id ~= nil, "ui tabbar test should register tabs")
+  helpers.assert_truthy(ui_state.move_tab(second_tab_id, -1), "ui tabbar test should reorder tabs through ui state")
+  helpers.assert_truthy(ui_state.set_active_tab(first_tab_id), "ui tabbar test should set the active tab")
+
+  local buf = vim.api.nvim_create_buf(false, true)
+  local win = vim.api.nvim_open_win(buf, false, {
+    relative = "editor",
+    row = 0,
+    col = 0,
+    width = 8,
+    height = 4,
+    style = "minimal",
+  })
+  ui_runtime.set_tabbar_surface(buf, win)
+
+  ui_tabbar.render()
+
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(win), { "T2", "T1" }), "ui tabbar should render labels from ui state traversal order")
+
+  local marks = vim.api.nvim_buf_get_extmarks(buf, -1, 0, -1, { details = true })
+  helpers.assert_eq(#marks, 1, "ui tabbar should keep one active-row highlight mark")
+  helpers.assert_eq(marks[1][2], 1, "ui tabbar should highlight the active ui-state row")
+
+  ui_tabbar.hide()
+  ui_state.reset()
+  ui_runtime.reset()
+end
+
 function scenarios.terminals_and_layout()
   local env = helpers.load_qck()
   local qck, state, terminal, tabbar, layout =
@@ -626,6 +671,7 @@ function scenarios.ordered()
     { name = "storage | persists workspace task commands across load/save", run = scenarios.storage_roundtrip },
     { name = "ui state | registers categories and traverses tabs", run = scenarios.ui_state_registration_and_traversal },
     { name = "ui runtime | tracks windows, handles, and layout scaffolding", run = scenarios.ui_runtime_and_layout_scaffolding },
+    { name = "ui tabbar | renders from ui-owned traversal and active state", run = scenarios.ui_tabbar_renders_from_ui_state },
     { name = "terminals | manages generic terminals with shared layout", run = scenarios.terminals_and_layout },
     { name = "terminals | preserves lifecycle watcher behavior and focus routing", run = scenarios.terminal_lifecycle_watchers_and_focus },
     { name = "terminals | prunes invalid terminals and adopts live fallbacks", run = scenarios.terminal_invalidation_and_active_fallbacks },
