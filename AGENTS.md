@@ -67,21 +67,24 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
 4. Headless load check.
 5. Manual workflow checks: `new`, `open`, `close`, `toggle`, `cycle_next`, `cycle_prev`, `clear_storage`.
 6. Multi-terminal visibility checks:
-   - creating/opening a different terminal should hide the previously visible terminal window,
-   - `toggle` should affect only the current terminal visibility,
-   - moving focus to a non-qck window (for example `<C-w>h`) should hide qck terminal and tabbar windows,
-   - terminal width should shrink by the tabbar width and shift right so the combined terminal+tabbar footprint fills the bordered editor footprint,
-   - resizing from small -> large and from large -> small should preserve qck terminal/tabbar geometry when the resized terminal is hidden and reopened,
-   - resize regression coverage should simulate the observed failure mode where the terminal temporarily expands beyond the allowed bordered editor footprint and covers the tabbar area before deferred qck layout repair runs.
+    - creating/opening a different terminal should hide the previously visible terminal window,
+    - `toggle` should affect only the current terminal visibility,
+    - stale active-id fallback should adopt the first live terminal instead of creating a replacement stale-id terminal,
+    - `toggle()` with no live terminals should create and show a new terminal plus tabbar,
+    - moving focus to a non-qck window (for example `<C-w>h`) should hide qck terminal and tabbar windows,
+    - terminal width should shrink by the tabbar width and shift right so the combined terminal+tabbar footprint fills the bordered editor footprint,
+    - resizing from small -> large and from large -> small should preserve qck terminal/tabbar geometry when the resized terminal is hidden and reopened,
+    - resize regression coverage should simulate the observed failure mode where the terminal temporarily expands beyond the allowed bordered editor footprint and covers the tabbar area before deferred qck layout repair runs.
 7. Tab bar checks:
-   - opens/closes with the visible terminal window,
-   - closes when the terminal window is closed manually (for example `:q`),
-   - closing the tabbar window manually (for example `:q`) should hide the current terminal window,
-   - pressing `<Esc>` in the tabbar focuses the current terminal window,
-   - pressing `K`/`J` in the tabbar should move the selected terminal up/down within the single terminal list,
-   - `T*` labels should stay with the same terminal when rows are reordered,
-   - creating a new terminal should assign the lowest missing `T*` label number for the current session,
-   - current terminal line uses full-row reverse highlight.
+    - opens/closes with the visible terminal window,
+    - closes when the terminal window is closed manually (for example `:q`),
+    - closing the tabbar window manually (for example `:q`) should hide the current terminal window,
+    - `switch_focus()` should route focus terminal <-> tabbar and fall back to the terminal from a non-qck window,
+    - pressing `<Esc>` in the tabbar focuses the current terminal window,
+    - pressing `K`/`J` in the tabbar should move the selected terminal up/down within the single terminal list,
+    - `T*` labels should stay with the same terminal when rows are reordered,
+    - creating a new terminal should assign the lowest missing `T*` label number for the current session,
+    - current terminal line uses full-row reverse highlight.
 8. Storage behavior checks:
    - unsupported or invalid schema should fail load and warn users,
    - `clear_storage()` should clear persisted data for current workspace,
@@ -156,9 +159,10 @@ Additional tests should be placed under `tests/` and documented in this section.
 - `app/focus.lua` wires tabbar actions (`open`, `delete`, `move_up`, `move_down`, `close_current`, `focus_current`) to terminal behavior; `close_current` delegates to `terminal.hide_current_if_open()` to avoid wiping terminal buffers/jobs.
 - `app/focus.lua` installs a global focus watcher (`WinEnter`, `BufEnter`, `TabEnter`) that hides qck terminal and tabbar windows when focus leaves both qck windows (for example navigating with `<C-w>h`).
 - `app/focus.lua` installs a deferred `VimResized` watcher that reapplies the shared qck terminal/tabbar layout for the current visible terminal after resize-driven float updates settle.
+- `plans/2-ui-contract-refactor-plan.md` now includes the explicit pre-migration watcher source/lifetime/cleanup contract for `WinEnter`/`BufEnter`/`TabEnter`, `VimResized`, terminal `WinClosed`, tabbar `WinClosed`, and terminal `BufWipeout`, including which paths may hide UI versus delete terminal state.
 - Internal helper functions in `app/setup.lua` and `app/focus.lua` stay local to their modules unless they are part of the returned module API.
 - Visual labels are UI-only; public APIs `open()`, `close()`, and `toggle()` are active-tab-only wrappers over the current internal terminal id state.
-- `qck.open()` reopens the active terminal and falls back to the first live terminal when the current selection is missing; when no live terminals exist it creates and shows a new terminal.
+- `qck.open()`, `qck.close()`, and `qck.toggle()` adopt the first live terminal when the stored active id is stale or `nil`; `open()`/`toggle()` create and show a new terminal only when no live terminals exist at all.
 - `qck.close()` accepts no id argument and closes only the active terminal; when no active terminal exists it warns and becomes a no-op.
 - `terminal.open(id, preserve_mode?)` and `terminal.create(id, preserve_mode?)` accept an internal boolean preserve-mode flag and restore normal mode after switching/creating when requested.
 - `terminal.refresh_current_layout()` reapplies shared geometry to the current visible qck terminal and resyncs the tabbar; hidden terminals are laid out when reopened.

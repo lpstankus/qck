@@ -444,6 +444,7 @@ function tabbar.hide()
   autocmd.delete(tabbar_close_watch_autocmd_id)
   terminal_watch_autocmd_id = nil
   tabbar_close_watch_autocmd_id = nil
+  suppress_tabbar_close_action = false
 end
 
 ---@param fns { open?: fun(id: integer), delete?: fun(id: integer), move_up?: fun(id: integer), move_down?: fun(id: integer), close_current?: fun(), focus_current?: fun() }|nil

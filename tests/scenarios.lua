@@ -298,6 +298,107 @@ function scenarios.terminals_and_layout()
   assert_resize_persists_geometry(160, 50, 80, 30, "resize large-to-small")
 end
 
+function scenarios.terminal_lifecycle_watchers_and_focus()
+  local env = helpers.load_qck()
+  local qck, state, tabbar = env.qck, env.state, env.tabbar
+
+  qck.open()
+  local current_id = state.get_current_id()
+  local rec = state.get_terminal(current_id)
+  helpers.assert_truthy(rec and rec.win and rec.win.win, "open() should create a visible terminal for lifecycle coverage")
+  helpers.assert_truthy(type(tabbar.get_winid()) == "number", "open() should create a visible tabbar for lifecycle coverage")
+
+  local term_win = rec.win.win
+  vim.api.nvim_win_close(term_win, true)
+  helpers.assert_truthy(state.get_terminal(current_id) == rec, "manual terminal close should keep recoverable terminal record")
+  helpers.assert_truthy(not state.is_window_open(rec), "manual terminal close should hide the current terminal window")
+  helpers.assert_eq(tabbar.get_winid(), nil, "manual terminal close should hide the tabbar window")
+
+  qck.open()
+  rec = state.get_terminal(current_id)
+  local reopened_term_win = rec and rec.win and rec.win.win or nil
+  local reopened_tab_win = tabbar.get_winid()
+  helpers.assert_truthy(type(reopened_term_win) == "number", "open() should reopen a recoverable hidden terminal")
+  helpers.assert_truthy(type(reopened_tab_win) == "number", "open() should reopen the tabbar after manual terminal close")
+
+  vim.api.nvim_win_close(reopened_tab_win, true)
+  vim.wait(20, function()
+    return not state.is_window_open(rec) and tabbar.get_winid() == nil
+  end)
+  helpers.assert_truthy(not state.is_window_open(rec), "manual tabbar close should hide the current terminal window")
+  helpers.assert_eq(tabbar.get_winid(), nil, "manual tabbar close should leave no tabbar window open")
+  helpers.assert_truthy(state.is_valid_record(rec), "manual tabbar close should keep the current terminal recoverable")
+
+  qck.open()
+  rec = state.get_terminal(current_id)
+  reopened_term_win = rec and rec.win and rec.win.win or nil
+  reopened_tab_win = tabbar.get_winid()
+  helpers.assert_truthy(type(reopened_term_win) == "number", "open() should reopen the terminal after manual tabbar close")
+  helpers.assert_truthy(type(reopened_tab_win) == "number", "open() should reopen the tabbar after manual tabbar close")
+
+  local other_win = vim.api.nvim_get_current_win()
+  qck.switch_focus()
+  helpers.assert_eq(vim.api.nvim_get_current_win(), reopened_term_win, "switch_focus() should focus the terminal from a non-qck window")
+  qck.switch_focus()
+  helpers.assert_eq(vim.api.nvim_get_current_win(), reopened_tab_win, "switch_focus() should move focus from terminal to tabbar")
+  qck.switch_focus()
+  helpers.assert_eq(vim.api.nvim_get_current_win(), reopened_term_win, "switch_focus() should move focus back from tabbar to terminal")
+
+  vim.api.nvim_set_current_win(other_win)
+  vim.wait(20, function()
+    return not state.is_window_open(rec) and tabbar.get_winid() == nil
+  end)
+  helpers.assert_truthy(not state.is_window_open(rec), "focus leave should hide the current terminal window")
+  helpers.assert_eq(tabbar.get_winid(), nil, "focus leave should hide the tabbar window")
+  helpers.assert_truthy(state.is_valid_record(rec), "focus leave should keep the current terminal recoverable")
+end
+
+function scenarios.terminal_invalidation_and_active_fallbacks()
+  local env = helpers.load_qck()
+  local qck, state, tabbar = env.qck, env.state, env.tabbar
+
+  qck.open()
+  local first_id = state.get_current_id()
+  local first_rec = state.get_terminal(first_id)
+
+  qck.new()
+  local second_id = state.get_current_id()
+  local second_rec = state.get_terminal(second_id)
+
+  helpers.assert_eq(first_id, 1, "open() should create T1 before fallback coverage")
+  helpers.assert_eq(second_id, 2, "new() should create T2 before fallback coverage")
+  helpers.assert_truthy(not state.is_window_open(first_rec), "creating another terminal should hide the first terminal before fallback coverage")
+  helpers.assert_truthy(state.is_window_open(second_rec), "second terminal should be visible before fallback coverage")
+
+  state.set_current_id(999)
+  qck.open()
+  helpers.assert_eq(state.get_current_id(), first_id, "open() should adopt the first live terminal when the active id is stale")
+  helpers.assert_truthy(state.is_window_open(first_rec), "open() should reopen the adopted live terminal")
+  helpers.assert_truthy(not state.is_window_open(second_rec), "open() should hide the previously visible terminal after stale-active fallback")
+  helpers.assert_eq(state.get_terminal(999), nil, "open() should not create a replacement terminal for a stale active id")
+
+  state.set_current_id(999)
+  qck.toggle()
+  helpers.assert_eq(state.get_current_id(), first_id, "toggle() should adopt the first live terminal when the active id is stale")
+  helpers.assert_truthy(not state.is_window_open(first_rec), "toggle() should hide the adopted live terminal")
+  helpers.assert_eq(state.get_terminal(999), nil, "toggle() should not create a replacement terminal for a stale active id")
+  helpers.assert_eq(tabbar.get_winid(), nil, "toggle() stale-active fallback hide should close the tabbar")
+
+  helpers.cleanup_terminals(env.terminal, state, tabbar)
+  qck.toggle()
+  local created_id = state.get_current_id()
+  local created_rec = state.get_terminal(created_id)
+  helpers.assert_eq(created_id, 1, "toggle() should create the lowest missing terminal when no terminals exist")
+  helpers.assert_truthy(created_rec and state.is_window_open(created_rec), "toggle() should create and show a terminal in the empty state")
+  helpers.assert_truthy(type(tabbar.get_winid()) == "number", "toggle() empty-state creation should also show the tabbar")
+
+  local active_buf = created_rec.win.buf
+  vim.api.nvim_buf_delete(active_buf, { force = true })
+  helpers.assert_eq(state.get_terminal(created_id), nil, "BufWipeout should remove the invalid terminal record")
+  helpers.assert_eq(state.get_current_id(), nil, "BufWipeout should clear the active id when the last terminal is invalidated")
+  helpers.assert_eq(tabbar.get_winid(), nil, "BufWipeout should leave no tabbar visible when the last terminal is invalidated")
+end
+
 function scenarios.clear_storage()
   local env = helpers.load_qck()
   local qck, storage, workspace = env.qck, env.storage, env.workspace
@@ -338,6 +439,8 @@ function scenarios.ordered()
     { name = "task form | creates and overwrites workspace task", run = scenarios.task_form_create_and_overwrite },
     { name = "storage | persists workspace task commands across load/save", run = scenarios.storage_roundtrip },
     { name = "terminals | manages generic terminals with shared layout", run = scenarios.terminals_and_layout },
+    { name = "terminals | preserves lifecycle watcher behavior and focus routing", run = scenarios.terminal_lifecycle_watchers_and_focus },
+    { name = "terminals | prunes invalid terminals and adopts live fallbacks", run = scenarios.terminal_invalidation_and_active_fallbacks },
     { name = "storage | clears workspace data for current workspace", run = scenarios.clear_storage },
     { name = "storage | fails invalid load and repairs storage through clear_storage", run = scenarios.invalid_storage_repair },
   }

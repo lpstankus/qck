@@ -19,5 +19,7 @@ T["storage"]["fails invalid load and repairs storage through clear_storage"] = s
 
 T["terminals"] = new_set()
 T["terminals"]["manages generic terminals with shared layout"] = scenarios.terminals_and_layout
+T["terminals"]["preserves lifecycle watcher behavior and focus routing"] = scenarios.terminal_lifecycle_watchers_and_focus
+T["terminals"]["prunes invalid terminals and adopts live fallbacks"] = scenarios.terminal_invalidation_and_active_fallbacks
 
 return T

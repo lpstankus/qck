@@ -11,6 +11,26 @@ require("qck.app.focus").setup()
 
 local notify = require("qck.shared.notify").notify
 
+---@return integer|nil
+local function resolve_active_terminal_id()
+  local ids = state.live_ids()
+  if #ids == 0 then
+    state.set_current_id(nil)
+    return nil
+  end
+
+  local current_id = state.get_current_id()
+  if current_id then
+    for _, id in ipairs(ids) do
+      if id == current_id then
+        return current_id
+      end
+    end
+  end
+
+  return ids[1]
+end
+
 ---@alias qck.MappingMode "n"|"t"
 ---@class qck.MappingSpec
 ---@field rhs string|function Mapping rhs.
@@ -122,10 +142,9 @@ end
 ---```
 ---@return nil
 function qck.open()
-  local target_id = state.get_current_id()
+  local target_id = resolve_active_terminal_id()
   if not target_id then
-    local ids = state.live_ids()
-    target_id = ids[1] or state.next_free_id()
+    target_id = state.next_free_id()
   end
 
   terminal.open(target_id)
@@ -142,12 +161,13 @@ end
 ---```
 ---@return nil
 function qck.close()
-  local target_id = state.get_current_id()
+  local target_id = resolve_active_terminal_id()
   if not target_id then
     notify("no current terminal selected (no-op)", vim.log.levels.WARN)
     return
   end
 
+  state.set_current_id(target_id)
   terminal.close_if_open(target_id)
 end
 
@@ -162,12 +182,7 @@ end
 ---```
 ---@return nil
 function qck.toggle()
-  local current_id = state.get_current_id()
-  if not current_id then
-    local ids = state.live_ids()
-    current_id = ids[1]
-    state.set_current_id(current_id)
-  end
+  local current_id = resolve_active_terminal_id()
 
   if not current_id then
     terminal.open(state.next_free_id())

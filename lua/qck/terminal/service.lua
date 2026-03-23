@@ -312,11 +312,23 @@ end
 ---@return integer|nil
 local function get_previous_visible_id(target_id)
   local current_id = state.get_current_id()
-  if not current_id or current_id == target_id then
-    return nil
+  if current_id and current_id ~= target_id then
+    local current_rec = state.get_terminal(current_id)
+    if state.is_window_open(current_rec) then
+      return current_id
+    end
   end
 
-  return current_id
+  for _, live_id in ipairs(state.ordered_ids()) do
+    if live_id ~= target_id then
+      local rec = state.get_terminal(live_id)
+      if state.is_window_open(rec) then
+        return live_id
+      end
+    end
+  end
+
+  return nil
 end
 
 ---@return integer|nil
@@ -430,6 +442,10 @@ function terminal.open(id, preserve_mode)
     return nil
   end
 
+  if previous_visible_id then
+    hide_window_if_open(previous_visible_id)
+  end
+
   if not state.is_window_open(rec) then
     local ok_show, err = pcall(function() rec_win:show() end)
     if not ok_show then
@@ -439,10 +455,6 @@ function terminal.open(id, preserve_mode)
   end
 
   apply_terminal_layout(rec)
-
-  if previous_visible_id then
-    hide_window_if_open(previous_visible_id)
-  end
 
   state.set_current_id(id)
   tabbar.sync(rec, id)
