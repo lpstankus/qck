@@ -13,6 +13,8 @@ This repository is a Neovim plugin written in Lua.
 - `lua/qck/terminal/state.lua`: terminal registry and current-id/cycling state plus terminal record/window validity helpers.
 - `lua/qck/terminal/layout.lua`: shared floating terminal/tabbar layout calculations.
 - `lua/qck/terminal/tabbar.lua`: floating vertical tab bar that renders live terminal ids.
+- `lua/qck/ui/state.lua`: pure internal UI state scaffolding for category registration, tab metadata, active-tab fallback, display-id reuse, and traversal ordering.
+- `lua/qck/ui/types.lua`: UI-local EmmyLua aliases/classes for categories, tab ids, and tab metadata.
 - `lua/qck/tasks/storage.lua`: workspace-persistent storage for workspace-created task definitions.
 - `lua/qck/tasks/form.lua`: floating task-creation form UI (name/cmd fields, Tab cycling, overwrite confirmation, workspace save).
 - `lua/qck/app/setup.lua`: setup-time wiring for Snacks bootstrapping, mapping parsing, and storage load.
@@ -103,6 +105,13 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
 11. Storage-only task checks:
     - storage load/save round-trips normalized workspace task commands,
     - workspace task data remains isolated per working directory.
+12. UI state scaffolding checks:
+    - category registration is ordered and idempotent only for matching metadata,
+    - category labels stay unique across categories,
+    - registered tabs capture category label/display metadata,
+    - per-category ordering drives derived global traversal order,
+    - category display ids reuse the lowest missing value after deletion,
+    - stale-or-nil active tab fallback adopts the first live tab in traversal order.
 
 Additional tests should be placed under `tests/` and documented in this section.
 
@@ -169,6 +178,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - `qck.cycle_next()` / `qck.cycle_prev()` request mode preservation; `qck.new()` requests it only when a qck terminal window is currently open.
 - `plans/2-ui-handoff-contract.md` is the written source of truth for the upcoming internal UI handoff migration: it locks ownership transfer, rollback guarantees, recoverable-vs-invalid semantics, stale-active fallback, category registration rules, traversal rules, preserved-mode behavior, create-vs-reopen behavior, mapping ownership, and watcher lifetimes before runtime ownership moves.
 - Current runtime ownership has not moved yet: `terminal/service.lua`, `terminal/tabbar.lua`, `terminal/state.lua`, and `app/focus.lua` still implement the behavior that the handoff contract targets for later `lua/qck/ui/` migration.
+- `lua/qck/ui/state.lua` now provides a dark, pure-state UI registry that tracks registered categories, stable never-reused `tab_id`s, reusable per-category display ids, category-local ordering, derived global traversal, terminal-handle lookup, and active-tab fallback without taking over runtime window orchestration yet.
 - Automated tests now run through vendored `mini.test` with repo-local `luacov` wiring:
   - `tests/scenarios.lua` defines the shared smoke-behavior scenario functions,
   - `tests/test_smoke.lua` ports the old smoke harness into isolated `mini.test` cases with shared reset helpers,

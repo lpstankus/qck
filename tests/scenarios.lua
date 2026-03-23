@@ -122,6 +122,115 @@ function scenarios.storage_roundtrip()
   )
 end
 
+function scenarios.ui_state_registration_and_traversal()
+  local state = require("qck.ui.state")
+  state.reset()
+
+  local ok_terminal = state.register_category({ key = "terminal", label = "T" })
+  helpers.assert_truthy(ok_terminal, "ui state should register a terminal category")
+  local ok_terminal_repeat = state.register_category({ key = "terminal", label = "T" })
+  helpers.assert_truthy(ok_terminal_repeat, "ui state should allow idempotent category registration")
+
+  local ok_task = state.register_category({ key = "task", label = "K" })
+  helpers.assert_truthy(ok_task, "ui state should register a second category")
+  helpers.assert_truthy(
+    vim.deep_equal(state.category_keys(), { "terminal", "task" }),
+    "ui state should preserve category registration order"
+  )
+
+  local ok_conflict = state.register_category({ key = "terminal", label = "X" })
+  helpers.assert_eq(ok_conflict, false, "ui state should reject conflicting re-registration")
+  local ok_duplicate_label = state.register_category({ key = "notes", label = "T" })
+  helpers.assert_eq(ok_duplicate_label, false, "ui state should reject duplicate category labels")
+
+  local terminal_a = {}
+  local terminal_b = {}
+  local task_a = {}
+  local terminal_c = {}
+
+  local first_terminal_id = select(1, state.register_tab("terminal", terminal_a))
+  local second_terminal_id = select(1, state.register_tab("terminal", terminal_b))
+  local first_task_id = select(1, state.register_tab("task", task_a))
+
+  helpers.assert_eq(first_terminal_id, 1, "ui state should assign stable tab ids from 1")
+  helpers.assert_eq(second_terminal_id, 2, "ui state should increment tab ids without reuse")
+  helpers.assert_eq(first_task_id, 3, "ui state should keep one global tab id sequence")
+
+  local first_terminal = state.get_tab(first_terminal_id)
+  local second_terminal = state.get_tab(second_terminal_id)
+  local first_task = state.get_tab(first_task_id)
+
+  helpers.assert_eq(first_terminal.category_key, "terminal", "registered terminal should keep category key metadata")
+  helpers.assert_eq(first_terminal.category_label, "T", "registered terminal should derive category label metadata")
+  helpers.assert_eq(first_terminal.category_display_id, 1, "first terminal should use the first category display id")
+  helpers.assert_eq(second_terminal.category_display_id, 2, "second terminal should increment the category display id")
+  helpers.assert_eq(first_task.category_display_id, 1, "display ids should be scoped per category")
+  helpers.assert_truthy(
+    state.get_tab_by_terminal(terminal_a).id == first_terminal_id,
+    "ui state should index tabs by their registered terminal handle"
+  )
+  helpers.assert_eq(select(1, state.register_tab("terminal", terminal_a)), nil, "ui state should reject duplicate terminal registration")
+
+  helpers.assert_truthy(
+    vim.deep_equal(state.category_tab_ids("terminal"), { first_terminal_id, second_terminal_id }),
+    "ui state should keep per-category ordering"
+  )
+  helpers.assert_truthy(
+    vim.deep_equal(state.traversal_ids(), { first_terminal_id, second_terminal_id, first_task_id }),
+    "ui state should derive global traversal from category order and per-category order"
+  )
+
+  local moved_up = state.move_tab(second_terminal_id, -1)
+  helpers.assert_truthy(moved_up, "ui state should allow adjacent category-local movement")
+  helpers.assert_truthy(
+    vim.deep_equal(state.category_tab_ids("terminal"), { second_terminal_id, first_terminal_id }),
+    "ui state should update category-local order after movement"
+  )
+  helpers.assert_truthy(
+    vim.deep_equal(state.traversal_ids(), { second_terminal_id, first_terminal_id, first_task_id }),
+    "ui state traversal should follow category-local movement"
+  )
+  helpers.assert_eq(state.move_tab(second_terminal_id, -1), false, "ui state should no-op at a category boundary")
+
+  local deleted = state.delete_tab(first_terminal_id)
+  helpers.assert_truthy(deleted, "ui state should delete registered tabs")
+  helpers.assert_eq(state.get_tab(first_terminal_id), nil, "ui state should remove deleted tabs from the registry")
+  helpers.assert_eq(
+    state.get_tab(second_terminal_id).category_display_id,
+    2,
+    "ui state should keep survivor display ids stable after delete"
+  )
+
+  local reused_terminal_id = select(1, state.register_tab("terminal", terminal_c))
+  helpers.assert_eq(reused_terminal_id, 4, "ui state should not reuse deleted tab ids")
+  helpers.assert_eq(
+    state.get_tab(reused_terminal_id).category_display_id,
+    1,
+    "ui state should reuse the lowest missing category display id after delete"
+  )
+  helpers.assert_truthy(
+    vim.deep_equal(state.category_tab_ids("terminal"), { second_terminal_id, reused_terminal_id }),
+    "ui state should append new tabs within their category order"
+  )
+  helpers.assert_truthy(
+    vim.deep_equal(state.traversal_ids(), { second_terminal_id, reused_terminal_id, first_task_id }),
+    "ui state should preserve global traversal after display-id reuse"
+  )
+
+  state.set_active_tab_id(nil)
+  helpers.assert_eq(
+    state.resolve_active_tab(),
+    second_terminal_id,
+    "ui state should fall back to the first live tab when no active tab is stored"
+  )
+  state.set_active_tab_id(999)
+  helpers.assert_eq(
+    state.resolve_active_tab(),
+    second_terminal_id,
+    "ui state should fall back to the first live tab when the active tab is stale"
+  )
+end
+
 function scenarios.terminals_and_layout()
   local env = helpers.load_qck()
   local qck, state, terminal, tabbar, layout =
@@ -438,6 +547,7 @@ function scenarios.ordered()
   return {
     { name = "task form | creates and overwrites workspace task", run = scenarios.task_form_create_and_overwrite },
     { name = "storage | persists workspace task commands across load/save", run = scenarios.storage_roundtrip },
+    { name = "ui state | registers categories and traverses tabs", run = scenarios.ui_state_registration_and_traversal },
     { name = "terminals | manages generic terminals with shared layout", run = scenarios.terminals_and_layout },
     { name = "terminals | preserves lifecycle watcher behavior and focus routing", run = scenarios.terminal_lifecycle_watchers_and_focus },
     { name = "terminals | prunes invalid terminals and adopts live fallbacks", run = scenarios.terminal_invalidation_and_active_fallbacks },
