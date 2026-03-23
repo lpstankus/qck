@@ -16,6 +16,7 @@ This repository is a Neovim plugin written in Lua.
 - `lua/qck/ui/runtime.lua`: dark UI runtime scaffolding for visible content/tabbar winids, owned-handle registration, focus target, and watcher bookkeeping.
 - `lua/qck/ui/layout.lua`: dark UI-owned shared float geometry scaffolding for content/tabbar layout math, with terminal callers still delegating through the legacy shim.
 - `lua/qck/ui/state.lua`: pure internal UI state scaffolding for category registration, tab metadata, active-tab fallback, display-id reuse, and traversal ordering.
+- `lua/qck/ui/init.lua`: internal UI orchestration entrypoints for category registration, attach/show/hide/toggle flows, active-tab selection, deletion, motion, and winid-based tabbar focus routing.
 - `lua/qck/ui/tabbar.lua`: UI-owned tabbar presentation that now builds/render rows from `ui/state.lua` while terminal runtime still drives visibility/actions through a shim.
 - `lua/qck/ui/types.lua`: UI-local EmmyLua aliases/classes for categories, tab ids, and tab metadata.
 - `lua/qck/tasks/storage.lua`: workspace-persistent storage for workspace-created task definitions.
@@ -120,9 +121,16 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
     - runtime keeps owned-handle and watcher bookkeeping isolated from caller mutation,
     - UI layout math matches the existing shared terminal/tabbar float footprint.
 14. UI tabbar scaffolding checks:
-    - tabbar row order is derived from `ui.state` traversal order,
-    - row labels come from category label plus category display id,
-    - active-row highlight follows `ui.state` active-tab selection.
+     - tabbar row order is derived from `ui.state` traversal order,
+     - row labels come from category label plus category display id,
+     - active-row highlight follows `ui.state` active-tab selection.
+15. UI init contract checks:
+    - `attach_and_show()` registers a new tab, makes it active, shows it immediately, and hides the previously visible tab,
+    - `show()`/`hide()`/`toggle()` preserve active-tab selection while updating visibility,
+    - `set_active_tab()` swaps visible content without reordering when UI is open,
+    - `move_tab()` rerenders tabbar order and rejects invalid directions,
+    - `delete_tab()` adopts the next live tab and hides the UI when the last tab is removed,
+    - failed `attach_and_show()` rolls back tab registration, active selection, visibility, and owned-handle bookkeeping.
 
 Additional tests should be placed under `tests/` and documented in this section.
 
@@ -191,6 +199,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - Current runtime ownership has not moved yet: `terminal/service.lua`, `terminal/tabbar.lua`, `terminal/state.lua`, and `app/focus.lua` still implement the behavior that the handoff contract targets for later `lua/qck/ui/` migration.
 - `lua/qck/ui/state.lua` now provides a dark, pure-state UI registry that tracks registered categories, stable never-reused `tab_id`s, reusable per-category display ids, category-local ordering, derived global traversal, terminal-handle lookup, and active-tab fallback without taking over runtime window orchestration yet.
 - `lua/qck/ui/runtime.lua` now provides dark runtime scaffolding for the later handoff target: visible content/tabbar window ids, reusable tabbar surface bookkeeping, generic owned-handle registration, copied watcher registries, and a future focus-target slot without owning orchestration yet.
+- `lua/qck/ui/init.lua` now makes the internal handoff contract executable for this chunk: it can register categories, attach caller-created handles, manage active-tab visibility for UI-owned tabs, delegate terminal-backed tabs through the existing terminal runtime during transition, roll back failed `attach_and_show()` attempts, and route focus switching through UI-owned content/tabbar winids.
 - `terminal/state.lua` now mirrors terminal registrations, active selection, and category-local movement into `ui/state.lua` for the terminal category so tabbar rendering can read UI-owned traversal/display metadata without depending on terminal label/order internals directly.
 - `ui/tabbar.lua` now owns the actual tabbar row-generation/rendering path, but terminal runtime still remains the active caller/source of visibility behavior in this chunk.
 - Automated tests now run through vendored `mini.test` with repo-local `luacov` wiring:

@@ -353,6 +353,109 @@ function scenarios.ui_tabbar_renders_from_ui_state()
   ui_runtime.reset()
 end
 
+function scenarios.ui_init_orchestration_contract()
+  require("mock_snacks").install()
+
+  local ui = require("qck.ui")
+  local ui_state = require("qck.ui.state")
+  local ui_runtime = require("qck.ui.runtime")
+  local ui_tabbar = require("qck.ui.tabbar")
+  local snacks = require("snacks")
+
+  ui_tabbar.hide()
+  ui_state.reset()
+  ui_runtime.reset()
+
+  helpers.assert_truthy(ui.register_category({ key = "terminal", label = "T" }), "ui init should register categories")
+
+  local handle_a = snacks.terminal.open(nil, { count = 1 })
+  local first_tab_id = select(1, ui.attach_and_show("terminal", handle_a))
+  helpers.assert_truthy(first_tab_id ~= nil, "attach_and_show() should register and show the first tab")
+  helpers.assert_eq(ui_state.resolve_active_tab(), first_tab_id, "attach_and_show() should make the new tab active")
+  helpers.assert_eq(ui_runtime.get_content_winid(), handle_a.win, "attach_and_show() should track the visible content winid")
+  helpers.assert_truthy(type(ui_tabbar.get_winid()) == "number", "attach_and_show() should show the tabbar")
+
+  local handle_b = snacks.terminal.open(nil, { count = 2 })
+  local second_tab_id = select(1, ui.attach_and_show("terminal", handle_b))
+  helpers.assert_truthy(second_tab_id ~= nil, "attach_and_show() should register and show the second tab")
+  helpers.assert_truthy(not handle_a:valid(), "showing a new tab should hide the previous ui-owned tab window")
+  helpers.assert_truthy(handle_b:valid(), "showing a new tab should keep the new tab visible")
+
+  ui.hide()
+  helpers.assert_truthy(not handle_b:valid(), "hide() should hide the active tab without deleting it")
+  helpers.assert_eq(ui_tabbar.get_winid(), nil, "hide() should close the tabbar")
+  helpers.assert_eq(ui_state.resolve_active_tab(), second_tab_id, "hide() should keep the active tab selected")
+
+  ui.show()
+  helpers.assert_truthy(handle_b:valid(), "show() should reopen the active hidden tab")
+  helpers.assert_truthy(type(ui_tabbar.get_winid()) == "number", "show() should reopen the tabbar")
+
+  local ok_set = select(1, ui.set_active_tab(first_tab_id))
+  helpers.assert_truthy(ok_set, "set_active_tab() should accept registered tabs")
+  helpers.assert_eq(ui_state.resolve_active_tab(), first_tab_id, "set_active_tab() should update active selection")
+  helpers.assert_truthy(handle_a:valid(), "set_active_tab() should swap visible content when ui is open")
+  helpers.assert_truthy(not handle_b:valid(), "set_active_tab() should hide the previously visible tab")
+
+  local ok_move = select(1, ui.move_tab(second_tab_id, -1))
+  helpers.assert_truthy(ok_move, "move_tab() should allow adjacent movement")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(ui_tabbar.get_winid()), { "T2", "T1" }), "move_tab() should rerender tabbar row order")
+  helpers.assert_eq(select(1, ui.move_tab(second_tab_id, 0)), false, "move_tab() should reject invalid directions")
+
+  local other_buf = vim.api.nvim_create_buf(false, true)
+  local other_win = vim.api.nvim_open_win(other_buf, true, {
+    relative = "editor",
+    row = 2,
+    col = 2,
+    width = 12,
+    height = 3,
+    style = "minimal",
+  })
+  local content_win = ui_runtime.get_content_winid()
+  local tabbar_win = ui_tabbar.get_winid()
+
+  helpers.assert_eq(vim.api.nvim_get_current_win(), other_win, "focus coverage should start outside qck windows")
+  ui.toggle_tabbar_focus()
+  helpers.assert_eq(vim.api.nvim_get_current_win(), content_win, "toggle_tabbar_focus() should focus content from a non-qck window")
+  ui.toggle_tabbar_focus()
+  helpers.assert_eq(vim.api.nvim_get_current_win(), tabbar_win, "toggle_tabbar_focus() should move focus from content to tabbar")
+  ui.toggle_tabbar_focus()
+  helpers.assert_eq(vim.api.nvim_get_current_win(), content_win, "toggle_tabbar_focus() should move focus back to content")
+
+  local ok_delete = select(1, ui.delete_tab(first_tab_id))
+  helpers.assert_truthy(ok_delete, "delete_tab() should remove registered tabs")
+  helpers.assert_eq(ui_state.resolve_active_tab(), second_tab_id, "delete_tab() should adopt the next live tab when deleting the active tab")
+  helpers.assert_truthy(handle_b:valid(), "delete_tab() should show the adopted live tab when ui stays visible")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(ui_tabbar.get_winid()), { "T2" }), "delete_tab() should rerender the remaining tab rows")
+
+  helpers.assert_eq(select(1, ui.set_active_tab(999)), false, "set_active_tab() should reject unknown tabs")
+  helpers.assert_eq(select(1, ui.delete_tab(999)), false, "delete_tab() should reject unknown tabs")
+
+  ui.delete_tab(second_tab_id)
+  helpers.assert_eq(ui_state.resolve_active_tab(), nil, "deleting the last tab should clear active selection")
+  helpers.assert_eq(ui_runtime.get_content_winid(), nil, "deleting the last tab should hide content")
+  helpers.assert_eq(ui_tabbar.get_winid(), nil, "deleting the last tab should hide the tabbar")
+
+  ui_tabbar.hide()
+  ui_state.reset()
+  ui_runtime.reset()
+  helpers.assert_truthy(ui.register_category({ key = "terminal", label = "T" }), "rollback coverage should reuse category registration")
+
+  local failing_handle = snacks.terminal.open(nil, { count = 3 })
+  failing_handle:toggle()
+  failing_handle.show = function()
+    error("boom")
+  end
+
+  local failed_tab_id, attach_err = ui.attach_and_show("terminal", failing_handle)
+  helpers.assert_eq(failed_tab_id, nil, "attach_and_show() should fail when initial show fails")
+  helpers.assert_truthy(type(attach_err) == "string" and attach_err:find("boom", 1, true) ~= nil, "attach_and_show() should surface show errors")
+  helpers.assert_truthy(vim.deep_equal(ui_state.traversal_ids(), {}), "failed attach_and_show() should leave no registered tabs behind")
+  helpers.assert_eq(ui_state.get_active_tab_id(), nil, "failed attach_and_show() should roll back the active tab")
+  helpers.assert_eq(ui_runtime.get_content_winid(), nil, "failed attach_and_show() should leave no content window tracked")
+  helpers.assert_eq(ui_tabbar.get_winid(), nil, "failed attach_and_show() should leave no tabbar visible")
+  helpers.assert_eq(ui_runtime.get_handle_owner(failing_handle), nil, "failed attach_and_show() should not transfer handle ownership")
+end
+
 function scenarios.terminals_and_layout()
   local env = helpers.load_qck()
   local qck, state, terminal, tabbar, layout =
@@ -672,6 +775,7 @@ function scenarios.ordered()
     { name = "ui state | registers categories and traverses tabs", run = scenarios.ui_state_registration_and_traversal },
     { name = "ui runtime | tracks windows, handles, and layout scaffolding", run = scenarios.ui_runtime_and_layout_scaffolding },
     { name = "ui tabbar | renders from ui-owned traversal and active state", run = scenarios.ui_tabbar_renders_from_ui_state },
+    { name = "ui init | manages internal ui orchestration and rollback", run = scenarios.ui_init_orchestration_contract },
     { name = "terminals | manages generic terminals with shared layout", run = scenarios.terminals_and_layout },
     { name = "terminals | preserves lifecycle watcher behavior and focus routing", run = scenarios.terminal_lifecycle_watchers_and_focus },
     { name = "terminals | prunes invalid terminals and adopts live fallbacks", run = scenarios.terminal_invalidation_and_active_fallbacks },

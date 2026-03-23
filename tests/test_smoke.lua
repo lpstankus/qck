@@ -26,6 +26,9 @@ T["ui runtime"]["tracks windows, handles, and layout scaffolding"] = scenarios.u
 T["ui tabbar"] = new_set()
 T["ui tabbar"]["renders from ui-owned traversal and active state"] = scenarios.ui_tabbar_renders_from_ui_state
 
+T["ui init"] = new_set()
+T["ui init"]["manages internal ui orchestration and rollback"] = scenarios.ui_init_orchestration_contract
+
 T["terminals"] = new_set()
 T["terminals"]["manages generic terminals with shared layout"] = scenarios.terminals_and_layout
 T["terminals"]["preserves lifecycle watcher behavior and focus routing"] = scenarios.terminal_lifecycle_watchers_and_focus

@@ -3,7 +3,7 @@ local qck = {}
 require("qck.shared.types")
 local state = require("qck.terminal.state")
 local terminal = require("qck.terminal.service")
-local tabbar = require("qck.terminal.tabbar")
+local ui = require("qck.ui")
 local task_form = require("qck.tasks.form")
 local storage = require("qck.tasks.storage")
 local app_setup = require("qck.app.setup")
@@ -237,32 +237,7 @@ end
 ---```
 ---@return nil
 function qck.switch_focus()
-  local tab_win = tabbar.get_winid()
-  local term_win = terminal.get_current_winid()
-  local current_win = vim.api.nvim_get_current_win()
-
-  if tab_win and current_win == tab_win then
-    if term_win then
-      vim.api.nvim_set_current_win(term_win)
-    end
-    return
-  end
-
-  if term_win and current_win == term_win then
-    if tab_win then
-      vim.api.nvim_set_current_win(tab_win)
-    end
-    return
-  end
-
-  if term_win then
-    vim.api.nvim_set_current_win(term_win)
-    return
-  end
-
-  if tab_win then
-    vim.api.nvim_set_current_win(tab_win)
-  end
+  ui.toggle_tabbar_focus()
 end
 
 return qck
