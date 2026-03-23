@@ -1,3 +1,10 @@
+-- Current pre-migration global focus/resize watcher wiring.
+--
+-- The target UI handoff contract is documented in
+-- `plans/2-ui-handoff-contract.md`. These watchers still route directly to the
+-- terminal/tabbar modules for focus-leave hide behavior and deferred resize
+-- repair, but the documented migration target is UI-owned watcher behavior with
+-- separate global and per-tab lifetimes.
 local terminal = require("qck.terminal.service")
 local tabbar = require("qck.terminal.tabbar")
 local autocmd = require("qck.shared.autocmd")

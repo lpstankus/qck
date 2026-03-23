@@ -1,3 +1,14 @@
+-- Current pre-migration owner of terminal-backed qck UI behavior.
+--
+-- The written UI handoff contract lives in `plans/2-ui-handoff-contract.md`.
+-- Until the later `lua/qck/ui/` migration lands, this module still owns the
+-- runtime behavior that the contract will move behind UI: create-vs-reopen
+-- behavior, preserved-mode handling, visible window swaps, terminal buffer
+-- mapping application, and invalidation cleanup for terminal-backed tabs.
+--
+-- Target contract note: after a future successful `attach_and_show(...)`
+-- handoff, UI becomes the sole runtime owner of the registered handle and this
+-- module should stop calling raw handle methods during normal runtime flow.
 local state = require("qck.terminal.state")
 local tabbar = require("qck.terminal.tabbar")
 local keymaps = require("qck.shared.keymaps")

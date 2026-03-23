@@ -1,3 +1,9 @@
+-- Current pre-migration floating tabbar implementation.
+--
+-- The target UI handoff contract is documented in
+-- `plans/2-ui-handoff-contract.md`. This module still owns the visible tabbar
+-- buffer/window, tabbar-side mappings, and close watchers for terminal-backed
+-- tabs until that ownership moves into `lua/qck/ui/tabbar.lua`.
 local state = require("qck.terminal.state")
 local autocmd = require("qck.shared.autocmd")
 local keymaps = require("qck.shared.keymaps")

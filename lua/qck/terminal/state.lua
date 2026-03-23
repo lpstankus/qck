@@ -1,3 +1,11 @@
+-- Current pre-migration terminal registry and traversal state.
+--
+-- The target UI handoff contract is documented in
+-- `plans/2-ui-handoff-contract.md`. Today this module still owns the current
+-- active terminal id, global traversal order, and reusable `T#` label ids.
+-- Those concerns are documented now so later `lua/qck/ui/` work can migrate
+-- them without changing the written rules for stale-active fallback,
+-- category-local motion, global traversal, or display-label reuse.
 local state = {}
 
 local terminals = {}
