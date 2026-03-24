@@ -239,7 +239,6 @@ end
 function scenarios.ui_runtime_and_layout_scaffolding()
   local runtime = require("qck.ui.runtime")
   local ui_layout = require("qck.ui.layout")
-  local terminal_layout = require("qck.terminal.layout")
 
   runtime.reset()
 
@@ -292,10 +291,8 @@ function scenarios.ui_runtime_and_layout_scaffolding()
   helpers.assert_eq(runtime.get_global_watchers().focus_leave, 21, "ui runtime should copy global watcher bookkeeping")
 
   local shared = ui_layout.build_shared_float_configs(content_win)
-  local terminal_shared = terminal_layout.build_shared_float_configs(content_win)
   local expected = helpers.expected_layout(ui_layout)
   helpers.assert_truthy(shared ~= nil, "ui layout should build shared float configs for a valid content window")
-  helpers.assert_truthy(vim.deep_equal(shared, terminal_shared), "terminal layout shim should delegate to ui layout")
   helpers.assert_eq(shared.tabbar.width, expected.tabbar_width, "ui layout should preserve tabbar width math")
   helpers.assert_eq(
     math.floor(tonumber(shared.terminal.col) or 0),

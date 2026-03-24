@@ -6,12 +6,17 @@
 -- mapping helpers that UI calls at the appropriate lifecycle points.
 local state = require("qck.terminal.state")
 local keymaps = require("qck.shared.keymaps")
-local layout = require("qck.terminal.layout")
+local layout = require("qck.ui.layout")
 local runtime = require("qck.ui.runtime")
 local ui_state = require("qck.ui.state")
 local notify = require("qck.shared.notify").notify
 
 local terminal = {}
+
+local UI_TERMINAL_CATEGORY = {
+  key = "terminal",
+  label = "T",
+}
 
 local snacks = nil
 local user_mappings = {}
@@ -317,7 +322,7 @@ function terminal.create(id, preserve_mode)
     end
 
     rec.win = term_or_err
-    state.ensure_ui_category()
+    ui.register_category(UI_TERMINAL_CATEGORY)
     state.set_terminal(id, rec)
 
     local rec_win = get_terminal_handle(rec)
@@ -390,43 +395,6 @@ function terminal.open(id, preserve_mode)
     restore_mode_intent(rec, mode_intent)
     return rec
   end)
-end
-
----@param id integer
----@return nil
-function terminal.close_if_open(id)
-  state.prune_stale()
-
-  local rec = state.get_terminal(id)
-  if not rec then
-    notify(("terminal %d does not exist (no-op)"):format(id), vim.log.levels.WARN)
-    return
-  end
-
-  if not state.is_window_open(rec) then
-    notify(("terminal %d window is closed (no-op)"):format(id), vim.log.levels.WARN)
-    return
-  end
-
-  local tab_id = state.get_tab_id(id)
-  local ui = get_ui()
-  if not tab_id or not ui or type(ui.delete_tab) ~= "function" then
-    notify(("terminal %d has an invalid handle (no-op)"):format(id), vim.log.levels.WARN)
-    return
-  end
-
-  if type(ui.hide) == "function" then
-    ui.hide()
-  end
-
-  local ok_delete, err = ui.delete_tab(tab_id)
-  if not ok_delete then
-    notify(("failed to close terminal %d: %s"):format(id, tostring(err)), vim.log.levels.ERROR)
-    return
-  end
-
-  local ids = state.ordered_ids()
-  state.set_current_id(ids[1])
 end
 
 ---@param id integer
@@ -519,24 +487,6 @@ function terminal.delete(id)
   end
 
   state.sync_current_from_ui()
-end
-
----@param id integer
----@param handle any
----@return nil
-function terminal.handle_invalidation(id, handle)
-  local rec = state.get_terminal(id)
-  if not rec or rec.win ~= handle then
-    return
-  end
-
-  remove_terminal_record(id)
-  local tab_id = ui_state.get_tab_by_terminal(handle)
-  if tab_id then
-    runtime.unregister_handle(tab_id.id)
-    runtime.clear_owner_watchers(tab_id.id)
-    ui_state.delete_tab(tab_id.id)
-  end
 end
 
 return terminal

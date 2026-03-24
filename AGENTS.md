@@ -9,10 +9,8 @@ This repository is a Neovim plugin written in Lua.
 - `lua/qck/shared/keymaps.lua`: shared mapping state helpers for tracking/removing user-configured buffer mappings.
 - `lua/qck/shared/notify.lua`: shared `QCK:` notification helper.
 - `lua/qck/shared/types.lua`: shared EmmyLua type aliases/classes.
-- `lua/qck/terminal/service.lua`: terminal creation/reopen/delete primitives over `snacks.terminal` that now hand terminal-backed tabs to UI-owned orchestration.
-- `lua/qck/terminal/state.lua`: terminal id -> handle registry plus compatibility current-id/cycling helpers that now derive ordering/labels from `ui/state.lua`.
-- `lua/qck/terminal/layout.lua`: pre-migration compatibility shim that delegates shared floating terminal/tabbar layout calculations to `ui/layout.lua`.
-- `lua/qck/terminal/tabbar.lua`: temporary compatibility shim that forwards tabbar calls to `ui/tabbar.lua` during the incremental UI handoff.
+- `lua/qck/terminal/service.lua`: terminal creation/reopen/delete primitives over `snacks.terminal`; UI owns runtime visibility/focus/watcher behavior after handoff.
+- `lua/qck/terminal/state.lua`: terminal id -> handle registry plus current-id/cycling helpers, with ordering/labels derived from `ui/state.lua`.
 - `lua/qck/ui/runtime.lua`: dark UI runtime scaffolding for visible content/tabbar winids, owned-handle registration, focus target, and watcher bookkeeping.
 - `lua/qck/ui/layout.lua`: dark UI-owned shared float geometry scaffolding for content/tabbar layout math, with terminal callers still delegating through the legacy shim.
 - `lua/qck/ui/state.lua`: pure internal UI state scaffolding for category registration, tab metadata, active-tab fallback, display-id reuse, and traversal ordering.
@@ -22,7 +20,6 @@ This repository is a Neovim plugin written in Lua.
 - `lua/qck/tasks/storage.lua`: workspace-persistent storage for workspace-created task definitions.
 - `lua/qck/tasks/form.lua`: floating task-creation form UI (name/cmd fields, Tab cycling, overwrite confirmation, workspace save).
 - `lua/qck/app/setup.lua`: setup-time wiring for Snacks bootstrapping, mapping parsing, and storage load.
-- `lua/qck/app/focus.lua`: thin compatibility wrapper that delegates setup to `ui/init.lua` for older import paths.
 - `tests/mock_snacks.lua`: deterministic Snacks terminal mock for headless `mini.test` coverage/integration runs.
 - `tests/helpers.lua`: shared `mini.test` helper utilities for storage seeding, environment reset, and repeated UI/layout assertions.
 - `tests/test_smoke.lua`: `mini.test` suite covering the current smoke-test behavior in isolated cases.
@@ -143,10 +140,11 @@ Additional tests should be placed under `tests/` and documented in this section.
 ## Current Architecture Findings
 - `snacks.nvim` is required at runtime; plugin load should fail early if unavailable.
 - Package boundaries are:
-  - `shared/`: leaf utilities only, with no imports from `terminal/`, `tasks/`, or `app/`,
-  - `terminal/`: terminal state, layout, tabbar, and terminal lifecycle,
+  - `shared/`: leaf utilities only, with no imports from `terminal/`, `tasks/`, `ui/`, or `app/`,
+  - `terminal/`: terminal state plus Snacks terminal creation/lifecycle helpers,
+  - `ui/`: tab/category state, layout, tabbar rendering, visibility, focus, and watcher orchestration,
   - `tasks/`: workspace-persistent task storage and the floating task form UI,
-  - `app/`: top-level setup/focus/target orchestration used by `init.lua`.
+  - `app/`: setup-time wiring used by `init.lua`.
 - State validity checks guard terminal-handle method calls with `pcall`, so stale/invalid handle behavior cannot break prune/cycle paths.
 - `terminal.create(...)` closes partially opened terminal handles when handle initialization fails, preventing leaked untracked terminal resources.
 - Workspace persistence lives in `tasks/storage.lua` (`stdpath("data") .. "/qck.json"`) and stores only per-workspace saved task commands created through `qck.new_task()`.
@@ -158,8 +156,8 @@ Additional tests should be placed under `tests/` and documented in this section.
 - Command normalization/cloning/validation is centralized in `lua/qck/shared/cmd.lua` and reused by `tasks/form.lua` and `tasks/storage.lua`.
 - Shared `QCK:` notifications are centralized in `lua/qck/shared/notify.lua` and reused by `init.lua`, `tasks/form.lua`, `terminal/service.lua`, and `app/`.
 - Mapping-state diff/cleanup helpers are centralized in `lua/qck/shared/keymaps.lua` and reused by both terminal and tabbar mapping application paths.
-- Tab bar presentation still renders through `ui/tabbar.lua`, but the close/invalidation watcher lifecycle now lives in `ui/init.lua` instead of `terminal/tabbar.lua`.
-- Floating window geometry source-of-truth has moved into dark `lua/qck/ui/layout.lua`; `lua/qck/terminal/layout.lua` is now a compatibility shim so terminal callers preserve the same shared width/column calculation while later migration work can switch owners cleanly.
+- Tab bar presentation renders through `ui/tabbar.lua`, and the close/invalidation watcher lifecycle lives in `ui/init.lua`.
+- Floating window geometry source-of-truth lives in `lua/qck/ui/layout.lua`.
 - Shared terminal/tabbar layout reserves a two-column gap between the tabbar and terminal so both float borders remain visually distinct inside the original terminal footprint.
 - Shared terminal/tabbar layout uses `relative = "editor"` and a full-editor bordered footprint while keeping the tabbar inside that total size budget.
 - All plugin autocmds share a single `qck` augroup via `shared/autocmd.lua`; modules track and delete autocmd ids for targeted cleanup.
@@ -178,10 +176,9 @@ Additional tests should be placed under `tests/` and documented in this section.
 - Task form submit sanitization preserves support for legacy inline labels (`Name: ...` / `Command: ...`) by normalizing to current prefixed scaffold rows before validation/save.
 - `tasks/form.lua` writes workspace task commands directly through `tasks/storage.lua` and checks duplicates against persisted workspace data.
 - `terminal/service.lua` now creates Snacks terminal handles, hands them to `ui.attach_and_show(...)`, and delegates normal terminal-backed visibility/order/delete flows back through UI instead of owning runtime tab/window orchestration directly.
-- Tabbar presentation has started moving behind UI-owned state:
-  - `ui/tabbar.lua` now builds row order, row labels, and active-row highlighting from `ui.state` traversal/category metadata,
-  - `terminal/tabbar.lua` is now only a compatibility shim so existing terminal/app callers keep working,
-  - built-in row actions now call UI-owned selection/deletion/reorder/focus entrypoints directly instead of routing through `app/focus.lua`.
+- Tabbar presentation is UI-owned:
+  - `ui/tabbar.lua` builds row order, row labels, and active-row highlighting from `ui.state` traversal/category metadata,
+  - built-in row actions call UI-owned selection/deletion/reorder/focus entrypoints directly.
 - Tabbar supports manual reordering in normal mode with `K` (move selected terminal up) and `J` (move selected terminal down) within the single terminal list.
 - User mappings configured via `qck.setup({ mappings = ... })` are normalized in `app/setup.lua` and applied to both terminal buffers and the tabbar buffer:
   - legacy entries (`lhs = rhs`) default to terminal `n`+`t`,
@@ -190,9 +187,8 @@ Additional tests should be placed under `tests/` and documented in this section.
 - Tabbar cursor placement lands on the centered row label's numeric part (or first non-space character when no number is present).
 - Tabbar includes a built-in normal-mode `<Esc>` mapping that returns focus to the current terminal window.
 - `ui/init.lua` now owns both global (`WinEnter`/`BufEnter`/`TabEnter`, `VimResized`) and per-tab (`BufWipeout`, content `WinClosed`, tabbar `WinClosed`) watcher installation/cleanup, including recoverable-hide vs invalidation-delete behavior.
-- `app/focus.lua` now keeps only a compatibility `setup()` wrapper over `ui.init`.
 - `plans/2-ui-contract-refactor-plan.md` now includes the explicit pre-migration watcher source/lifetime/cleanup contract for `WinEnter`/`BufEnter`/`TabEnter`, `VimResized`, terminal `WinClosed`, tabbar `WinClosed`, and terminal `BufWipeout`, including which paths may hide UI versus delete terminal state.
-- Internal helper functions in `app/setup.lua` and `app/focus.lua` stay local to their modules unless they are part of the returned module API.
+- Internal helper functions in `app/setup.lua` stay local to the module unless they are part of the returned module API.
 - Visual labels are UI-only; public APIs `open()`, `close()`, and `toggle()` are active-tab-only wrappers over the current internal terminal id state.
 - `qck.open()`, `qck.close()`, and `qck.toggle()` adopt the first live terminal when the stored active id is stale or `nil`; `open()`/`toggle()` create and show a new terminal only when no live terminals exist at all.
 - `qck.close()` accepts no id argument and closes only the active terminal; when no active terminal exists it warns and becomes a no-op.
@@ -200,14 +196,14 @@ Additional tests should be placed under `tests/` and documented in this section.
 - `terminal.refresh_current_layout()` reapplies shared geometry to the current visible qck terminal and resyncs the tabbar; hidden terminals are laid out when reopened.
 - `qck.cycle_next()` / `qck.cycle_prev()` request mode preservation; `qck.new()` requests it only when a qck terminal window is currently open.
 - `plans/2-ui-handoff-contract.md` is the written source of truth for the upcoming internal UI handoff migration: it locks ownership transfer, rollback guarantees, recoverable-vs-invalid semantics, stale-active fallback, category registration rules, traversal rules, preserved-mode behavior, create-vs-reopen behavior, mapping ownership, and watcher lifetimes before runtime ownership moves.
-- Current runtime ownership is UI-led for watcher/focus/tabbar behavior, while `terminal/service.lua`, `terminal/tabbar.lua`, and `terminal/state.lua` remain as terminal-specific compatibility layers during the migration.
+- Current runtime ownership is UI-led for watcher, focus, tabbar, layout, and visibility behavior; terminal-specific code is limited to handle creation, id bookkeeping, and terminal buffer mappings.
 - `lua/qck/ui/state.lua` now provides a dark, pure-state UI registry that tracks registered categories, stable never-reused `tab_id`s, reusable per-category display ids, category-local ordering, derived global traversal, terminal-handle lookup, and active-tab fallback without taking over runtime window orchestration yet.
 - `lua/qck/ui/runtime.lua` now provides dark runtime scaffolding for the later handoff target: visible content/tabbar window ids, reusable tabbar surface bookkeeping, generic owned-handle registration, copied watcher registries, and a future focus-target slot without owning orchestration yet.
 - `lua/qck/ui/init.lua` now makes the internal handoff contract executable for this chunk: it can register categories, attach caller-created handles, manage active-tab visibility for UI-owned tabs, expose thin public-behavior wrappers (`create/open/toggle/close/cycle`) for `qck.init`, roll back failed `attach_and_show()` attempts, and route focus switching through UI-owned content/tabbar winids.
 - `ui/init.lua` now owns watcher installation and cleanup for both global focus/resize behavior and per-tab buffer/window lifecycle tracking; focus/resize behavior no longer depends on app-level bridges.
 - UI-owned watcher helpers explicitly separate long-lived global watcher state from per-tab watcher state, and terminal-backed window swaps temporarily suppress focus-leave auto-hide so internal hide/show churn does not collapse the UI.
-- `terminal/state.lua` now keeps only the terminal id registry plus a compatibility current-id hint; canonical terminal tab ordering, active-tab selection, and `T#` display ids are derived from `ui/state.lua`.
-- `ui/tabbar.lua` now owns the actual tabbar row-generation/rendering path, but terminal runtime still remains the active caller/source of visibility behavior in this chunk.
+- `terminal/state.lua` now keeps only the terminal id registry plus a current-id hint; canonical terminal tab ordering, active-tab selection, and `T#` display ids are derived from `ui/state.lua`.
+- `ui/tabbar.lua` owns the tabbar row-generation/rendering path.
 - `ui/init.lua` now drives terminal-backed show/hide/toggle/delete/layout behavior directly from UI-owned tab state; terminal-specific code stays limited to handle creation, validity, close, and buffer mapping helpers.
 - Terminal buffer mappings are still defined in `terminal/service.lua`, but UI now decides when they are applied to terminal-backed content during attach/show/layout refresh paths.
 - Automated tests now run through vendored `mini.test` with repo-local `luacov` wiring:

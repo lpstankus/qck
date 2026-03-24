@@ -26,7 +26,11 @@ local runner = require("luacov.runner")
 local ok, err = pcall(function()
   for _, scenario in ipairs(scenarios.ordered()) do
     helpers.reset_environment()
-    scenario.run()
+    local scenario_ok, scenario_err = xpcall(scenario.run, debug.traceback)
+    helpers.reset_environment()
+    if not scenario_ok then
+      error(scenario_err)
+    end
   end
 end)
 

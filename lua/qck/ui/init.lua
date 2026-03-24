@@ -252,7 +252,9 @@ end
 
 ---@return qck.UiTabId|nil
 local function resolve_active_tab_id()
-  local tab_id = state.resolve_active_tab()
+  local current_terminal_id = terminal_state.get_current_id()
+  local current_terminal_tab_id = current_terminal_id and terminal_state.get_tab_id(current_terminal_id) or nil
+  local tab_id = current_terminal_tab_id or state.resolve_active_tab()
   if not tab_id then
     runtime.clear_content_winid()
     tabbar.hide()
@@ -789,17 +791,6 @@ function ui.clear_watchers_for_tab(tab_id)
   clear_tab_watchers(tab_id)
 end
 
----@param handle any
----@return nil
-function ui.clear_visible_watchers_for_handle(handle)
-  local tab = state.get_tab_by_terminal(handle)
-  if not tab then
-    return
-  end
-
-  clear_visible_watchers(tab.id)
-end
-
 ---@param callback fun(): any
 ---@return any
 function ui.with_suppressed_focus_leave(callback)
@@ -808,30 +799,6 @@ function ui.with_suppressed_focus_leave(callback)
   end
 
   return with_suppressed_focus_leave(callback)
-end
-
----@param handle any
----@return nil
-function ui.ensure_tab_watchers_for_handle(handle)
-  local tab = state.get_tab_by_terminal(handle)
-  if not tab then
-    return
-  end
-
-  ensure_buf_wipeout_watcher(tab.id, handle)
-
-  if resolve_active_tab_id() ~= tab.id then
-    clear_visible_watchers(tab.id)
-    return
-  end
-
-  if is_window_open(handle) and runtime.get_tabbar_winid() ~= nil then
-    runtime.set_content_winid(get_window_id(handle))
-    ensure_visible_watchers(tab.id, handle)
-    return
-  end
-
-  clear_visible_watchers(tab.id)
 end
 
 ---@param category_key qck.UiCategoryKey
@@ -937,7 +904,7 @@ function ui.toggle()
     return
   end
 
-  local tab, terminal_id = get_tab_and_terminal_id(tab_id)
+  local tab = state.get_tab(tab_id)
   if not tab then
     return
   end
@@ -958,7 +925,7 @@ end
 function ui.set_active_tab(tab_id)
   prune_invalid_tabs()
 
-  local tab, terminal_id = get_tab_and_terminal_id(tab_id)
+  local tab = state.get_tab(tab_id)
   if not tab then
     return false, "tab is not registered"
   end
@@ -968,9 +935,7 @@ function ui.set_active_tab(tab_id)
     return false, err
   end
 
-  if terminal_id then
-    terminal_state.sync_current_from_ui()
-  end
+  terminal_state.sync_current_from_ui()
 
   if runtime.is_visible() then
     return show_tab(tab_id)

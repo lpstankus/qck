@@ -72,8 +72,8 @@ function M.load_qck(opts)
     terminal = require("qck.terminal.service"),
     storage = require("qck.tasks.storage"),
     task_form = require("qck.tasks.form"),
-    tabbar = require("qck.terminal.tabbar"),
-    layout = require("qck.terminal.layout"),
+    tabbar = require("qck.ui.tabbar"),
+    layout = require("qck.ui.layout"),
     workspace = vim.fn.getcwd(),
   }
 end

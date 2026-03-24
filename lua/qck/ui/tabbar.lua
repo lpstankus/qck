@@ -401,10 +401,6 @@ function tabbar.hide()
   render_rows = {}
 end
 
----@param _ any
----@return nil
-function tabbar.set_actions(_) end
-
 ---@param raw_mappings table|nil
 ---@return nil
 function tabbar.set_user_mappings(raw_mappings)

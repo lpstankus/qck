@@ -1,5 +1,5 @@
 local terminal = require("qck.terminal.service")
-local tabbar = require("qck.terminal.tabbar")
+local tabbar = require("qck.ui.tabbar")
 local storage = require("qck.tasks.storage")
 local notify = require("qck.shared.notify").notify
 

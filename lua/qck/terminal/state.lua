@@ -1,9 +1,8 @@
--- Terminal id registry plus compatibility helpers during the UI handoff.
+-- Terminal id registry backed by UI-owned tab state.
 --
 -- UI state now owns terminal-tab ordering, active-tab selection, and reusable
--- `T#` display ids. This module keeps the terminal id -> handle mapping plus a
--- compatibility current-id hint so the public terminal-id API can keep working
--- while traversal and labels are derived from `qck.ui.state`.
+-- `T#` display ids. This module keeps the remaining terminal id -> handle
+-- mapping plus the current-id hint used by terminal creation and cycling.
 local state = {}
 local ui_state = require("qck.ui.state")
 
@@ -74,6 +73,16 @@ local function get_id_by_tab_id(tab_id)
   return state.get_id_by_terminal(tab.terminal)
 end
 
+---@param id integer|nil
+---@return nil
+local function sync_ui_active_from_id(id)
+  local rec = type(id) == "number" and terminals[id] or nil
+  local tab_id = get_ui_tab_id(rec)
+  if tab_id then
+    ui_state.set_active_tab(tab_id)
+  end
+end
+
 ---@param rec qck.TerminalRecord|nil
 ---@return boolean
 function state.is_valid_record(rec)
@@ -110,6 +119,15 @@ function state.get_current_id()
     current_id = resolve_ui_current_id()
   end
 
+  if current_id ~= nil and terminals[current_id] then
+    sync_ui_active_from_id(current_id)
+    return current_id
+  end
+
+  local ids = state.ordered_ids()
+  current_id = ids[1]
+  sync_ui_active_from_id(current_id)
+
   return current_id
 end
 
@@ -117,12 +135,7 @@ end
 ---@return nil
 function state.set_current_id(id)
   current_id = id
-
-  local rec = terminals[id]
-  local tab_id = get_ui_tab_id(rec)
-  if tab_id then
-    ui_state.set_active_tab(tab_id)
-  end
+  sync_ui_active_from_id(id)
 end
 
 ---@param id integer
@@ -146,20 +159,11 @@ end
 
 ---@param id integer
 ---@return integer|nil
-function state.assign_label_id(id)
-  return state.get_label_id(id)
-end
-
----@param id integer
----@return integer|nil
 function state.get_label_id(id)
   local tab_id = state.get_tab_id(id)
   local tab = tab_id and ui_state.get_tab(tab_id) or nil
   return tab and tab.category_display_id or nil
 end
-
----@return nil
-function state.sync_order() end
 
 ---@return nil
 function state.prune_stale()
@@ -247,11 +251,6 @@ function state.move_id(id, direction)
   end
 
   return ui_state.move_tab(tab_id, direction)
-end
-
----@return nil
-function state.ensure_ui_category()
-  ensure_ui_terminal_category()
 end
 
 ---@param id integer
