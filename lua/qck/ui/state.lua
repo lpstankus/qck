@@ -380,6 +380,38 @@ function state.move_tab(tab_id, direction)
   return true
 end
 
+---@param direction integer
+---@return qck.UiTabId|nil
+function state.get_cycle_tab_id(direction)
+  if direction ~= -1 and direction ~= 1 then
+    return nil
+  end
+
+  local ordered = build_traversal_ids()
+  if #ordered == 0 then
+    return nil
+  end
+
+  local active = state.resolve_active_tab()
+  if not active then
+    return direction == 1 and ordered[1] or ordered[#ordered]
+  end
+
+  for index, tab_id in ipairs(ordered) do
+    if tab_id == active then
+      local next_index = index + direction
+      if next_index < 1 then
+        next_index = #ordered
+      elseif next_index > #ordered then
+        next_index = 1
+      end
+      return ordered[next_index]
+    end
+  end
+
+  return direction == 1 and ordered[1] or ordered[#ordered]
+end
+
 state.reset()
 
 return state

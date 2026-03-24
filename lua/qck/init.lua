@@ -81,7 +81,7 @@ function qck.clear_storage()
   notify(("cleared storage for `%s`"):format(workspace), vim.log.levels.INFO)
 end
 
----Create a new qck terminal with the next free numeric id and show it.
+---Create a new qck terminal tab and show it.
 ---
 ---Parameters:
 ---  - None.

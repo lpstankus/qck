@@ -21,7 +21,6 @@ local center_text
 ---@class qck.UiTabbarRow
 ---@field tab_id qck.UiTabId|nil
 ---@field visual_label string
----@field selectable boolean
 
 ---@return qck.ui|nil
 local function get_ui()
@@ -79,11 +78,7 @@ local function get_selected_tab_id()
   end
 
   local row = render_rows[line]
-  if not row or not row.selectable then
-    return nil
-  end
-
-  return row.tab_id
+  return row and row.tab_id or nil
 end
 
 ---@param id qck.UiTabId
@@ -100,13 +95,6 @@ local function get_line_for_tab_id(id)
   end
 
   return nil
-end
-
----@param line integer
----@return boolean
-local function is_selectable_line(line)
-  local row = render_rows[line]
-  return row and row.selectable or false
 end
 
 ---@param line integer
@@ -160,9 +148,7 @@ local function move_selection(delta)
       next_line = 1
     end
 
-    if is_selectable_line(next_line) then
-      break
-    end
+    break
   end
 
   vim.api.nvim_win_set_cursor(winid, { next_line, get_line_cursor_col(next_line) })
@@ -183,7 +169,7 @@ local function move_selected_tab(delta)
   ui.move_tab(tab_id, delta < 0 and -1 or 1)
 
   local line = get_line_for_tab_id(tab_id)
-  if not line or not is_selectable_line(line) then
+  if not line then
     return
   end
 
@@ -228,30 +214,7 @@ end
 
 ---@param buf integer
 local function apply_user_mappings_to_buf(buf)
-  if not buf or not vim.api.nvim_buf_is_valid(buf) then
-    return
-  end
-
-  local lhs_to_clear = keymaps.collect_lhs_to_clear(previous_mapping_lhs, mapping_lhs)
-
-  for lhs in pairs(lhs_to_clear) do
-    pcall(vim.keymap.del, "n", lhs, { buffer = buf })
-  end
-
-  for lhs, mapping in pairs(user_mappings) do
-    local rhs = mapping
-    if type(mapping) == "table" then
-      rhs = mapping.rhs
-    end
-
-    if type(rhs) == "function" or type(rhs) == "string" then
-      vim.keymap.set("n", lhs, rhs, {
-        buffer = buf,
-        noremap = true,
-        silent = true,
-      })
-    end
-  end
+  keymaps.apply_to_buffer(buf, previous_mapping_lhs, mapping_lhs, user_mappings, { "n" })
 end
 
 ---@param buf integer
@@ -320,7 +283,6 @@ local function build_render_rows()
       rows[#rows + 1] = {
         tab_id = tab.id,
         visual_label = ("%s%d"):format(tab.category_label, tab.category_display_id),
-        selectable = true,
       }
     end
   end
@@ -379,15 +341,6 @@ local function restore_cursor_position(previous_line, line_count, current_idx)
     target_line = current_idx or 1
   end
 
-  if not is_selectable_line(target_line) then
-    for i = 1, line_count do
-      if is_selectable_line(i) then
-        target_line = i
-        break
-      end
-    end
-  end
-
   vim.api.nvim_win_set_cursor(winid, { target_line, get_line_cursor_col(target_line) })
 end
 
@@ -409,12 +362,7 @@ end
 
 ---@return nil
 function tabbar.apply_user_mappings()
-  local bufnr = runtime.get_tabbar_bufnr()
-  if not bufnr or not is_valid_buf(bufnr) then
-    return
-  end
-
-  apply_user_mappings_to_buf(bufnr)
+  apply_user_mappings_to_buf(runtime.get_tabbar_bufnr())
 end
 
 ---@return integer|nil

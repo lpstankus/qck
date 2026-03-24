@@ -23,6 +23,12 @@ local function tabbar_labels(tabbar_win)
   return trim_lines(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
 end
 
+---@param handle table|nil
+---@return boolean
+local function handle_is_open(handle)
+  return type(handle) == "table" and type(handle.valid) == "function" and handle:valid()
+end
+
 local function feed(keys)
   vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), "xt", false)
   vim.wait(20, function() return false end)
@@ -513,8 +519,7 @@ function scenarios.ui_init_orchestration_contract()
   local ok_reselect = select(1, ui.set_active_tab(first_tab_id))
   helpers.assert_truthy(ok_reselect, "set_active_tab() should still allow direct ui selection after tabbar actions")
 
-  local ok_delete = select(1, ui.delete_tab(first_tab_id))
-  helpers.assert_truthy(ok_delete, "delete_tab() should remove registered tabs")
+  ui.delete_tab(first_tab_id)
   helpers.assert_eq(ui_state.resolve_active_tab(), second_tab_id, "delete_tab() should adopt the next live tab when deleting the active tab")
   helpers.assert_truthy(handle_b:valid(), "delete_tab() should show the adopted live tab when ui stays visible")
   helpers.assert_truthy(vim.deep_equal(tabbar_labels(ui_tabbar.get_winid()), { "T2" }), "delete_tab() should rerender the remaining tab rows")
@@ -602,156 +607,158 @@ end
 
 function scenarios.terminals_and_layout()
   local env = helpers.load_qck()
-  local qck, state, terminal, tabbar, layout =
-    env.qck, env.state, env.terminal, env.tabbar, env.layout
-  local ui = require("qck.ui")
+  local qck, ui, ui_state, tabbar, layout =
+    env.qck, env.ui, env.ui_state, env.tabbar, env.layout
   local ui_runtime = require("qck.ui.runtime")
-  local ui_state = require("qck.ui.state")
   local expected = helpers.expected_layout(layout)
 
   qck.open()
-  helpers.assert_eq(#state.live_ids(), 1, "open() should create one terminal when none exist")
-  helpers.assert_eq(state.get_current_id(), 1, "open() should set current id when creating the first terminal")
-
-  local default_rec = state.get_terminal(1)
-  helpers.assert_truthy(default_rec and default_rec.win and default_rec.win.win, "open() should create a terminal window when none exist")
-  helpers.assert_truthy(type(state.get_tab_id(1)) == "number", "open() should register the terminal through ui state")
-  helpers.assert_eq(ui_runtime.get_handle_owner(default_rec.win), state.get_tab_id(1), "ui runtime should own the terminal handle after handoff")
-  helpers.assert_eq(ui_state.resolve_active_tab(), state.get_tab_id(1), "ui state should track the active terminal tab after handoff")
-  helpers.assert_window_layout(default_rec.win.win, tabbar.get_winid(), expected, "open() creation layout")
-  assert_ids(state.ordered_ids(), { 1 }, "single terminal should seed ordered ids")
-  helpers.assert_eq(state.get_label_id(1), 1, "first terminal should use T1 label")
+  local first_tab_id = ui_state.resolve_active_tab()
+  local first_tab = first_tab_id and ui_state.get_tab(first_tab_id) or nil
+  local first_handle = first_tab and first_tab.terminal or nil
+  local first_lookup = first_handle and ui_state.get_tab_by_terminal(first_handle) or nil
+  helpers.assert_truthy(first_tab_id ~= nil, "open() should create one terminal when none exist")
+  helpers.assert_truthy(first_tab and first_handle and first_handle.win, "open() should create a terminal window when none exist")
+  helpers.assert_eq(first_lookup and first_lookup.id, first_tab_id, "open() should register the terminal through ui state")
+  helpers.assert_eq(ui_runtime.get_handle_owner(first_handle), first_tab_id, "ui runtime should own the terminal handle after handoff")
+  helpers.assert_eq(first_tab.category_display_id, 1, "first terminal should use T1 label")
+  helpers.assert_window_layout(first_handle.win, tabbar.get_winid(), expected, "open() creation layout")
+  assert_ids(ui_state.traversal_ids(), { first_tab_id }, "single terminal should seed ordered tabs")
+  assert_ids(tabbar_labels(tabbar.get_winid()), { "T1" }, "tabbar should render the initial terminal label")
 
   qck.new()
-  local second_id = state.get_current_id()
-  local second_rec = state.get_terminal(second_id)
-  helpers.assert_eq(second_id, 2, "second new() should create terminal 2")
-  helpers.assert_truthy(second_rec and second_rec.win and second_rec.win.win, "second new() should create second terminal window")
-  helpers.assert_truthy(not state.is_window_open(default_rec), "creating another terminal should hide the previous terminal window")
-  helpers.assert_window_layout(second_rec.win.win, tabbar.get_winid(), expected, "second terminal layout")
-  assert_ids(state.ordered_ids(), { 1, 2 }, "new terminals should append to the single terminal order")
-  helpers.assert_eq(state.get_label_id(2), 2, "second terminal should use T2 label")
+  local second_tab_id = ui_state.resolve_active_tab()
+  local second_tab = second_tab_id and ui_state.get_tab(second_tab_id) or nil
+  local second_handle = second_tab and second_tab.terminal or nil
+  helpers.assert_truthy(second_tab_id ~= nil, "second new() should create a terminal tab")
+  helpers.assert_truthy(second_tab and second_handle and second_handle.win, "second new() should create second terminal window")
+  helpers.assert_truthy(not handle_is_open(first_handle), "creating another terminal should hide the previous terminal window")
+  helpers.assert_window_layout(second_handle.win, tabbar.get_winid(), expected, "second terminal layout")
+  assert_ids(ui_state.traversal_ids(), { first_tab_id, second_tab_id }, "new terminals should append to the single terminal order")
+  helpers.assert_eq(second_tab.category_display_id, 2, "second terminal should use T2 label")
   assert_ids(tabbar_labels(tabbar.get_winid()), { "T1", "T2" }, "tabbar should render generic T labels")
 
   qck.cycle_prev()
-  helpers.assert_eq(state.get_current_id(), 1, "cycle_prev() should make terminal 1 active")
-  helpers.assert_truthy(state.is_window_open(default_rec), "cycle_prev() should open terminal 1")
-  helpers.assert_truthy(not state.is_window_open(second_rec), "cycle_prev() should hide the previously visible terminal")
-
-  state.set_current_id(second_id)
-  qck.open()
-  helpers.assert_eq(
-    state.get_current_id(),
-    1,
-    "open() should follow ui-owned active selection instead of a stale terminal current-id hint"
-  )
-  helpers.assert_eq(ui_state.resolve_active_tab(), state.get_tab_id(1), "ui state should remain the active selection source")
+  helpers.assert_eq(ui_state.resolve_active_tab(), first_tab_id, "cycle_prev() should make the first tab active")
+  helpers.assert_truthy(handle_is_open(first_handle), "cycle_prev() should open the first terminal")
+  helpers.assert_truthy(not handle_is_open(second_handle), "cycle_prev() should hide the previously visible terminal")
 
   qck.toggle()
-  helpers.assert_truthy(not state.is_window_open(default_rec), "toggle() should hide the current terminal window")
+  helpers.assert_truthy(not handle_is_open(first_handle), "toggle() should hide the current terminal window")
   helpers.assert_eq(tabbar.get_winid(), nil, "toggle() should hide the tabbar with the terminal")
 
   qck.open()
-  helpers.assert_eq(state.get_current_id(), 1, "open() should target the active terminal")
-  helpers.assert_truthy(state.is_window_open(default_rec), "open() should re-open the hidden active terminal")
-  helpers.assert_truthy(not state.is_window_open(second_rec), "open() should hide the previously visible terminal")
-  helpers.assert_window_layout(default_rec.win.win, tabbar.get_winid(), expected, "open() layout")
+  helpers.assert_eq(ui_state.resolve_active_tab(), first_tab_id, "open() should target the active terminal")
+  helpers.assert_truthy(handle_is_open(first_handle), "open() should re-open the hidden active terminal")
+  helpers.assert_truthy(not handle_is_open(second_handle), "open() should hide the previously visible terminal")
+  helpers.assert_window_layout(first_handle.win, tabbar.get_winid(), expected, "open() layout")
 
   qck.new()
-  local third_id = state.get_current_id()
-  local third_rec = state.get_terminal(third_id)
-  helpers.assert_eq(third_id, 3, "third new() should create terminal 3")
-  helpers.assert_truthy(third_rec and third_rec.win and third_rec.win.win, "third new() should create third terminal window")
-  assert_ids(state.ordered_ids(), { 1, 2, 3 }, "ordered ids should track all live terminals")
+  local third_tab_id = ui_state.resolve_active_tab()
+  local third_tab = third_tab_id and ui_state.get_tab(third_tab_id) or nil
+  local third_handle = third_tab and third_tab.terminal or nil
+  helpers.assert_truthy(third_tab_id ~= nil, "third new() should create a terminal tab")
+  helpers.assert_truthy(third_tab and third_handle and third_handle.win, "third new() should create third terminal window")
+  assert_ids(ui_state.traversal_ids(), { first_tab_id, second_tab_id, third_tab_id }, "ordered tabs should track all live terminals")
   assert_ids(tabbar_labels(tabbar.get_winid()), { "T1", "T2", "T3" }, "tabbar should render all live terminals")
 
-  local moved_up = select(1, ui.move_tab(state.get_tab_id(3), -1))
+  local moved_up = select(1, ui.move_tab(third_tab_id, -1))
   helpers.assert_truthy(moved_up, "ui.move_tab() should reorder generic terminals upward")
-  assert_ids(state.ordered_ids(), { 1, 3, 2 }, "moving a terminal up should update the shared terminal order")
+  assert_ids(ui_state.traversal_ids(), { first_tab_id, third_tab_id, second_tab_id }, "moving a terminal up should update the shared terminal order")
   assert_ids(tabbar_labels(tabbar.get_winid()), { "T1", "T3", "T2" }, "tabbar should reflect reordered terminal rows")
 
-  local moved_down = select(1, ui.move_tab(state.get_tab_id(3), 1))
+  local moved_down = select(1, ui.move_tab(third_tab_id, 1))
   helpers.assert_truthy(moved_down, "ui.move_tab() should reorder generic terminals downward")
-  assert_ids(state.ordered_ids(), { 1, 2, 3 }, "moving a terminal down should restore the original order")
+  assert_ids(ui_state.traversal_ids(), { first_tab_id, second_tab_id, third_tab_id }, "moving a terminal down should restore the original order")
 
   qck.cycle_prev()
-  helpers.assert_eq(state.get_current_id(), 2, "cycle_prev() should follow the generic terminal order")
+  helpers.assert_eq(ui_state.resolve_active_tab(), second_tab_id, "cycle_prev() should follow the generic terminal order")
+  helpers.assert_truthy(handle_is_open(second_handle), "cycle_prev() should open the second terminal")
+  helpers.assert_truthy(not handle_is_open(third_handle), "cycle_prev() should hide the previously visible terminal")
   qck.cycle_next()
-  helpers.assert_eq(state.get_current_id(), 3, "cycle_next() should wrap back through the generic terminal order")
+  helpers.assert_eq(ui_state.resolve_active_tab(), third_tab_id, "cycle_next() should wrap back through the generic terminal order")
+  helpers.assert_truthy(handle_is_open(third_handle), "cycle_next() should reopen the third terminal")
+  helpers.assert_truthy(not handle_is_open(second_handle), "cycle_next() should hide the previously visible terminal")
 
-  terminal.delete(2)
-  helpers.assert_eq(state.get_terminal(2), nil, "delete() should remove the requested terminal record")
-  assert_ids(state.ordered_ids(), { 1, 3 }, "delete() should remove the terminal from the shared order")
-  helpers.assert_eq(state.get_label_id(1), 1, "existing terminal labels should remain stable after delete")
-  helpers.assert_eq(state.get_label_id(3), 3, "existing terminal labels should remain stable after delete")
+  helpers.assert_truthy(select(1, ui.set_active_tab(second_tab_id)), "ui.set_active_tab() should switch to the second terminal before deletion")
+  helpers.assert_truthy(handle_is_open(second_handle), "ui.set_active_tab() should show the second terminal before deletion")
+  ui.delete_tab(second_tab_id)
+  helpers.assert_eq(ui_state.get_tab(second_tab_id), nil, "ui.delete_tab() should remove the requested terminal record")
+  assert_ids(ui_state.traversal_ids(), { first_tab_id, third_tab_id }, "ui.delete_tab() should remove the terminal from the shared order")
+  helpers.assert_eq(ui_state.resolve_active_tab(), third_tab_id, "ui.delete_tab() should adopt the next live terminal from UI traversal")
+  helpers.assert_truthy(not handle_is_open(second_handle), "ui.delete_tab() should hide the deleted terminal window")
+  helpers.assert_truthy(handle_is_open(third_handle), "ui.delete_tab() should show the adopted terminal while the UI is visible")
+  assert_ids(tabbar_labels(tabbar.get_winid()), { "T1", "T3" }, "ui.delete_tab() should keep stable labels after delete")
+  helpers.assert_eq(ui_state.get_tab(first_tab_id).category_display_id, 1, "existing terminal labels should remain stable after delete")
+  helpers.assert_eq(ui_state.get_tab(third_tab_id).category_display_id, 3, "existing terminal labels should remain stable after delete")
 
   qck.new()
-  local reused_id = state.get_current_id()
-  helpers.assert_eq(reused_id, 2, "new() should reuse the lowest missing terminal id")
-  helpers.assert_eq(state.get_label_id(reused_id), 2, "new terminals should reuse the lowest missing label id")
+  local reused_tab_id = ui_state.resolve_active_tab()
+  local reused_tab = reused_tab_id and ui_state.get_tab(reused_tab_id) or nil
+  local reused_handle = reused_tab and reused_tab.terminal or nil
+  helpers.assert_truthy(reused_tab_id ~= nil, "new() should create a replacement terminal tab")
+  helpers.assert_truthy(reused_tab and reused_tab.category_display_id == 2, "new terminals should reuse the lowest missing label id")
   assert_ids(tabbar_labels(tabbar.get_winid()), { "T1", "T3", "T2" }, "recreated terminals should keep stable labels for survivors")
 
-  terminal.open(3)
+  helpers.assert_truthy(select(1, ui.set_active_tab(third_tab_id)), "ui.set_active_tab() should switch to the third terminal")
+  helpers.assert_truthy(handle_is_open(third_handle), "ui.set_active_tab() should show the third terminal")
+  helpers.assert_truthy(not handle_is_open(reused_handle), "ui.set_active_tab() should hide the previously visible terminal")
+
   qck.toggle()
-  helpers.assert_truthy(
-    not state.is_window_open(state.get_terminal(3)),
-    "toggle() should hide the current terminal window before reopen-by-open coverage"
-  )
+  helpers.assert_truthy(not handle_is_open(third_handle), "toggle() should hide the current terminal window before reopen-by-open coverage")
 
   qck.open()
-  local reopened_by_open = state.get_terminal(3)
-  helpers.assert_truthy(
-    reopened_by_open and reopened_by_open.win and reopened_by_open.win.win,
-    "open() should reopen the hidden active terminal"
-  )
-  helpers.assert_window_layout(reopened_by_open.win.win, tabbar.get_winid(), expected, "open() reopen layout")
+  helpers.assert_truthy(handle_is_open(third_handle), "open() should reopen the hidden active terminal")
+  helpers.assert_window_layout(third_handle.win, tabbar.get_winid(), expected, "open() reopen layout")
 
   qck.close()
-  helpers.assert_eq(state.get_terminal(3), nil, "close() should remove the active terminal")
-  helpers.assert_eq(state.get_current_id(), 2, "close() should keep selection on the ui traversal fallback")
-  helpers.assert_truthy(state.is_window_open(state.get_terminal(2)), "close() should show the adopted traversal fallback when ui was visible")
-  helpers.assert_truthy(not state.is_window_open(state.get_terminal(1)), "close() should only target the active terminal window")
-  helpers.assert_truthy(type(tabbar.get_winid()) == "number", "close() should keep the tabbar open when another live terminal is adopted")
+  helpers.assert_eq(ui_state.get_tab(third_tab_id), nil, "close() should remove the active terminal")
+  helpers.assert_eq(ui_state.resolve_active_tab(), reused_tab_id, "close() should keep selection on the ui traversal fallback")
+  helpers.assert_truthy(handle_is_open(reused_handle), "close() should show the adopted traversal fallback when ui is visible")
+  helpers.assert_truthy(not handle_is_open(first_handle), "close() should only target the active terminal window")
+  helpers.assert_truthy(type(tabbar.get_winid()) == "number", "close() should keep the tabbar open when deleting the active terminal")
 
   qck.toggle()
-  helpers.assert_truthy(not state.is_window_open(state.get_terminal(2)), "toggle() should hide the adopted active terminal before hidden-close coverage")
+  helpers.assert_eq(ui_state.resolve_active_tab(), reused_tab_id, "toggle() should keep the adopted traversal fallback selected")
   qck.close()
-  helpers.assert_eq(state.get_terminal(2), nil, "close() should delete the active terminal even when it is hidden")
-  helpers.assert_eq(state.get_current_id(), 1, "close() should keep traversal fallback selection after deleting a hidden active terminal")
-  helpers.assert_truthy(not state.is_window_open(state.get_terminal(1)), "close() should not reopen fallback terminals when deleting a hidden active terminal")
+  helpers.assert_eq(ui_state.get_tab(reused_tab_id), nil, "close() should delete the active terminal even when it is hidden")
+  helpers.assert_eq(ui_state.resolve_active_tab(), first_tab_id, "close() should keep traversal fallback selection after deleting a hidden active terminal")
+  helpers.assert_truthy(not handle_is_open(first_handle), "close() should not reopen fallback terminals when deleting a hidden active terminal")
   helpers.assert_eq(tabbar.get_winid(), nil, "close() should keep the ui hidden when deleting a hidden active terminal")
 
-  helpers.cleanup_terminals(terminal, state, tabbar)
+  helpers.cleanup_terminals(ui, ui_state, tabbar)
 
   helpers.set_editor_size(101, 45)
   expected = helpers.expected_layout(layout)
   qck.new()
 
-  local odd_id = state.get_current_id()
-  local odd_rec = state.get_terminal(odd_id)
+  local odd_tab_id = ui_state.resolve_active_tab()
+  local odd_tab = odd_tab_id and ui_state.get_tab(odd_tab_id) or nil
+  local odd_rec = odd_tab and odd_tab.terminal or nil
   local odd_tab_win = tabbar.get_winid()
-  helpers.assert_truthy(odd_rec and odd_rec.win and odd_rec.win.win, "odd-dimension layout should create terminal window")
+  helpers.assert_truthy(odd_tab_id ~= nil and odd_rec and odd_rec.win, "odd-dimension layout should create terminal window")
   helpers.assert_truthy(type(odd_tab_win) == "number", "odd-dimension layout should create tabbar window")
-  helpers.assert_window_layout(odd_rec.win.win, odd_tab_win, expected, "odd-dimension layout")
+  helpers.assert_window_layout(odd_rec.win, odd_tab_win, expected, "odd-dimension layout")
 
-  helpers.cleanup_terminals(terminal, state, tabbar)
+  helpers.cleanup_terminals(ui, ui_state, tabbar)
 
   local function assert_resize_persists_geometry(start_columns, start_lines, end_columns, end_lines, msg_prefix)
     helpers.set_editor_size(start_columns, start_lines)
     qck.new()
 
-    local current_id = state.get_current_id()
-    local rec = state.get_terminal(current_id)
+    local current_tab_id = ui_state.resolve_active_tab()
+    local current_tab = current_tab_id and ui_state.get_tab(current_tab_id) or nil
+    local rec = current_tab and current_tab.terminal or nil
     local tab_win = tabbar.get_winid()
-    helpers.assert_truthy(rec and rec.win and rec.win.win, msg_prefix .. ": resize case should create terminal window")
+    helpers.assert_truthy(current_tab_id ~= nil and rec and rec.win, msg_prefix .. ": resize case should create terminal window")
     helpers.assert_truthy(type(tab_win) == "number", msg_prefix .. ": resize case should create tabbar window")
 
     vim.o.columns = end_columns
     vim.o.lines = end_lines
     vim.api.nvim_exec_autocmds("VimResized", {})
-    helpers.force_full_footprint_terminal(rec.win.win)
+    helpers.force_full_footprint_terminal(rec.win)
 
-    local bad_snapshot = helpers.capture_window_layout(rec.win.win, tab_win)
+    local bad_snapshot = helpers.capture_window_layout(rec.win, tab_win)
     local expected_after_resize = helpers.expected_layout(layout)
     helpers.assert_truthy(
       bad_snapshot.term_width ~= expected_after_resize.total_width - expected_after_resize.tabbar_width - expected_after_resize.gap_width
@@ -764,36 +771,37 @@ function scenarios.terminals_and_layout()
 
     vim.wait(20, function() return false end)
 
-    rec = state.get_terminal(current_id)
+    current_tab = current_tab_id and ui_state.get_tab(current_tab_id) or nil
+    rec = current_tab and current_tab.terminal or nil
     tab_win = tabbar.get_winid()
     helpers.assert_truthy(
-      rec and rec.win and rec.win.win,
+      current_tab_id ~= nil and rec and rec.win,
       msg_prefix .. ": resize case should keep terminal window open after deferred repair"
     )
     helpers.assert_truthy(type(tab_win) == "number", msg_prefix .. ": resize case should keep tabbar window open after deferred repair")
 
     local expected_after_wait = helpers.expected_layout(layout)
-    helpers.assert_window_layout(rec.win.win, tab_win, expected_after_wait, msg_prefix)
+    helpers.assert_window_layout(rec.win, tab_win, expected_after_wait, msg_prefix)
 
-    local resized_snapshot = helpers.capture_window_layout(rec.win.win, tab_win)
+    local resized_snapshot = helpers.capture_window_layout(rec.win, tab_win)
 
     qck.toggle()
-    helpers.assert_truthy(not state.is_window_open(rec), msg_prefix .. ": toggle should hide the resized terminal")
+    helpers.assert_truthy(not handle_is_open(rec), msg_prefix .. ": toggle should hide the resized terminal")
 
-    state.set_current_id(current_id)
     qck.open()
 
-    local reopened_rec = state.get_terminal(current_id)
+    current_tab = current_tab_id and ui_state.get_tab(current_tab_id) or nil
+    local reopened_rec = current_tab and current_tab.terminal or nil
     local reopened_tab_win = tabbar.get_winid()
-    helpers.assert_truthy(reopened_rec and reopened_rec.win and reopened_rec.win.win, msg_prefix .. ": reopen should restore terminal window")
+    helpers.assert_truthy(current_tab_id ~= nil and reopened_rec and reopened_rec.win, msg_prefix .. ": reopen should restore terminal window")
     helpers.assert_truthy(type(reopened_tab_win) == "number", msg_prefix .. ": reopen should restore tabbar window")
     helpers.assert_layout_snapshot_eq(
-      helpers.capture_window_layout(reopened_rec.win.win, reopened_tab_win),
+      helpers.capture_window_layout(reopened_rec.win, reopened_tab_win),
       resized_snapshot,
       msg_prefix
     )
 
-    helpers.cleanup_terminals(terminal, state, tabbar)
+    helpers.cleanup_terminals(ui, ui_state, tabbar)
   end
 
   assert_resize_persists_geometry(80, 30, 160, 50, "resize small-to-large")
@@ -802,38 +810,41 @@ end
 
 function scenarios.terminal_lifecycle_watchers_and_focus()
   local env = helpers.load_qck()
-  local qck, state, tabbar = env.qck, env.state, env.tabbar
+  local qck, ui, ui_state, tabbar = env.qck, env.ui, env.ui_state, env.tabbar
 
   qck.open()
-  local current_id = state.get_current_id()
-  local rec = state.get_terminal(current_id)
-  helpers.assert_truthy(rec and rec.win and rec.win.win, "open() should create a visible terminal for lifecycle coverage")
+  local current_tab_id = ui_state.resolve_active_tab()
+  local current_tab = current_tab_id and ui_state.get_tab(current_tab_id) or nil
+  local rec = current_tab and current_tab.terminal or nil
+  helpers.assert_truthy(current_tab_id ~= nil and rec and rec.win, "open() should create a visible terminal for lifecycle coverage")
   helpers.assert_truthy(type(tabbar.get_winid()) == "number", "open() should create a visible tabbar for lifecycle coverage")
 
-  local term_win = rec.win.win
+  local term_win = rec.win
   vim.api.nvim_win_close(term_win, true)
-  helpers.assert_truthy(state.get_terminal(current_id) == rec, "manual terminal close should keep recoverable terminal record")
-  helpers.assert_truthy(not state.is_window_open(rec), "manual terminal close should hide the current terminal window")
+  helpers.assert_truthy(ui_state.get_tab(current_tab_id) ~= nil, "manual terminal close should keep recoverable terminal record")
+  helpers.assert_truthy(not handle_is_open(rec), "manual terminal close should hide the current terminal window")
   helpers.assert_eq(tabbar.get_winid(), nil, "manual terminal close should hide the tabbar window")
 
   qck.open()
-  rec = state.get_terminal(current_id)
-  local reopened_term_win = rec and rec.win and rec.win.win or nil
+  current_tab = current_tab_id and ui_state.get_tab(current_tab_id) or nil
+  rec = current_tab and current_tab.terminal or nil
+  local reopened_term_win = rec and rec.win or nil
   local reopened_tab_win = tabbar.get_winid()
   helpers.assert_truthy(type(reopened_term_win) == "number", "open() should reopen a recoverable hidden terminal")
   helpers.assert_truthy(type(reopened_tab_win) == "number", "open() should reopen the tabbar after manual terminal close")
 
   vim.api.nvim_win_close(reopened_tab_win, true)
   vim.wait(20, function()
-    return not state.is_window_open(rec) and tabbar.get_winid() == nil
+    return not handle_is_open(rec) and tabbar.get_winid() == nil
   end)
-  helpers.assert_truthy(not state.is_window_open(rec), "manual tabbar close should hide the current terminal window")
+  helpers.assert_truthy(not handle_is_open(rec), "manual tabbar close should hide the current terminal window")
   helpers.assert_eq(tabbar.get_winid(), nil, "manual tabbar close should leave no tabbar window open")
-  helpers.assert_truthy(state.is_valid_record(rec), "manual tabbar close should keep the current terminal recoverable")
+  helpers.assert_truthy(ui_state.get_tab(current_tab_id) ~= nil, "manual tabbar close should keep the current terminal recoverable")
 
   qck.open()
-  rec = state.get_terminal(current_id)
-  reopened_term_win = rec and rec.win and rec.win.win or nil
+  current_tab = current_tab_id and ui_state.get_tab(current_tab_id) or nil
+  rec = current_tab and current_tab.terminal or nil
+  reopened_term_win = rec and rec.win or nil
   reopened_tab_win = tabbar.get_winid()
   helpers.assert_truthy(type(reopened_term_win) == "number", "open() should reopen the terminal after manual tabbar close")
   helpers.assert_truthy(type(reopened_tab_win) == "number", "open() should reopen the tabbar after manual tabbar close")
@@ -848,57 +859,57 @@ function scenarios.terminal_lifecycle_watchers_and_focus()
 
   vim.api.nvim_set_current_win(other_win)
   vim.wait(20, function()
-    return not state.is_window_open(rec) and tabbar.get_winid() == nil
+    return not handle_is_open(rec) and tabbar.get_winid() == nil
   end)
-  helpers.assert_truthy(not state.is_window_open(rec), "focus leave should hide the current terminal window")
+  helpers.assert_truthy(not handle_is_open(rec), "focus leave should hide the current terminal window")
   helpers.assert_eq(tabbar.get_winid(), nil, "focus leave should hide the tabbar window")
-  helpers.assert_truthy(state.is_valid_record(rec), "focus leave should keep the current terminal recoverable")
+  helpers.assert_truthy(ui_state.get_tab(current_tab_id) ~= nil, "focus leave should keep the current terminal recoverable")
 end
 
 function scenarios.terminal_invalidation_and_active_fallbacks()
   local env = helpers.load_qck()
-  local qck, state, tabbar = env.qck, env.state, env.tabbar
-  local ui_state = require("qck.ui.state")
+  local qck, ui, ui_state, tabbar = env.qck, env.ui, env.ui_state, env.tabbar
 
   qck.open()
-  local first_id = state.get_current_id()
-  local first_rec = state.get_terminal(first_id)
+  local first_tab_id = ui_state.resolve_active_tab()
+  local first_tab = first_tab_id and ui_state.get_tab(first_tab_id) or nil
+  local first_rec = first_tab and first_tab.terminal or nil
 
   qck.new()
-  local second_id = state.get_current_id()
-  local second_rec = state.get_terminal(second_id)
+  local second_tab_id = ui_state.resolve_active_tab()
+  local second_tab = second_tab_id and ui_state.get_tab(second_tab_id) or nil
+  local second_rec = second_tab and second_tab.terminal or nil
 
-  helpers.assert_eq(first_id, 1, "open() should create T1 before fallback coverage")
-  helpers.assert_eq(second_id, 2, "new() should create T2 before fallback coverage")
-  helpers.assert_truthy(not state.is_window_open(first_rec), "creating another terminal should hide the first terminal before fallback coverage")
-  helpers.assert_truthy(state.is_window_open(second_rec), "second terminal should be visible before fallback coverage")
+  helpers.assert_eq(first_tab and first_tab.category_display_id, 1, "open() should create T1 before fallback coverage")
+  helpers.assert_eq(second_tab and second_tab.category_display_id, 2, "new() should create T2 before fallback coverage")
+  helpers.assert_truthy(not handle_is_open(first_rec), "creating another terminal should hide the first terminal before fallback coverage")
+  helpers.assert_truthy(handle_is_open(second_rec), "second terminal should be visible before fallback coverage")
 
   ui_state.set_active_tab_id(999)
   qck.open()
-  helpers.assert_eq(state.get_current_id(), first_id, "open() should adopt the first live terminal when the active id is stale")
-  helpers.assert_truthy(state.is_window_open(first_rec), "open() should reopen the adopted live terminal")
-  helpers.assert_truthy(not state.is_window_open(second_rec), "open() should hide the previously visible terminal after stale-active fallback")
-  helpers.assert_eq(state.get_terminal(999), nil, "open() should not create a replacement terminal for a stale active id")
+  helpers.assert_eq(ui_state.resolve_active_tab(), first_tab_id, "open() should adopt the first live terminal when the active id is stale")
+  helpers.assert_truthy(handle_is_open(first_rec), "open() should reopen the adopted live terminal")
+  helpers.assert_truthy(not handle_is_open(second_rec), "open() should hide the previously visible terminal after stale-active fallback")
 
   ui_state.set_active_tab_id(999)
   qck.toggle()
-  helpers.assert_eq(state.get_current_id(), first_id, "toggle() should adopt the first live terminal when the active id is stale")
-  helpers.assert_truthy(not state.is_window_open(first_rec), "toggle() should hide the adopted live terminal")
-  helpers.assert_eq(state.get_terminal(999), nil, "toggle() should not create a replacement terminal for a stale active id")
+  helpers.assert_eq(ui_state.resolve_active_tab(), first_tab_id, "toggle() should adopt the first live terminal when the active id is stale")
+  helpers.assert_truthy(not handle_is_open(first_rec), "toggle() should hide the adopted live terminal")
   helpers.assert_eq(tabbar.get_winid(), nil, "toggle() stale-active fallback hide should close the tabbar")
 
-  helpers.cleanup_terminals(env.terminal, state, tabbar)
+  helpers.cleanup_terminals(ui, ui_state, tabbar)
   qck.toggle()
-  local created_id = state.get_current_id()
-  local created_rec = state.get_terminal(created_id)
-  helpers.assert_eq(created_id, 1, "toggle() should create the lowest missing terminal when no terminals exist")
-  helpers.assert_truthy(created_rec and state.is_window_open(created_rec), "toggle() should create and show a terminal in the empty state")
+  local created_tab_id = ui_state.resolve_active_tab()
+  local created_tab = created_tab_id and ui_state.get_tab(created_tab_id) or nil
+  local created_rec = created_tab and created_tab.terminal or nil
+  helpers.assert_truthy(created_tab and created_tab.category_display_id == 1, "toggle() should create the lowest missing terminal label when no terminals exist")
+  helpers.assert_truthy(created_tab_id ~= nil and handle_is_open(created_rec), "toggle() should create and show a terminal in the empty state")
   helpers.assert_truthy(type(tabbar.get_winid()) == "number", "toggle() empty-state creation should also show the tabbar")
 
-  local active_buf = created_rec.win.buf
+  local active_buf = created_rec.buf
   vim.api.nvim_buf_delete(active_buf, { force = true })
-  helpers.assert_eq(state.get_terminal(created_id), nil, "BufWipeout should remove the invalid terminal record")
-  helpers.assert_eq(state.get_current_id(), nil, "BufWipeout should clear the active id when the last terminal is invalidated")
+  helpers.assert_eq(ui_state.get_tab(created_tab_id), nil, "BufWipeout should remove the invalid terminal record")
+  helpers.assert_eq(ui_state.resolve_active_tab(), nil, "BufWipeout should clear the active tab when the last terminal is invalidated")
   helpers.assert_eq(tabbar.get_winid(), nil, "BufWipeout should leave no tabbar visible when the last terminal is invalidated")
 end
 

@@ -12,13 +12,6 @@
 ---@field close fun(self: qck.TerminalHandle)
 ---@field on? fun(self: qck.TerminalHandle, event: string, cb: fun(...), opts?: table)
 
----@class qck.TerminalMeta
----@field label_id? integer
-
----@class qck.TerminalRecord
----@field win qck.TerminalHandle
----@field meta qck.TerminalMeta
-
 ---@class qck.StorageTaskState
 ---@field cmd qck.Command
 

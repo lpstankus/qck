@@ -68,8 +68,8 @@ function M.load_qck(opts)
 
   return {
     qck = qck,
-    state = require("qck.terminal.state"),
-    terminal = require("qck.terminal.service"),
+    ui = require("qck.ui"),
+    ui_state = require("qck.ui.state"),
     storage = require("qck.tasks.storage"),
     task_form = require("qck.tasks.form"),
     tabbar = require("qck.ui.tabbar"),
@@ -212,10 +212,10 @@ function M.set_editor_size(columns, lines)
   vim.wait(20, function() return false end)
 end
 
-function M.cleanup_terminals(terminal, state, tabbar)
-  local ids = state.live_ids()
-  for _, id in ipairs(ids) do
-    terminal.delete(id)
+function M.cleanup_terminals(ui, ui_state, tabbar)
+  local tab_ids = ui_state.traversal_ids()
+  for i = #tab_ids, 1, -1 do
+    ui.delete_tab(tab_ids[i])
   end
   tabbar.hide()
 end
