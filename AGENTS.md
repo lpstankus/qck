@@ -9,14 +9,14 @@ This repository is a Neovim plugin written in Lua.
 - `lua/qck/shared/keymaps.lua`: shared mapping state helpers for tracking/removing user-configured buffer mappings.
 - `lua/qck/shared/notify.lua`: shared `QCK:` notification helper.
 - `lua/qck/shared/types.lua`: shared EmmyLua type aliases/classes.
-- `lua/qck/terminal/service.lua`: terminal lifecycle orchestration over `snacks.terminal`.
-- `lua/qck/terminal/state.lua`: terminal registry and current-id/cycling state plus terminal record/window validity helpers.
+- `lua/qck/terminal/service.lua`: terminal creation/reopen/delete primitives over `snacks.terminal` that now hand terminal-backed tabs to UI-owned orchestration.
+- `lua/qck/terminal/state.lua`: terminal id -> handle registry plus compatibility current-id/cycling helpers that now derive ordering/labels from `ui/state.lua`.
 - `lua/qck/terminal/layout.lua`: pre-migration compatibility shim that delegates shared floating terminal/tabbar layout calculations to `ui/layout.lua`.
 - `lua/qck/terminal/tabbar.lua`: temporary compatibility shim that forwards tabbar calls to `ui/tabbar.lua` during the incremental UI handoff.
 - `lua/qck/ui/runtime.lua`: dark UI runtime scaffolding for visible content/tabbar winids, owned-handle registration, focus target, and watcher bookkeeping.
 - `lua/qck/ui/layout.lua`: dark UI-owned shared float geometry scaffolding for content/tabbar layout math, with terminal callers still delegating through the legacy shim.
 - `lua/qck/ui/state.lua`: pure internal UI state scaffolding for category registration, tab metadata, active-tab fallback, display-id reuse, and traversal ordering.
-- `lua/qck/ui/init.lua`: internal UI orchestration entrypoints for category registration, attach/show/hide/toggle flows, active-tab selection, deletion, motion, winid-based tabbar focus routing, and UI-owned global/per-tab watcher lifecycle.
+- `lua/qck/ui/init.lua`: internal UI orchestration entrypoints for category registration, attach/show/hide/toggle flows, active-tab selection, deletion, motion, winid-based tabbar focus routing, UI-owned global/per-tab watcher lifecycle, and terminal-backed visibility/layout orchestration after handoff.
 - `lua/qck/ui/tabbar.lua`: UI-owned tabbar presentation that now builds/render rows from `ui/state.lua` while terminal runtime still drives visibility/actions through a shim.
 - `lua/qck/ui/types.lua`: UI-local EmmyLua aliases/classes for categories, tab ids, and tab metadata.
 - `lua/qck/tasks/storage.lua`: workspace-persistent storage for workspace-created task definitions.
@@ -177,7 +177,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - `tasks/form.lua` keeps runtime UI state in a single local state table (`bufnr`/`winid`/selection/pending overwrite/autocmd ids) instead of scattered module globals.
 - Task form submit sanitization preserves support for legacy inline labels (`Name: ...` / `Command: ...`) by normalizing to current prefixed scaffold rows before validation/save.
 - `tasks/form.lua` writes workspace task commands directly through `tasks/storage.lua` and checks duplicates against persisted workspace data.
-- `terminal/service.lua` keeps terminal creation/open/close primitives plus terminal-specific cleanup centralized, but it now asks `ui/init.lua` to clear/sync watcher state around terminal-backed visibility changes instead of owning those watchers itself.
+- `terminal/service.lua` now creates Snacks terminal handles, hands them to `ui.attach_and_show(...)`, and delegates normal terminal-backed visibility/order/delete flows back through UI instead of owning runtime tab/window orchestration directly.
 - Tabbar presentation has started moving behind UI-owned state:
   - `ui/tabbar.lua` now builds row order, row labels, and active-row highlighting from `ui.state` traversal/category metadata,
   - `terminal/tabbar.lua` is now only a compatibility shim so existing terminal/app callers keep working,
@@ -206,8 +206,10 @@ Additional tests should be placed under `tests/` and documented in this section.
 - `lua/qck/ui/init.lua` now makes the internal handoff contract executable for this chunk: it can register categories, attach caller-created handles, manage active-tab visibility for UI-owned tabs, delegate terminal-backed tabs through the existing terminal runtime during transition, roll back failed `attach_and_show()` attempts, and route focus switching through UI-owned content/tabbar winids.
 - `ui/init.lua` now owns watcher installation and cleanup for both global focus/resize behavior and per-tab buffer/window lifecycle tracking; `terminal/service.lua` and `app/focus.lua` only call into that UI-owned watcher layer during the transition.
 - UI-owned watcher helpers explicitly separate long-lived global watcher state from per-tab watcher state, and terminal-backed window swaps temporarily suppress focus-leave auto-hide so internal hide/show churn does not collapse the UI.
-- `terminal/state.lua` now mirrors terminal registrations, active selection, and category-local movement into `ui/state.lua` for the terminal category so tabbar rendering can read UI-owned traversal/display metadata without depending on terminal label/order internals directly.
+- `terminal/state.lua` now keeps only the terminal id registry plus a compatibility current-id hint; canonical terminal tab ordering, active-tab selection, and `T#` display ids are derived from `ui/state.lua`.
 - `ui/tabbar.lua` now owns the actual tabbar row-generation/rendering path, but terminal runtime still remains the active caller/source of visibility behavior in this chunk.
+- `ui/init.lua` now drives terminal-backed show/hide/toggle/delete/layout behavior directly from UI-owned tab state; terminal-specific code stays limited to handle creation, validity, close, and buffer mapping helpers.
+- Terminal buffer mappings are still defined in `terminal/service.lua`, but UI now decides when they are applied to terminal-backed content during attach/show/layout refresh paths.
 - Automated tests now run through vendored `mini.test` with repo-local `luacov` wiring:
   - `tests/scenarios.lua` defines the shared smoke-behavior scenario functions,
   - `tests/test_smoke.lua` ports the old smoke harness into isolated `mini.test` cases with shared reset helpers,

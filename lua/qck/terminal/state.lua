@@ -1,17 +1,14 @@
--- Current pre-migration terminal registry and traversal state.
+-- Terminal id registry plus compatibility helpers during the UI handoff.
 --
--- The target UI handoff contract is documented in
--- `plans/2-ui-handoff-contract.md`. Today this module still owns the current
--- active terminal id, global traversal order, and reusable `T#` label ids.
--- Those concerns are documented now so later `lua/qck/ui/` work can migrate
--- them without changing the written rules for stale-active fallback,
--- category-local motion, global traversal, or display-label reuse.
+-- UI state now owns terminal-tab ordering, active-tab selection, and reusable
+-- `T#` display ids. This module keeps the terminal id -> handle mapping plus a
+-- compatibility current-id hint so the public terminal-id API can keep working
+-- while traversal and labels are derived from `qck.ui.state`.
 local state = {}
 local ui_state = require("qck.ui.state")
 
 local terminals = {}
 local current_id = nil
-local terminal_order = {}
 
 local UI_TERMINAL_CATEGORY_KEY = "terminal"
 local UI_TERMINAL_CATEGORY_LABEL = "T"
@@ -19,6 +16,21 @@ local UI_TERMINAL_CATEGORY_LABEL = "T"
 ---@return nil
 local function ensure_ui_terminal_category()
   ui_state.register_category({ key = UI_TERMINAL_CATEGORY_KEY, label = UI_TERMINAL_CATEGORY_LABEL })
+end
+
+---@return integer|nil
+local function resolve_ui_current_id()
+  local tab_id = ui_state.resolve_active_tab()
+  if not tab_id then
+    return nil
+  end
+
+  local tab = ui_state.get_tab(tab_id)
+  if not tab then
+    return nil
+  end
+
+  return state.get_id_by_terminal(tab.terminal)
 end
 
 ---@param rec qck.TerminalRecord|nil
@@ -51,123 +63,15 @@ local function set_ui_tab_id(rec, tab_id)
   end
 end
 
----@param rec qck.TerminalRecord|nil
----@return nil
-local function sync_ui_active_from_record(rec)
-  local tab_id = get_ui_tab_id(rec)
-  if tab_id then
-    ui_state.set_active_tab(tab_id)
-    return
+---@param tab_id qck.UiTabId|nil
+---@return integer|nil
+local function get_id_by_tab_id(tab_id)
+  local tab = type(tab_id) == "number" and ui_state.get_tab(tab_id) or nil
+  if not tab then
+    return nil
   end
 
-  ui_state.resolve_active_tab()
-end
-
----@param rec qck.TerminalRecord|nil
----@return nil
-local function register_ui_terminal(rec)
-  local handle = rec and rec.win or nil
-  if handle == nil then
-    return
-  end
-
-  ensure_ui_terminal_category()
-
-  local existing = ui_state.get_tab_by_terminal(handle)
-  if existing then
-    set_ui_tab_id(rec, existing.id)
-    return
-  end
-
-  local tab_id = select(1, ui_state.register_tab(UI_TERMINAL_CATEGORY_KEY, handle))
-  set_ui_tab_id(rec, tab_id)
-end
-
----@param rec qck.TerminalRecord|nil
----@return nil
-local function unregister_ui_terminal(rec)
-  local tab_id = get_ui_tab_id(rec)
-  if tab_id then
-    local ok_ui, ui = pcall(require, "qck.ui")
-    if ok_ui and type(ui.clear_watchers_for_tab) == "function" then
-      ui.clear_watchers_for_tab(tab_id)
-    end
-    ui_state.delete_tab(tab_id)
-    set_ui_tab_id(rec, nil)
-    return
-  end
-
-  local handle = rec and rec.win or nil
-  local existing = handle and ui_state.get_tab_by_terminal(handle) or nil
-  if existing then
-    local ok_ui, ui = pcall(require, "qck.ui")
-    if ok_ui and type(ui.clear_watchers_for_tab) == "function" then
-      ui.clear_watchers_for_tab(existing.id)
-    end
-    ui_state.delete_tab(existing.id)
-  end
-end
-
----@param value any
----@return boolean
-local function is_valid_label_id(value)
-  return type(value) == "number" and value > 0 and value % 1 == 0
-end
-
----@return integer
-local function next_free_label_id()
-  local used = {}
-
-  for _, rec in pairs(terminals) do
-    local label_id = rec and rec.meta and rec.meta.label_id
-    if is_valid_label_id(label_id) then
-      used[label_id] = true
-    end
-  end
-
-  local next_id = 1
-  while used[next_id] do
-    next_id = next_id + 1
-  end
-
-  return next_id
-end
-
----@param ids integer[]
----@return integer[]
-local function copy_ids(ids)
-  local out = {}
-  for i, id in ipairs(ids) do
-    out[i] = id
-  end
-  return out
-end
-
----@param existing integer[]
----@param live_ids integer[]
----@return integer[]
-local function sync_order(existing, live_ids)
-  local live_lookup = {}
-  for _, id in ipairs(live_ids) do
-    live_lookup[id] = true
-  end
-
-  local ordered = {}
-  local seen = {}
-  for _, id in ipairs(existing) do
-    if live_lookup[id] and not seen[id] then
-      ordered[#ordered + 1] = id
-      seen[id] = true
-    end
-  end
-
-  for _, id in ipairs(live_ids) do
-    if not seen[id] then
-      ordered[#ordered + 1] = id
-    end
-  end
-
-  return ordered
+  return state.get_id_by_terminal(tab.terminal)
 end
 
 ---@param rec qck.TerminalRecord|nil
@@ -202,6 +106,10 @@ end
 
 ---@return integer|nil
 function state.get_current_id()
+  if current_id == nil then
+    current_id = resolve_ui_current_id()
+  end
+
   return current_id
 end
 
@@ -209,7 +117,12 @@ end
 ---@return nil
 function state.set_current_id(id)
   current_id = id
-  sync_ui_active_from_record(terminals[id])
+
+  local rec = terminals[id]
+  local tab_id = get_ui_tab_id(rec)
+  if tab_id then
+    ui_state.set_active_tab(tab_id)
+  end
 end
 
 ---@param id integer
@@ -223,72 +136,48 @@ end
 ---@return nil
 function state.set_terminal(id, rec)
   terminals[id] = rec
-  state.assign_label_id(id)
-  register_ui_terminal(rec)
-  state.sync_order()
 end
 
 ---@param id integer
 ---@return nil
 function state.remove_terminal(id)
-  unregister_ui_terminal(terminals[id])
   terminals[id] = nil
-  state.sync_order()
 end
 
 ---@param id integer
 ---@return integer|nil
 function state.assign_label_id(id)
-  local rec = terminals[id]
-  if type(rec) ~= "table" then
-    return nil
-  end
-
-  if type(rec.meta) ~= "table" then
-    rec.meta = {}
-  end
-
-  local label_id = rec.meta.label_id
-  if is_valid_label_id(label_id) then
-    return label_id
-  end
-
-  rec.meta.label_id = next_free_label_id()
-  return rec.meta.label_id
+  return state.get_label_id(id)
 end
 
 ---@param id integer
 ---@return integer|nil
 function state.get_label_id(id)
-  return state.assign_label_id(id)
+  local tab_id = state.get_tab_id(id)
+  local tab = tab_id and ui_state.get_tab(tab_id) or nil
+  return tab and tab.category_display_id or nil
 end
 
 ---@return nil
-function state.sync_order()
-  local ids = {}
-
-  for id in pairs(terminals) do
-    ids[#ids + 1] = id
-  end
-
-  table.sort(ids)
-  terminal_order = sync_order(terminal_order, ids)
-end
+function state.sync_order() end
 
 ---@return nil
 function state.prune_stale()
   for id, rec in pairs(terminals) do
     if not state.is_valid_record(rec) then
-      unregister_ui_terminal(rec)
+      local tab_id = get_ui_tab_id(rec)
+      if tab_id then
+        local ok_ui, ui = pcall(require, "qck.ui")
+        if ok_ui and type(ui.clear_watchers_for_tab) == "function" then
+          ui.clear_watchers_for_tab(tab_id)
+        end
+        ui_state.delete_tab(tab_id)
+        set_ui_tab_id(rec, nil)
+      end
       terminals[id] = nil
     end
   end
 
-  if current_id and not terminals[current_id] then
-    current_id = nil
-  end
-
-  state.sync_order()
 end
 
 ---@return integer[]
@@ -306,7 +195,33 @@ end
 ---@return integer[]
 function state.ordered_ids()
   state.prune_stale()
-  return copy_ids(terminal_order)
+
+  local ordered = {}
+  local seen = {}
+
+  ensure_ui_terminal_category()
+
+  for _, tab_id in ipairs(ui_state.category_tab_ids(UI_TERMINAL_CATEGORY_KEY)) do
+    local id = get_id_by_tab_id(tab_id)
+    if id and terminals[id] and not seen[id] then
+      ordered[#ordered + 1] = id
+      seen[id] = true
+    end
+  end
+
+  local remaining = {}
+  for id in pairs(terminals) do
+    if not seen[id] then
+      remaining[#remaining + 1] = id
+    end
+  end
+  table.sort(remaining)
+
+  for _, id in ipairs(remaining) do
+    ordered[#ordered + 1] = id
+  end
+
+  return ordered
 end
 
 ---@param id integer
@@ -326,32 +241,35 @@ function state.move_id(id, direction)
     return false
   end
 
-  local idx = nil
-  for i, candidate in ipairs(terminal_order) do
-    if candidate == id then
-      idx = i
-      break
-    end
-  end
-
-  if not idx then
+  local tab_id = state.get_tab_id(id)
+  if not tab_id then
     return false
   end
 
-  local swap_idx = idx + direction
-  if swap_idx < 1 or swap_idx > #terminal_order then
-    return false
-  end
+  return ui_state.move_tab(tab_id, direction)
+end
 
-  terminal_order[idx], terminal_order[swap_idx] = terminal_order[swap_idx], terminal_order[idx]
+---@return nil
+function state.ensure_ui_category()
+  ensure_ui_terminal_category()
+end
 
-  local rec = terminals[id]
-  local tab_id = get_ui_tab_id(rec)
-  if tab_id then
-    ui_state.move_tab(tab_id, direction)
-  end
+---@param id integer
+---@return qck.UiTabId|nil
+function state.get_tab_id(id)
+  return get_ui_tab_id(terminals[id])
+end
 
-  return true
+---@param id integer
+---@param tab_id qck.UiTabId|nil
+---@return nil
+function state.set_tab_id(id, tab_id)
+  set_ui_tab_id(terminals[id], tab_id)
+end
+
+---@return nil
+function state.sync_current_from_ui()
+  current_id = resolve_ui_current_id()
 end
 
 ---@param handle any
@@ -422,8 +340,7 @@ function state.update_current_after_removal(removed_id)
     return
   end
 
-  local ids = state.ordered_ids()
-  current_id = ids[1]
+  current_id = resolve_ui_current_id()
 end
 
 return state

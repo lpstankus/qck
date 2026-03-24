@@ -237,6 +237,19 @@ local function clear_owned_runtime(tab_id, handle)
   clear_tab_watchers(tab_id)
 end
 
+---@param terminal_id integer|nil
+---@param handle any
+---@return nil
+local function apply_terminal_mappings(terminal_id, handle)
+  if not terminal_id then
+    return
+  end
+
+  if type(terminal_service.apply_user_mappings_to_handle) == "function" then
+    terminal_service.apply_user_mappings_to_handle(handle)
+  end
+end
+
 ---@return qck.UiTabId|nil
 local function resolve_active_tab_id()
   local tab_id = state.resolve_active_tab()
@@ -259,7 +272,13 @@ local function prune_invalid_tab(tab_id)
     return false
   end
 
+  local terminal_id = terminal_state.get_id_by_terminal(tab.terminal)
+
   clear_owned_runtime(tab_id, tab.terminal)
+  if terminal_id then
+    terminal_state.remove_terminal(terminal_id)
+    terminal_state.update_current_after_removal(terminal_id)
+  end
   state.delete_tab(tab_id)
   return true
 end
@@ -286,14 +305,12 @@ end
 local function handle_invalidated_tab(tab_id, handle)
   local _, terminal_id = get_tab_and_terminal_id(tab_id)
 
-  if terminal_id then
-    clear_tab_watchers(tab_id)
-    terminal_service.handle_invalidation(terminal_id, handle)
-    return
-  end
-
   local was_active = resolve_active_tab_id() == tab_id
   clear_owned_runtime(tab_id, handle)
+  if terminal_id then
+    terminal_state.remove_terminal(terminal_id)
+    terminal_state.update_current_after_removal(terminal_id)
+  end
   state.delete_tab(tab_id)
 
   if not state.resolve_active_tab() then
@@ -474,25 +491,21 @@ local function refresh_current_layout()
     return
   end
 
-  if terminal_id then
-    terminal_state.set_current_id(terminal_id)
-    terminal_service.refresh_current_layout()
-  else
-    if not is_window_open(tab.terminal) then
-      runtime.clear_content_winid()
-      tabbar.hide()
-      return
-    end
-
-    local ok_layout = select(1, apply_content_layout(tab.terminal))
-    if not ok_layout then
-      runtime.clear_content_winid()
-      tabbar.hide()
-      return
-    end
-
-    tabbar.show_for_terminal(tab.terminal)
+  if not is_window_open(tab.terminal) then
+    runtime.clear_content_winid()
+    tabbar.hide()
+    return
   end
+
+  local ok_layout = select(1, apply_content_layout(tab.terminal))
+  if not ok_layout then
+    runtime.clear_content_winid()
+    tabbar.hide()
+    return
+  end
+
+  apply_terminal_mappings(terminal_id, tab.terminal)
+  tabbar.show_for_terminal(tab.terminal)
 
   ensure_visible_watchers(tab_id, tab.terminal)
 end
@@ -559,13 +572,11 @@ end
 ---@param keep_tab_id qck.UiTabId
 ---@return nil
 local function hide_other_visible_tabs(keep_tab_id)
-  terminal_service.hide_current_if_open()
-
   for _, tab_id in ipairs(state.traversal_ids()) do
     if tab_id ~= keep_tab_id then
       clear_visible_watchers(tab_id)
       local tab = state.get_tab(tab_id)
-      if tab and terminal_state.get_id_by_terminal(tab.terminal) == nil then
+      if tab then
         hide_handle(tab.terminal)
       end
     end
@@ -580,18 +591,12 @@ local function show_tab(tab_id)
     return false, "tab is not registered"
   end
 
-  if terminal_id then
-    terminal_state.set_current_id(terminal_id)
-    local rec = terminal_service.open(terminal_id)
-    if not rec then
-      return false, "failed to show active tab"
-    end
-    ensure_visible_watchers(tab_id, tab.terminal)
-    return true
-  end
-
   if not is_valid_handle(tab.terminal) then
     clear_owned_runtime(tab_id, tab.terminal)
+    if terminal_id then
+      terminal_state.remove_terminal(terminal_id)
+      terminal_state.update_current_after_removal(terminal_id)
+    end
     state.delete_tab(tab_id)
     return false, "tab handle is invalid"
   end
@@ -610,6 +615,10 @@ local function show_tab(tab_id)
   end
 
   state.set_active_tab(tab_id)
+  if terminal_id then
+    terminal_state.sync_current_from_ui()
+  end
+  apply_terminal_mappings(terminal_id, tab.terminal)
   tabbar.show_for_terminal(tab.terminal)
   ensure_visible_watchers(tab_id, tab.terminal)
   return true
@@ -623,8 +632,8 @@ end
 
 ---@param tab_id qck.UiTabId
 ---@return boolean, string?
-local function delete_ui_owned_tab(tab_id)
-  local tab = state.get_tab(tab_id)
+local function delete_tab_internal(tab_id)
+  local tab, terminal_id = get_tab_and_terminal_id(tab_id)
   if not tab then
     return false, "tab is not registered"
   end
@@ -635,9 +644,18 @@ local function delete_ui_owned_tab(tab_id)
   clear_owned_runtime(tab_id, tab.terminal)
   close_handle(tab.terminal)
 
+  if terminal_id then
+    terminal_state.remove_terminal(terminal_id)
+  end
+
   local ok, err = state.delete_tab(tab_id)
   if not ok then
     return false, err
+  end
+
+  if terminal_id then
+    terminal_state.update_current_after_removal(terminal_id)
+    terminal_state.sync_current_from_ui()
   end
 
   local next_active = state.resolve_active_tab()
@@ -656,22 +674,6 @@ local function delete_ui_owned_tab(tab_id)
   end
 
   return true
-end
-
----@param tab_id qck.UiTabId
----@return boolean, string?
-local function delete_tab_internal(tab_id)
-  local tab, terminal_id = get_tab_and_terminal_id(tab_id)
-  if not tab then
-    return false, "tab is not registered"
-  end
-
-  if terminal_id then
-    terminal_service.delete(terminal_id)
-    return true
-  end
-
-  return delete_ui_owned_tab(tab_id)
 end
 
 ---@param tab_id qck.UiTabId
@@ -838,19 +840,14 @@ function ui.hide()
     return
   end
 
-  local tab, terminal_id = get_tab_and_terminal_id(active_tab_id)
+  local tab = state.get_tab(active_tab_id)
   if not tab then
     return
   end
 
   clear_visible_watchers(active_tab_id)
 
-  if terminal_id then
-    terminal_state.set_current_id(terminal_id)
-    terminal_service.hide_current_if_open()
-  else
-    hide_handle(tab.terminal)
-  end
+  hide_handle(tab.terminal)
 
   runtime.clear_content_winid()
   tabbar.hide()
@@ -867,15 +864,6 @@ function ui.toggle()
 
   local tab, terminal_id = get_tab_and_terminal_id(tab_id)
   if not tab then
-    return
-  end
-
-  if terminal_id then
-    terminal_state.set_current_id(terminal_id)
-    terminal_service.toggle(terminal_id)
-    if not terminal_state.is_window_open(terminal_state.get_terminal(terminal_id)) then
-      clear_visible_watchers(tab_id)
-    end
     return
   end
 
@@ -900,13 +888,13 @@ function ui.set_active_tab(tab_id)
     return false, "tab is not registered"
   end
 
+  local ok, err = state.set_active_tab(tab_id)
+  if not ok then
+    return false, err
+  end
+
   if terminal_id then
-    terminal_state.set_current_id(terminal_id)
-  else
-    local ok, err = state.set_active_tab(tab_id)
-    if not ok then
-      return false, err
-    end
+    terminal_state.sync_current_from_ui()
   end
 
   if runtime.is_visible() then
@@ -933,18 +921,8 @@ function ui.move_tab(tab_id, direction)
     return false, "direction must be -1 or 1"
   end
 
-  local _, terminal_id = get_tab_and_terminal_id(tab_id)
   if not state.get_tab(tab_id) then
     return false, "tab is not registered"
-  end
-
-  if terminal_id then
-    if direction < 0 then
-      terminal_service.move_up(terminal_id)
-    else
-      terminal_service.move_down(terminal_id)
-    end
-    return true
   end
 
   return move_ui_owned_tab(tab_id, direction)

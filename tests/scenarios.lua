@@ -485,6 +485,8 @@ function scenarios.terminals_and_layout()
   local env = helpers.load_qck()
   local qck, state, terminal, tabbar, layout =
     env.qck, env.state, env.terminal, env.tabbar, env.layout
+  local ui_runtime = require("qck.ui.runtime")
+  local ui_state = require("qck.ui.state")
   local expected = helpers.expected_layout(layout)
 
   qck.open()
@@ -493,6 +495,9 @@ function scenarios.terminals_and_layout()
 
   local default_rec = state.get_terminal(1)
   helpers.assert_truthy(default_rec and default_rec.win and default_rec.win.win, "open() should create a terminal window when none exist")
+  helpers.assert_truthy(type(state.get_tab_id(1)) == "number", "open() should register the terminal through ui state")
+  helpers.assert_eq(ui_runtime.get_handle_owner(default_rec.win), state.get_tab_id(1), "ui runtime should own the terminal handle after handoff")
+  helpers.assert_eq(ui_state.resolve_active_tab(), state.get_tab_id(1), "ui state should track the active terminal tab after handoff")
   helpers.assert_window_layout(default_rec.win.win, tabbar.get_winid(), expected, "open() creation layout")
   assert_ids(state.ordered_ids(), { 1 }, "single terminal should seed ordered ids")
   helpers.assert_eq(state.get_label_id(1), 1, "first terminal should use T1 label")
