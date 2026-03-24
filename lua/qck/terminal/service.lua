@@ -2,27 +2,16 @@
 --
 -- UI now owns registered terminal-tab runtime behavior after a successful
 -- `attach_and_show(...)` handoff. This module is limited to Snacks terminal
--- creation/reopen/delete helpers, preserved-mode handling, and terminal-buffer
--- mapping helpers that UI calls at the appropriate lifecycle points.
+-- creation/reopen/delete helpers, preserved-mode handling, and terminal record
+-- bookkeeping that still backs the public surface.
 local state = require("qck.terminal.state")
-local keymaps = require("qck.shared.keymaps")
 local layout = require("qck.ui.layout")
-local runtime = require("qck.ui.runtime")
 local ui_state = require("qck.ui.state")
 local notify = require("qck.shared.notify").notify
 
 local terminal = {}
 
-local UI_TERMINAL_CATEGORY = {
-  key = "terminal",
-  label = "T",
-}
-
 local snacks = nil
-local user_mappings = {}
-local mapping_lhs = {}
-local previous_mapping_lhs = {}
-local terminal_mapping_modes = { "n", "t" }
 
 ---@return qck.ui|nil
 local function get_ui()
@@ -88,30 +77,6 @@ function terminal.set_snacks(snacks_impl)
   snacks = snacks_impl
 end
 
----@param rec qck.TerminalRecord|nil
----@return integer|nil
-local function terminal_bufnr(rec)
-  local rec_win = get_terminal_handle(rec)
-  if not rec_win then
-    return nil
-  end
-
-  if type(rec_win.buf) == "number" and vim.api.nvim_buf_is_valid(rec_win.buf) then
-    return rec_win.buf
-  end
-
-  if type(rec_win.buf) == "function" then
-    local ok, bufnr = pcall(function() return rec_win:buf() end)
-    if ok and type(bufnr) == "number" and vim.api.nvim_buf_is_valid(bufnr) then
-      return bufnr
-    end
-  end
-
-  return nil
-end
-
----@param rec qck.TerminalRecord|nil
----@return integer|nil
 local function terminal_winid(rec)
   local rec_win = get_terminal_handle(rec)
   if not rec_win then
@@ -170,101 +135,8 @@ local function restore_mode_intent(rec, mode_intent)
 end
 
 local function remove_terminal_record(id)
-  local tab_id = state.get_tab_id(id)
-  if tab_id then
-    runtime.unregister_handle(tab_id)
-    runtime.clear_owner_watchers(tab_id)
-  end
-
   state.remove_terminal(id)
   state.update_current_after_removal(id)
-end
-
----@param bufnr integer|nil
----@return nil
-local function apply_user_mappings_to_buf(bufnr)
-  if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
-    return
-  end
-
-  local lhs_to_clear = keymaps.collect_lhs_to_clear(previous_mapping_lhs, mapping_lhs)
-
-  for lhs in pairs(lhs_to_clear) do
-    for _, mode in ipairs(terminal_mapping_modes) do
-      pcall(vim.keymap.del, mode, lhs, { buffer = bufnr })
-    end
-  end
-
-  for lhs, mapping in pairs(user_mappings) do
-    local rhs = mapping
-    local modes = terminal_mapping_modes
-    if type(mapping) == "table" then
-      rhs = mapping.rhs
-      if type(mapping.terminal_modes) == "table" and #mapping.terminal_modes > 0 then
-        modes = mapping.terminal_modes
-      end
-    end
-
-    if type(rhs) == "function" or type(rhs) == "string" then
-      for _, mode in ipairs(modes) do
-        vim.keymap.set(mode, lhs, rhs, {
-          buffer = bufnr,
-          noremap = true,
-          silent = true,
-        })
-      end
-    end
-  end
-end
-
----@param bufnr integer|nil
----@return nil
-local function clear_user_mappings_from_buf(bufnr)
-  if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
-    return
-  end
-
-  local lhs_to_clear = keymaps.collect_lhs_to_clear(previous_mapping_lhs, mapping_lhs)
-
-  for lhs in pairs(lhs_to_clear) do
-    for _, mode in ipairs(terminal_mapping_modes) do
-      pcall(vim.keymap.del, mode, lhs, { buffer = bufnr })
-    end
-  end
-end
-
----@param handle any
----@return nil
-function terminal.apply_user_mappings_to_handle(handle)
-  if type(handle) ~= "table" then
-    return
-  end
-
-  apply_user_mappings_to_buf(terminal_bufnr({ win = handle }))
-end
-
----@param handle any
----@return nil
-function terminal.clear_user_mappings_from_handle(handle)
-  if type(handle) ~= "table" then
-    return
-  end
-
-  clear_user_mappings_from_buf(terminal_bufnr({ win = handle }))
-end
-
----@param raw_mappings table|nil
----@return nil
-function terminal.set_user_mappings(raw_mappings)
-  previous_mapping_lhs, user_mappings, mapping_lhs = keymaps.update_state(mapping_lhs, raw_mappings)
-end
-
----@return nil
-function terminal.apply_user_mappings()
-  for _, id in ipairs(state.live_ids()) do
-    local rec = state.get_terminal(id)
-    apply_user_mappings_to_buf(terminal_bufnr(rec))
-  end
 end
 
 ---@return boolean
@@ -324,6 +196,9 @@ function terminal.create(id, preserve_mode)
       notify("qck ui is unavailable", vim.log.levels.ERROR)
       return nil
     end
+    if type(ui.setup) == "function" then
+      ui.setup()
+    end
 
     local rec = {
       win = nil,
@@ -348,7 +223,6 @@ function terminal.create(id, preserve_mode)
     end
 
     rec.win = term_or_err
-    ui.register_category(UI_TERMINAL_CATEGORY)
     state.set_terminal(id, rec)
 
     local rec_win = get_terminal_handle(rec)
@@ -413,7 +287,7 @@ function terminal.open(id, preserve_mode)
       return nil
     end
 
-    if not runtime.is_visible() and type(ui.show) == "function" then
+    if type(ui.is_visible) == "function" and not ui.is_visible() and type(ui.show) == "function" then
       ui.show()
     end
 

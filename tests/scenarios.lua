@@ -553,8 +553,8 @@ function scenarios.ui_init_orchestration_contract()
   ui.setup()
   helpers.assert_truthy(ui.register_category({ key = "terminal", label = "T" }), "late rollback coverage should register category")
 
-  local terminal_service = require("qck.terminal.service")
-  terminal_service.set_user_mappings({ gx = ":quit<CR>" })
+  ui.set_terminal_user_mappings({ gx = ":quit<CR>" })
+  ui.apply_terminal_user_mappings()
 
   local stable_handle = snacks.terminal.open(nil, { count = 4 })
   local stable_tab_id = select(1, ui.attach_and_show("terminal", stable_handle))

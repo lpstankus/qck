@@ -1,4 +1,5 @@
 local terminal = require("qck.terminal.service")
+local ui = require("qck.ui")
 local tabbar = require("qck.ui.tabbar")
 local storage = require("qck.tasks.storage")
 local notify = require("qck.shared.notify").notify
@@ -12,7 +13,7 @@ setup.config = {
 local ok, Snacks = pcall(require, "snacks")
 if not ok then error("QCK: snacks.nvim is required") end
 terminal.set_snacks(Snacks)
-terminal.set_user_mappings({})
+ui.set_terminal_user_mappings({})
 tabbar.set_user_mappings({})
 
 local DEFAULT_MAPPING_MODES = { "n", "t" }
@@ -112,9 +113,9 @@ end
 ---@return nil
 local function apply_mappings(mappings)
   setup.config.mappings = parse_mappings(mappings)
-  terminal.set_user_mappings(setup.config.mappings)
+  ui.set_terminal_user_mappings(setup.config.mappings)
   tabbar.set_user_mappings(setup.config.mappings)
-  terminal.apply_user_mappings()
+  ui.apply_terminal_user_mappings()
   tabbar.apply_user_mappings()
 end
 

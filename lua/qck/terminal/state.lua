@@ -10,11 +10,15 @@ local terminals = {}
 local current_id = nil
 
 local UI_TERMINAL_CATEGORY_KEY = "terminal"
-local UI_TERMINAL_CATEGORY_LABEL = "T"
 
----@return nil
-local function ensure_ui_terminal_category()
-  ui_state.register_category({ key = UI_TERMINAL_CATEGORY_KEY, label = UI_TERMINAL_CATEGORY_LABEL })
+---@return qck.ui|nil
+local function get_ui()
+  local ok, ui = pcall(require, "qck.ui")
+  if ok then
+    return ui
+  end
+
+  return nil
 end
 
 ---@return integer|nil
@@ -153,19 +157,16 @@ end
 
 ---@return nil
 function state.prune_stale()
+  local ui = get_ui()
+  if ui and type(ui.prune_invalid_tabs) == "function" then
+    ui.prune_invalid_tabs()
+  end
+
   local removed = false
 
   for id, rec in pairs(terminals) do
     if not state.is_valid_record(rec) then
-      local tab_id = get_ui_tab_id(rec)
-      if tab_id then
-        local ok_ui, ui = pcall(require, "qck.ui")
-        if ok_ui and type(ui.clear_watchers_for_tab) == "function" then
-          ui.clear_watchers_for_tab(tab_id)
-        end
-        ui_state.delete_tab(tab_id)
-        set_ui_tab_id(rec, nil)
-      end
+      set_ui_tab_id(rec, nil)
       terminals[id] = nil
       removed = true
     end
@@ -194,8 +195,6 @@ function state.ordered_ids()
 
   local ordered = {}
   local seen = {}
-
-  ensure_ui_terminal_category()
 
   for _, tab_id in ipairs(ui_state.category_tab_ids(UI_TERMINAL_CATEGORY_KEY)) do
     local id = get_id_by_tab_id(tab_id)

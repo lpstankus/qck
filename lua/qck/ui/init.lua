@@ -3,6 +3,7 @@ local runtime = require("qck.ui.runtime")
 local state = require("qck.ui.state")
 local tabbar = require("qck.ui.tabbar")
 local autocmd = require("qck.shared.autocmd")
+local keymaps = require("qck.shared.keymaps")
 local notify = require("qck.shared.notify").notify
 local terminal_service = require("qck.terminal.service")
 local terminal_state = require("qck.terminal.state")
@@ -14,6 +15,14 @@ local focus_leave_suppressed = 0
 local resize_refresh_pending = false
 local initialized = false
 local show_tab
+local user_terminal_mappings = {}
+local terminal_mapping_lhs = {}
+local previous_terminal_mapping_lhs = {}
+local terminal_mapping_modes = { "n", "t" }
+local UI_TERMINAL_CATEGORY = {
+  key = "terminal",
+  label = "T",
+}
 
 ---@param callback fun(): any
 ---@return any
@@ -238,24 +247,63 @@ local function clear_owned_runtime(tab_id, handle)
   clear_tab_watchers(tab_id)
 end
 
----@param terminal_id integer|nil
----@param handle any
+---@param bufnr integer|nil
 ---@return nil
-local function apply_terminal_mappings(terminal_id, handle)
-  if not terminal_id then
+local function apply_user_mappings_to_terminal_buf(bufnr)
+  if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
     return
   end
 
-  if type(terminal_service.apply_user_mappings_to_handle) == "function" then
-    terminal_service.apply_user_mappings_to_handle(handle)
+  local lhs_to_clear = keymaps.collect_lhs_to_clear(previous_terminal_mapping_lhs, terminal_mapping_lhs)
+
+  for lhs in pairs(lhs_to_clear) do
+    for _, mode in ipairs(terminal_mapping_modes) do
+      pcall(vim.keymap.del, mode, lhs, { buffer = bufnr })
+    end
+  end
+
+  for lhs, mapping in pairs(user_terminal_mappings) do
+    local rhs = mapping
+    local modes = terminal_mapping_modes
+    if type(mapping) == "table" then
+      rhs = mapping.rhs
+      if type(mapping.terminal_modes) == "table" and #mapping.terminal_modes > 0 then
+        modes = mapping.terminal_modes
+      end
+    end
+
+    if type(rhs) == "function" or type(rhs) == "string" then
+      for _, mode in ipairs(modes) do
+        vim.keymap.set(mode, lhs, rhs, {
+          buffer = bufnr,
+          noremap = true,
+          silent = true,
+        })
+      end
+    end
   end
 end
 
 ---@param handle any
 ---@return nil
+local function apply_terminal_mappings(handle)
+  apply_user_mappings_to_terminal_buf(get_buffer_id(handle))
+end
+
+---@param handle any
+---@return nil
 local function clear_terminal_mappings(handle)
-  if type(terminal_service.clear_user_mappings_from_handle) == "function" then
-    terminal_service.clear_user_mappings_from_handle(handle)
+  local bufnr = get_buffer_id(handle)
+  if not bufnr then
+    return
+  end
+
+  local lhs_to_clear = keymaps.collect_lhs_to_clear(previous_terminal_mapping_lhs, terminal_mapping_lhs)
+
+  for lhs in pairs(lhs_to_clear) do
+    for _, mode in ipairs(terminal_mapping_modes) do
+      pcall(vim.keymap.del, mode, lhs, { buffer = bufnr })
+    end
   end
 end
 
@@ -552,7 +600,7 @@ local function refresh_current_layout()
     return
   end
 
-  local tab, terminal_id = get_tab_and_terminal_id(tab_id)
+  local tab = state.get_tab(tab_id)
   if not tab then
     return
   end
@@ -570,7 +618,7 @@ local function refresh_current_layout()
     return
   end
 
-  apply_terminal_mappings(terminal_id, tab.terminal)
+  apply_terminal_mappings(tab.terminal)
   tabbar.show_for_terminal(tab.terminal)
 
   ensure_visible_watchers(tab_id, tab.terminal)
@@ -682,7 +730,7 @@ show_tab = function(tab_id)
 
   state.set_active_tab(tab_id)
   terminal_state.sync_current_from_ui()
-  apply_terminal_mappings(terminal_id, tab.terminal)
+  apply_terminal_mappings(tab.terminal)
   tabbar.show_for_terminal(tab.terminal)
   ensure_visible_watchers(tab_id, tab.terminal)
   return true
@@ -761,6 +809,8 @@ end
 
 ---@return nil
 function ui.setup()
+  state.register_category(UI_TERMINAL_CATEGORY)
+
   if initialized then
     return
   end
@@ -836,6 +886,25 @@ end
 ---@return nil
 function ui.clear_watchers_for_tab(tab_id)
   clear_tab_watchers(tab_id)
+end
+
+---@param raw_mappings table|nil
+---@return nil
+function ui.set_terminal_user_mappings(raw_mappings)
+  previous_terminal_mapping_lhs, user_terminal_mappings, terminal_mapping_lhs = keymaps.update_state(
+    terminal_mapping_lhs,
+    raw_mappings
+  )
+end
+
+---@return nil
+function ui.apply_terminal_user_mappings()
+  for _, tab_id in ipairs(state.traversal_ids()) do
+    local tab = state.get_tab(tab_id)
+    if tab then
+      apply_terminal_mappings(tab.terminal)
+    end
+  end
 end
 
 ---@param callback fun(): any
@@ -1052,6 +1121,11 @@ end
 ---@return nil
 function ui.refresh_current_layout()
   refresh_current_layout()
+end
+
+---@return nil
+function ui.prune_invalid_tabs()
+  prune_invalid_tabs()
 end
 
 return ui
