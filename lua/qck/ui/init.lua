@@ -252,9 +252,7 @@ end
 
 ---@return qck.UiTabId|nil
 local function resolve_active_tab_id()
-  local current_terminal_id = terminal_state.get_current_id()
-  local current_terminal_tab_id = current_terminal_id and terminal_state.get_tab_id(current_terminal_id) or nil
-  local tab_id = current_terminal_tab_id or state.resolve_active_tab()
+  local tab_id = state.resolve_active_tab()
   if not tab_id then
     runtime.clear_content_winid()
     tabbar.hide()
@@ -279,9 +277,9 @@ local function prune_invalid_tab(tab_id)
   clear_owned_runtime(tab_id, tab.terminal)
   if terminal_id then
     terminal_state.remove_terminal(terminal_id)
-    terminal_state.update_current_after_removal(terminal_id)
   end
   state.delete_tab(tab_id)
+  terminal_state.sync_current_from_ui()
   return true
 end
 
@@ -311,9 +309,9 @@ local function handle_invalidated_tab(tab_id, handle)
   clear_owned_runtime(tab_id, handle)
   if terminal_id then
     terminal_state.remove_terminal(terminal_id)
-    terminal_state.update_current_after_removal(terminal_id)
   end
   state.delete_tab(tab_id)
+  terminal_state.sync_current_from_ui()
 
   if not state.resolve_active_tab() then
     runtime.clear_content_winid()
@@ -597,9 +595,9 @@ local function show_tab(tab_id)
     clear_owned_runtime(tab_id, tab.terminal)
     if terminal_id then
       terminal_state.remove_terminal(terminal_id)
-      terminal_state.update_current_after_removal(terminal_id)
     end
     state.delete_tab(tab_id)
+    terminal_state.sync_current_from_ui()
     return false, "tab handle is invalid"
   end
 
@@ -617,9 +615,7 @@ local function show_tab(tab_id)
   end
 
   state.set_active_tab(tab_id)
-  if terminal_id then
-    terminal_state.sync_current_from_ui()
-  end
+  terminal_state.sync_current_from_ui()
   apply_terminal_mappings(terminal_id, tab.terminal)
   tabbar.show_for_terminal(tab.terminal)
   ensure_visible_watchers(tab_id, tab.terminal)
@@ -655,10 +651,7 @@ local function delete_tab_internal(tab_id)
     return false, err
   end
 
-  if terminal_id then
-    terminal_state.update_current_after_removal(terminal_id)
-    terminal_state.sync_current_from_ui()
-  end
+  terminal_state.sync_current_from_ui()
 
   local next_active = state.resolve_active_tab()
   if not next_active then
@@ -768,9 +761,6 @@ function ui.close_active()
   if not ok then
     return false, err
   end
-
-  local ordered_ids = terminal_state.ordered_ids()
-  terminal_state.set_current_id(ordered_ids[1])
   return true
 end
 

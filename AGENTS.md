@@ -10,7 +10,7 @@ This repository is a Neovim plugin written in Lua.
 - `lua/qck/shared/notify.lua`: shared `QCK:` notification helper.
 - `lua/qck/shared/types.lua`: shared EmmyLua type aliases/classes.
 - `lua/qck/terminal/service.lua`: terminal creation/reopen/delete primitives over `snacks.terminal`; UI owns runtime visibility/focus/watcher behavior after handoff.
-- `lua/qck/terminal/state.lua`: terminal id -> handle registry plus current-id/cycling helpers, with ordering/labels derived from `ui/state.lua`.
+- `lua/qck/terminal/state.lua`: compatibility terminal id -> handle registry plus mirrored current-id/cycling helpers that follow `ui/state.lua` active/traversal decisions.
 - `lua/qck/ui/runtime.lua`: dark UI runtime scaffolding for visible content/tabbar winids, owned-handle registration, focus target, and watcher bookkeeping.
 - `lua/qck/ui/layout.lua`: dark UI-owned shared float geometry scaffolding for content/tabbar layout math, with terminal callers still delegating through the legacy shim.
 - `lua/qck/ui/state.lua`: pure internal UI state scaffolding for category registration, tab metadata, active-tab fallback, display-id reuse, and traversal ordering.
@@ -202,7 +202,8 @@ Additional tests should be placed under `tests/` and documented in this section.
 - `lua/qck/ui/init.lua` now makes the internal handoff contract executable for this chunk: it can register categories, attach caller-created handles, manage active-tab visibility for UI-owned tabs, expose thin public-behavior wrappers (`create/open/toggle/close/cycle`) for `qck.init`, roll back failed `attach_and_show()` attempts, and route focus switching through UI-owned content/tabbar winids.
 - `ui/init.lua` now owns watcher installation and cleanup for both global focus/resize behavior and per-tab buffer/window lifecycle tracking; focus/resize behavior no longer depends on app-level bridges.
 - UI-owned watcher helpers explicitly separate long-lived global watcher state from per-tab watcher state, and terminal-backed window swaps temporarily suppress focus-leave auto-hide so internal hide/show churn does not collapse the UI.
-- `terminal/state.lua` now keeps only the terminal id registry plus a current-id hint; canonical terminal tab ordering, active-tab selection, and `T#` display ids are derived from `ui/state.lua`.
+- `terminal/state.lua` now keeps only compatibility terminal-id bookkeeping plus a mirrored current-id hint; canonical terminal tab ordering, active-tab selection, fallback resolution, and `T#` display ids are derived from `ui/state.lua`.
+- `ui/init.lua` resolves active-tab-only behavior strictly through `ui/state.lua`; terminal current-id bookkeeping mirrors UI selection and no longer overrides it during show/hide/toggle/open/delete flows.
 - `ui/tabbar.lua` owns the tabbar row-generation/rendering path.
 - `ui/init.lua` now drives terminal-backed show/hide/toggle/delete/layout behavior directly from UI-owned tab state; terminal-specific code stays limited to handle creation, validity, close, and buffer mapping helpers.
 - Terminal buffer mappings are still defined in `terminal/service.lua`, but UI now decides when they are applied to terminal-backed content during attach/show/layout refresh paths.

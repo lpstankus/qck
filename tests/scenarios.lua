@@ -537,6 +537,15 @@ function scenarios.terminals_and_layout()
   helpers.assert_truthy(state.is_window_open(default_rec), "cycle_prev() should open terminal 1")
   helpers.assert_truthy(not state.is_window_open(second_rec), "cycle_prev() should hide the previously visible terminal")
 
+  state.set_current_id(second_id)
+  qck.open()
+  helpers.assert_eq(
+    state.get_current_id(),
+    1,
+    "open() should follow ui-owned active selection instead of a stale terminal current-id hint"
+  )
+  helpers.assert_eq(ui_state.resolve_active_tab(), state.get_tab_id(1), "ui state should remain the active selection source")
+
   qck.toggle()
   helpers.assert_truthy(not state.is_window_open(default_rec), "toggle() should hide the current terminal window")
   helpers.assert_eq(tabbar.get_winid(), nil, "toggle() should hide the tabbar with the terminal")
@@ -598,7 +607,7 @@ function scenarios.terminals_and_layout()
 
   qck.close()
   helpers.assert_eq(state.get_terminal(3), nil, "close() should remove the active terminal")
-  helpers.assert_eq(state.get_current_id(), 1, "close() should keep selection on the remaining active fallback")
+  helpers.assert_eq(state.get_current_id(), 2, "close() should keep selection on the ui traversal fallback")
   helpers.assert_truthy(not state.is_window_open(state.get_terminal(1)), "close() should only target the active terminal window")
   helpers.assert_eq(tabbar.get_winid(), nil, "close() should hide the tabbar when the active terminal closes")
 
@@ -739,6 +748,7 @@ end
 function scenarios.terminal_invalidation_and_active_fallbacks()
   local env = helpers.load_qck()
   local qck, state, tabbar = env.qck, env.state, env.tabbar
+  local ui_state = require("qck.ui.state")
 
   qck.open()
   local first_id = state.get_current_id()
@@ -753,14 +763,14 @@ function scenarios.terminal_invalidation_and_active_fallbacks()
   helpers.assert_truthy(not state.is_window_open(first_rec), "creating another terminal should hide the first terminal before fallback coverage")
   helpers.assert_truthy(state.is_window_open(second_rec), "second terminal should be visible before fallback coverage")
 
-  state.set_current_id(999)
+  ui_state.set_active_tab_id(999)
   qck.open()
   helpers.assert_eq(state.get_current_id(), first_id, "open() should adopt the first live terminal when the active id is stale")
   helpers.assert_truthy(state.is_window_open(first_rec), "open() should reopen the adopted live terminal")
   helpers.assert_truthy(not state.is_window_open(second_rec), "open() should hide the previously visible terminal after stale-active fallback")
   helpers.assert_eq(state.get_terminal(999), nil, "open() should not create a replacement terminal for a stale active id")
 
-  state.set_current_id(999)
+  ui_state.set_active_tab_id(999)
   qck.toggle()
   helpers.assert_eq(state.get_current_id(), first_id, "toggle() should adopt the first live terminal when the active id is stale")
   helpers.assert_truthy(not state.is_window_open(first_rec), "toggle() should hide the adopted live terminal")

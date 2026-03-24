@@ -73,16 +73,6 @@ local function get_id_by_tab_id(tab_id)
   return state.get_id_by_terminal(tab.terminal)
 end
 
----@param id integer|nil
----@return nil
-local function sync_ui_active_from_id(id)
-  local rec = type(id) == "number" and terminals[id] or nil
-  local tab_id = get_ui_tab_id(rec)
-  if tab_id then
-    ui_state.set_active_tab(tab_id)
-  end
-end
-
 ---@param rec qck.TerminalRecord|nil
 ---@return boolean
 function state.is_valid_record(rec)
@@ -115,27 +105,23 @@ end
 
 ---@return integer|nil
 function state.get_current_id()
-  if current_id == nil then
-    current_id = resolve_ui_current_id()
-  end
+  state.prune_stale()
 
-  if current_id ~= nil and terminals[current_id] then
-    sync_ui_active_from_id(current_id)
+  local resolved_id = resolve_ui_current_id()
+  if resolved_id ~= nil and terminals[resolved_id] then
+    current_id = resolved_id
     return current_id
   end
 
   local ids = state.ordered_ids()
   current_id = ids[1]
-  sync_ui_active_from_id(current_id)
-
   return current_id
 end
 
 ---@param id integer|nil
 ---@return nil
 function state.set_current_id(id)
-  current_id = id
-  sync_ui_active_from_id(id)
+  current_id = type(id) == "number" and id or nil
 end
 
 ---@param id integer
@@ -167,6 +153,8 @@ end
 
 ---@return nil
 function state.prune_stale()
+  local removed = false
+
   for id, rec in pairs(terminals) do
     if not state.is_valid_record(rec) then
       local tab_id = get_ui_tab_id(rec)
@@ -179,9 +167,13 @@ function state.prune_stale()
         set_ui_tab_id(rec, nil)
       end
       terminals[id] = nil
+      removed = true
     end
   end
 
+  if removed then
+    state.sync_current_from_ui()
+  end
 end
 
 ---@return integer[]
@@ -306,13 +298,16 @@ function state.get_cycle_id(direction)
     return nil
   end
 
-  if not current_id or not terminals[current_id] then
+  local active_id = resolve_ui_current_id()
+  current_id = active_id
+
+  if not active_id or not terminals[active_id] then
     return direction == 1 and ids[1] or ids[#ids]
   end
 
   local idx = nil
   for i, id in ipairs(ids) do
-    if id == current_id then
+    if id == active_id then
       idx = i
       break
     end
@@ -335,10 +330,6 @@ end
 ---@param removed_id integer
 ---@return nil
 function state.update_current_after_removal(removed_id)
-  if current_id ~= removed_id then
-    return
-  end
-
   current_id = resolve_ui_current_id()
 end
 
