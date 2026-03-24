@@ -115,8 +115,9 @@ end
 
 ---@param category_key string
 ---@param label string
+---@param existing_category qck.UiCategoryRecord|nil
 ---@return boolean, string?
-local function validate_category_spec(category_key, label)
+local function validate_category_spec(category_key, label, existing_category)
   if category_key == "" then
     return false, "category key must be a non-empty string"
   end
@@ -129,6 +130,10 @@ local function validate_category_spec(category_key, label)
     if existing_key ~= category_key and category.label == label then
       return false, "category label already registered"
     end
+  end
+
+  if existing_category and #existing_category.tab_ids > 0 and existing_category.label ~= label then
+    return false, "category metadata does not match existing registration"
   end
 
   return true
@@ -153,15 +158,15 @@ function state.register_category(spec)
 
   local key = type(spec.key) == "string" and spec.key or ""
   local label = type(spec.label) == "string" and spec.label or ""
-  local ok, err = validate_category_spec(key, label)
+  local existing = categories[key]
+  local ok, err = validate_category_spec(key, label, existing)
   if not ok then
     return false, err
   end
 
-  local existing = categories[key]
   if existing then
     if existing.label ~= label then
-      return false, "category metadata does not match existing registration"
+      existing.label = label
     end
     return true
   end

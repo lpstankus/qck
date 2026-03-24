@@ -217,6 +217,22 @@ local function apply_user_mappings_to_buf(bufnr)
   end
 end
 
+---@param bufnr integer|nil
+---@return nil
+local function clear_user_mappings_from_buf(bufnr)
+  if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+
+  local lhs_to_clear = keymaps.collect_lhs_to_clear(previous_mapping_lhs, mapping_lhs)
+
+  for lhs in pairs(lhs_to_clear) do
+    for _, mode in ipairs(terminal_mapping_modes) do
+      pcall(vim.keymap.del, mode, lhs, { buffer = bufnr })
+    end
+  end
+end
+
 ---@param handle any
 ---@return nil
 function terminal.apply_user_mappings_to_handle(handle)
@@ -225,6 +241,16 @@ function terminal.apply_user_mappings_to_handle(handle)
   end
 
   apply_user_mappings_to_buf(terminal_bufnr({ win = handle }))
+end
+
+---@param handle any
+---@return nil
+function terminal.clear_user_mappings_from_handle(handle)
+  if type(handle) ~= "table" then
+    return
+  end
+
+  clear_user_mappings_from_buf(terminal_bufnr({ win = handle }))
 end
 
 ---@param raw_mappings table|nil

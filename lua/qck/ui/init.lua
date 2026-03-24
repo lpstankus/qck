@@ -13,6 +13,7 @@ local focus_cleanup_in_progress = false
 local focus_leave_suppressed = 0
 local resize_refresh_pending = false
 local initialized = false
+local show_tab
 
 ---@param callback fun(): any
 ---@return any
@@ -248,6 +249,71 @@ local function apply_terminal_mappings(terminal_id, handle)
   if type(terminal_service.apply_user_mappings_to_handle) == "function" then
     terminal_service.apply_user_mappings_to_handle(handle)
   end
+end
+
+---@param handle any
+---@return nil
+local function clear_terminal_mappings(handle)
+  if type(terminal_service.clear_user_mappings_from_handle) == "function" then
+    terminal_service.clear_user_mappings_from_handle(handle)
+  end
+end
+
+---@param tab_id qck.UiTabId|nil
+---@return nil
+local function restore_active_selection(tab_id)
+  if tab_id then
+    state.set_active_tab(tab_id)
+  else
+    state.set_active_tab_id(nil)
+  end
+
+  terminal_state.sync_current_from_ui()
+end
+
+---@param tab_id qck.UiTabId
+---@param handle any
+---@param previous_active qck.UiTabId|nil
+---@param previous_visible boolean
+---@param handle_was_visible boolean
+---@param handle_win_config table|nil
+---@return string|nil
+local function rollback_failed_attach(tab_id, handle, previous_active, previous_visible, handle_was_visible, handle_win_config)
+  clear_owned_runtime(tab_id, handle)
+  clear_terminal_mappings(handle)
+  runtime.clear_content_winid()
+  tabbar.hide()
+
+  if handle_was_visible then
+    local winid = get_window_id(handle)
+    if winid and type(handle_win_config) == "table" then
+      pcall(vim.api.nvim_win_set_config, winid, vim.deepcopy(handle_win_config))
+    end
+  else
+    hide_handle(handle)
+  end
+
+  pcall(state.delete_tab, tab_id)
+  restore_active_selection(previous_active)
+
+  if not (previous_visible and previous_active) then
+    return nil
+  end
+
+  local ok_restore, restore_err = pcall(function()
+    local ok_show, err = show_tab(previous_active)
+    if not ok_show then
+      error(err)
+    end
+  end)
+
+  if ok_restore then
+    return nil
+  end
+
+  runtime.clear_content_winid()
+  tabbar.hide()
+  return tostring(restore_err)
 end
 
 ---@return qck.UiTabId|nil
@@ -585,7 +651,7 @@ end
 
 ---@param tab_id qck.UiTabId
 ---@return boolean, string?
-local function show_tab(tab_id)
+show_tab = function(tab_id)
   local tab, terminal_id = get_tab_and_terminal_id(tab_id)
   if not tab then
     return false, "tab is not registered"
@@ -790,6 +856,14 @@ function ui.attach_and_show(category_key, handle)
 
   local previous_active = state.resolve_active_tab()
   local previous_visible = runtime.is_visible()
+  local handle_was_visible = is_window_open(handle)
+  local handle_win_config = nil
+  if handle_was_visible then
+    local handle_winid = get_window_id(handle)
+    if handle_winid then
+      handle_win_config = vim.api.nvim_win_get_config(handle_winid)
+    end
+  end
 
   local tab_id, err = state.register_tab(category_key, handle)
   if not tab_id then
@@ -823,20 +897,16 @@ function ui.attach_and_show(category_key, handle)
     return tab_id, nil
   end
 
-  clear_owned_runtime(tab_id, handle)
-  state.delete_tab(tab_id)
-
-  if previous_active then
-    state.set_active_tab(previous_active)
-  else
-    state.set_active_tab_id(nil)
-  end
-
-  if previous_visible and previous_active then
-    show_tab(previous_active)
-  else
-    runtime.clear_content_winid()
-    tabbar.hide()
+  local rollback_err = rollback_failed_attach(
+    tab_id,
+    handle,
+    previous_active,
+    previous_visible,
+    handle_was_visible,
+    handle_win_config
+  )
+  if rollback_err then
+    return nil, ("%s (rollback failed: %s)"):format(tostring(show_err), rollback_err)
   end
 
   return nil, show_err

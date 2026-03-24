@@ -205,6 +205,8 @@ Additional tests should be placed under `tests/` and documented in this section.
 - `terminal/state.lua` now keeps only compatibility terminal-id bookkeeping plus a mirrored current-id hint; canonical terminal tab ordering, active-tab selection, fallback resolution, and `T#` display ids are derived from `ui/state.lua`.
 - `ui/init.lua` resolves active-tab-only behavior strictly through `ui/state.lua`; terminal current-id bookkeeping mirrors UI selection and no longer overrides it during show/hide/toggle/open/delete flows.
 - deleting the active tab now always follows `ui.state` traversal fallback rules: visible deletes immediately show the adopted next live tab when one exists, while hidden deletes keep the UI hidden and only update active selection.
+- category re-registration stays mutable until that specific category gets its first attached tab; after first use, only metadata-identical re-registration is allowed.
+- `attach_and_show(...)` rollback now explicitly clears failed-tab watchers, handle ownership, user terminal mappings, and any partial visibility before restoring the prior active/visible UI state.
 - `ui/tabbar.lua` owns the tabbar row-generation/rendering path.
 - `ui/init.lua` now drives terminal-backed show/hide/toggle/delete/layout behavior directly from UI-owned tab state; terminal-specific code stays limited to handle creation, validity, close, and buffer mapping helpers.
 - Terminal buffer mappings are still defined in `terminal/service.lua`, but UI now decides when they are applied to terminal-backed content during attach/show/layout refresh paths.

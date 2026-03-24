@@ -28,6 +28,32 @@ local function feed(keys)
   vim.wait(20, function() return false end)
 end
 
+---@param bufnr integer
+---@param mode string
+---@param lhs string
+---@return boolean
+local function buf_has_mapping(bufnr, mode, lhs)
+  for _, mapping in ipairs(vim.api.nvim_buf_get_keymap(bufnr, mode)) do
+    if mapping.lhs == lhs then
+      return true
+    end
+  end
+
+  return false
+end
+
+---@param matcher fun(item: table): boolean
+---@return boolean
+local function any_qck_autocmd(matcher)
+  for _, item in ipairs(vim.api.nvim_get_autocmds({ group = "qck" })) do
+    if matcher(item) then
+      return true
+    end
+  end
+
+  return false
+end
+
 function scenarios.task_form_create_and_overwrite()
   local env = helpers.load_qck()
   local qck, storage, task_form, workspace =
@@ -144,8 +170,9 @@ function scenarios.ui_state_registration_and_traversal()
   )
 
   local ok_conflict = state.register_category({ key = "terminal", label = "X" })
-  helpers.assert_eq(ok_conflict, false, "ui state should reject conflicting re-registration")
-  local ok_duplicate_label = state.register_category({ key = "notes", label = "T" })
+  helpers.assert_truthy(ok_conflict, "ui state should allow conflicting re-registration before category use")
+  helpers.assert_eq(state.get_category("terminal").label, "X", "ui state should update unused category metadata on re-registration")
+  local ok_duplicate_label = state.register_category({ key = "notes", label = "K" })
   helpers.assert_eq(ok_duplicate_label, false, "ui state should reject duplicate category labels")
 
   local terminal_a = {}
@@ -166,13 +193,22 @@ function scenarios.ui_state_registration_and_traversal()
   local first_task = state.get_tab(first_task_id)
 
   helpers.assert_eq(first_terminal.category_key, "terminal", "registered terminal should keep category key metadata")
-  helpers.assert_eq(first_terminal.category_label, "T", "registered terminal should derive category label metadata")
+  helpers.assert_eq(first_terminal.category_label, "X", "registered terminal should derive the latest unused category label metadata")
   helpers.assert_eq(first_terminal.category_display_id, 1, "first terminal should use the first category display id")
   helpers.assert_eq(second_terminal.category_display_id, 2, "second terminal should increment the category display id")
   helpers.assert_eq(first_task.category_display_id, 1, "display ids should be scoped per category")
   helpers.assert_truthy(
     state.get_tab_by_terminal(terminal_a).id == first_terminal_id,
     "ui state should index tabs by their registered terminal handle"
+  )
+  helpers.assert_truthy(
+    state.register_category({ key = "terminal", label = "X" }),
+    "ui state should allow idempotent re-registration after category use"
+  )
+  helpers.assert_eq(
+    select(1, state.register_category({ key = "terminal", label = "Y" })),
+    false,
+    "ui state should reject conflicting re-registration once the category is in use"
   )
   helpers.assert_eq(select(1, state.register_tab("terminal", terminal_a)), nil, "ui state should reject duplicate terminal registration")
 
@@ -510,6 +546,57 @@ function scenarios.ui_init_orchestration_contract()
   helpers.assert_eq(ui_runtime.get_content_winid(), nil, "failed attach_and_show() should leave no content window tracked")
   helpers.assert_eq(ui_tabbar.get_winid(), nil, "failed attach_and_show() should leave no tabbar visible")
   helpers.assert_eq(ui_runtime.get_handle_owner(failing_handle), nil, "failed attach_and_show() should not transfer handle ownership")
+
+  ui_tabbar.hide()
+  ui_state.reset()
+  ui_runtime.reset()
+  ui.setup()
+  helpers.assert_truthy(ui.register_category({ key = "terminal", label = "T" }), "late rollback coverage should register category")
+
+  local terminal_service = require("qck.terminal.service")
+  terminal_service.set_user_mappings({ gx = ":quit<CR>" })
+
+  local stable_handle = snacks.terminal.open(nil, { count = 4 })
+  local stable_tab_id = select(1, ui.attach_and_show("terminal", stable_handle))
+  helpers.assert_truthy(stable_tab_id ~= nil, "late rollback coverage should seed a visible tab")
+
+  local original_show_for_terminal = ui_tabbar.show_for_terminal
+  local failing_late_handle = snacks.terminal.open(nil, { count = 5 })
+  local failing_buf = failing_late_handle.buf
+  local failing_win = nil
+
+  failing_late_handle:toggle()
+
+  ui_tabbar.show_for_terminal = function(terminal)
+    original_show_for_terminal(terminal)
+    if terminal == failing_late_handle then
+      failing_win = tostring(terminal.win)
+      error("late boom")
+    end
+  end
+
+  local late_tab_id, late_err = ui.attach_and_show("terminal", failing_late_handle)
+  ui_tabbar.show_for_terminal = original_show_for_terminal
+
+  helpers.assert_eq(late_tab_id, nil, "attach_and_show() should fail when late handoff work errors")
+  helpers.assert_truthy(type(late_err) == "string" and late_err:find("late boom", 1, true) ~= nil, "late attach failure should surface the late error")
+  helpers.assert_truthy(stable_handle:valid(), "late attach rollback should restore the previously visible tab")
+  helpers.assert_truthy(not failing_late_handle:valid(), "late attach rollback should hide the failed tab window")
+  helpers.assert_eq(ui_state.resolve_active_tab(), stable_tab_id, "late attach rollback should restore the previous active selection")
+  helpers.assert_truthy(vim.deep_equal(ui_state.traversal_ids(), { stable_tab_id }), "late attach rollback should keep only the original tab registered")
+  helpers.assert_eq(ui_runtime.get_content_winid(), stable_handle.win, "late attach rollback should restore the original visible content winid")
+  helpers.assert_truthy(type(ui_tabbar.get_winid()) == "number", "late attach rollback should restore the tabbar")
+  helpers.assert_eq(ui_runtime.get_handle_owner(failing_late_handle), nil, "late attach rollback should clear failed handle ownership")
+  helpers.assert_eq(next(ui_runtime.get_owner_watchers(stable_tab_id)) ~= nil, true, "late attach rollback should restore visible watcher bookkeeping")
+  helpers.assert_eq(buf_has_mapping(failing_buf, "n", "gx"), false, "late attach rollback should clear failed handle normal-mode mappings")
+  helpers.assert_eq(buf_has_mapping(failing_buf, "t", "gx"), false, "late attach rollback should clear failed handle terminal-mode mappings")
+  helpers.assert_eq(
+    any_qck_autocmd(function(item)
+      return item.buffer == failing_buf or item.pattern == failing_win
+    end),
+    false,
+    "late attach rollback should clear failed tab autocmd watchers"
+  )
 end
 
 function scenarios.terminals_and_layout()
