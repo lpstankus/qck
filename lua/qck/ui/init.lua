@@ -752,16 +752,7 @@ function ui.close_active()
     return false, "no active tab"
   end
 
-  if not is_window_open(tab.terminal) then
-    return false, "active tab is hidden"
-  end
-
-  ui.hide()
-  local ok, err = delete_tab_internal(tab_id)
-  if not ok then
-    return false, err
-  end
-  return true
+  return delete_tab_internal(tab_id)
 end
 
 ---@param direction integer

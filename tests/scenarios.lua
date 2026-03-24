@@ -201,6 +201,11 @@ function scenarios.ui_state_registration_and_traversal()
   helpers.assert_truthy(deleted, "ui state should delete registered tabs")
   helpers.assert_eq(state.get_tab(first_terminal_id), nil, "ui state should remove deleted tabs from the registry")
   helpers.assert_eq(
+    state.resolve_active_tab(),
+    first_task_id,
+    "ui state should adopt the next live tab in global traversal order when deleting the active tab"
+  )
+  helpers.assert_eq(
     state.get_tab(second_terminal_id).category_display_id,
     2,
     "ui state should keep survivor display ids stable after delete"
@@ -220,6 +225,13 @@ function scenarios.ui_state_registration_and_traversal()
   helpers.assert_truthy(
     vim.deep_equal(state.traversal_ids(), { second_terminal_id, reused_terminal_id, first_task_id }),
     "ui state should preserve global traversal after display-id reuse"
+  )
+  helpers.assert_truthy(state.set_active_tab(first_task_id), "ui state should allow selecting the last traversal tab")
+  helpers.assert_truthy(state.delete_tab(first_task_id), "ui state should delete the selected trailing traversal tab")
+  helpers.assert_eq(
+    state.resolve_active_tab(),
+    reused_terminal_id,
+    "ui state should fall back to the previous live tab when deleting the last traversal tab"
   )
 
   state.set_active_tab_id(nil)
@@ -608,8 +620,17 @@ function scenarios.terminals_and_layout()
   qck.close()
   helpers.assert_eq(state.get_terminal(3), nil, "close() should remove the active terminal")
   helpers.assert_eq(state.get_current_id(), 2, "close() should keep selection on the ui traversal fallback")
+  helpers.assert_truthy(state.is_window_open(state.get_terminal(2)), "close() should show the adopted traversal fallback when ui was visible")
   helpers.assert_truthy(not state.is_window_open(state.get_terminal(1)), "close() should only target the active terminal window")
-  helpers.assert_eq(tabbar.get_winid(), nil, "close() should hide the tabbar when the active terminal closes")
+  helpers.assert_truthy(type(tabbar.get_winid()) == "number", "close() should keep the tabbar open when another live terminal is adopted")
+
+  qck.toggle()
+  helpers.assert_truthy(not state.is_window_open(state.get_terminal(2)), "toggle() should hide the adopted active terminal before hidden-close coverage")
+  qck.close()
+  helpers.assert_eq(state.get_terminal(2), nil, "close() should delete the active terminal even when it is hidden")
+  helpers.assert_eq(state.get_current_id(), 1, "close() should keep traversal fallback selection after deleting a hidden active terminal")
+  helpers.assert_truthy(not state.is_window_open(state.get_terminal(1)), "close() should not reopen fallback terminals when deleting a hidden active terminal")
+  helpers.assert_eq(tabbar.get_winid(), nil, "close() should keep the ui hidden when deleting a hidden active terminal")
 
   helpers.cleanup_terminals(terminal, state, tabbar)
 

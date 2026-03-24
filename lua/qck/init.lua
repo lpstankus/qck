@@ -123,7 +123,7 @@ function qck.open()
   ui.open_active_or_create()
 end
 
----Close the active qck terminal window and remove that terminal from qck state.
+---Close the active qck terminal tab and remove it from qck state.
 ---
 ---Parameters:
 ---  - None.
@@ -141,11 +141,6 @@ function qck.close()
 
   if err == "no active tab" then
     notify("no current terminal selected (no-op)", vim.log.levels.WARN)
-    return
-  end
-
-  if err == "active tab is hidden" then
-    notify("current terminal window is closed (no-op)", vim.log.levels.WARN)
     return
   end
 
