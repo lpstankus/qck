@@ -88,6 +88,10 @@ end
 local function unregister_ui_terminal(rec)
   local tab_id = get_ui_tab_id(rec)
   if tab_id then
+    local ok_ui, ui = pcall(require, "qck.ui")
+    if ok_ui and type(ui.clear_watchers_for_tab) == "function" then
+      ui.clear_watchers_for_tab(tab_id)
+    end
     ui_state.delete_tab(tab_id)
     set_ui_tab_id(rec, nil)
     return
@@ -96,6 +100,10 @@ local function unregister_ui_terminal(rec)
   local handle = rec and rec.win or nil
   local existing = handle and ui_state.get_tab_by_terminal(handle) or nil
   if existing then
+    local ok_ui, ui = pcall(require, "qck.ui")
+    if ok_ui and type(ui.clear_watchers_for_tab) == "function" then
+      ui.clear_watchers_for_tab(existing.id)
+    end
     ui_state.delete_tab(existing.id)
   end
 end

@@ -365,6 +365,11 @@ function scenarios.ui_init_orchestration_contract()
   ui_tabbar.hide()
   ui_state.reset()
   ui_runtime.reset()
+  ui.setup()
+
+  local global_watchers = ui_runtime.get_global_watchers()
+  helpers.assert_truthy(type(global_watchers.focus_leave_autocmd_id) == "number", "ui setup should install the global focus-leave watcher")
+  helpers.assert_truthy(type(global_watchers.resize_autocmd_id) == "number", "ui setup should install the global resize watcher")
 
   helpers.assert_truthy(ui.register_category({ key = "terminal", label = "T" }), "ui init should register categories")
 
@@ -374,17 +379,29 @@ function scenarios.ui_init_orchestration_contract()
   helpers.assert_eq(ui_state.resolve_active_tab(), first_tab_id, "attach_and_show() should make the new tab active")
   helpers.assert_eq(ui_runtime.get_content_winid(), handle_a.win, "attach_and_show() should track the visible content winid")
   helpers.assert_truthy(type(ui_tabbar.get_winid()) == "number", "attach_and_show() should show the tabbar")
+  local first_watchers = ui_runtime.get_owner_watchers(first_tab_id)
+  helpers.assert_truthy(type(first_watchers.buf_wipeout_autocmd_id) == "number", "attach_and_show() should install the per-tab invalidation watcher")
+  helpers.assert_truthy(type(first_watchers.content_close_autocmd_id) == "number", "attach_and_show() should install the visible content close watcher")
+  helpers.assert_truthy(type(first_watchers.tabbar_close_autocmd_id) == "number", "attach_and_show() should install the tabbar close watcher")
 
   local handle_b = snacks.terminal.open(nil, { count = 2 })
   local second_tab_id = select(1, ui.attach_and_show("terminal", handle_b))
   helpers.assert_truthy(second_tab_id ~= nil, "attach_and_show() should register and show the second tab")
   helpers.assert_truthy(not handle_a:valid(), "showing a new tab should hide the previous ui-owned tab window")
   helpers.assert_truthy(handle_b:valid(), "showing a new tab should keep the new tab visible")
+  local first_hidden_watchers = ui_runtime.get_owner_watchers(first_tab_id)
+  helpers.assert_truthy(type(first_hidden_watchers.buf_wipeout_autocmd_id) == "number", "showing a new tab should preserve the previous tab's invalidation watcher")
+  helpers.assert_eq(first_hidden_watchers.content_close_autocmd_id, nil, "showing a new tab should clear the previous tab's visible close watcher")
+  helpers.assert_eq(first_hidden_watchers.tabbar_close_autocmd_id, nil, "showing a new tab should clear the previous tab's tabbar close watcher")
 
   ui.hide()
   helpers.assert_truthy(not handle_b:valid(), "hide() should hide the active tab without deleting it")
   helpers.assert_eq(ui_tabbar.get_winid(), nil, "hide() should close the tabbar")
   helpers.assert_eq(ui_state.resolve_active_tab(), second_tab_id, "hide() should keep the active tab selected")
+  local hidden_watchers = ui_runtime.get_owner_watchers(second_tab_id)
+  helpers.assert_truthy(type(hidden_watchers.buf_wipeout_autocmd_id) == "number", "hide() should preserve the per-tab invalidation watcher")
+  helpers.assert_eq(hidden_watchers.content_close_autocmd_id, nil, "hide() should clear the visible content close watcher")
+  helpers.assert_eq(hidden_watchers.tabbar_close_autocmd_id, nil, "hide() should clear the visible tabbar close watcher")
 
   ui.show()
   helpers.assert_truthy(handle_b:valid(), "show() should reopen the active hidden tab")
@@ -410,6 +427,13 @@ function scenarios.ui_init_orchestration_contract()
     height = 3,
     style = "minimal",
   })
+  vim.wait(20, function()
+    return ui_runtime.get_content_winid() == nil and ui_tabbar.get_winid() == nil
+  end)
+  helpers.assert_eq(ui_runtime.get_content_winid(), nil, "focus leave should still hide ui-owned tabs when focus moves away")
+  helpers.assert_eq(ui_tabbar.get_winid(), nil, "focus leave should still hide the ui-owned tabbar when focus moves away")
+
+  ui.show()
   local content_win = ui_runtime.get_content_winid()
   local tabbar_win = ui_tabbar.get_winid()
 
@@ -426,6 +450,7 @@ function scenarios.ui_init_orchestration_contract()
   helpers.assert_eq(ui_state.resolve_active_tab(), second_tab_id, "delete_tab() should adopt the next live tab when deleting the active tab")
   helpers.assert_truthy(handle_b:valid(), "delete_tab() should show the adopted live tab when ui stays visible")
   helpers.assert_truthy(vim.deep_equal(tabbar_labels(ui_tabbar.get_winid()), { "T2" }), "delete_tab() should rerender the remaining tab rows")
+  helpers.assert_eq(next(ui_runtime.get_owner_watchers(first_tab_id)), nil, "delete_tab() should clear per-tab watcher bookkeeping for deleted tabs")
 
   helpers.assert_eq(select(1, ui.set_active_tab(999)), false, "set_active_tab() should reject unknown tabs")
   helpers.assert_eq(select(1, ui.delete_tab(999)), false, "delete_tab() should reject unknown tabs")

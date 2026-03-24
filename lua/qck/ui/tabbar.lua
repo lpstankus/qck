@@ -5,7 +5,6 @@
 -- through the temporary `qck.terminal.tabbar` shim.
 local ui_state = require("qck.ui.state")
 local terminal_state = require("qck.terminal.state")
-local autocmd = require("qck.shared.autocmd")
 local keymaps = require("qck.shared.keymaps")
 local layout = require("qck.ui.layout")
 local runtime = require("qck.ui.runtime")
@@ -29,30 +28,11 @@ local actions = {
   focus_current = function() end,
 }
 
-local TABBAR_RUNTIME_KEY = "terminal_tabbar"
-
 ---@class qck.UiTabbarRow
 ---@field tab_id qck.UiTabId|nil
 ---@field terminal_id integer|nil
 ---@field visual_label string
 ---@field selectable boolean
-
----@return qck.UiRuntimeWatchers
-local function get_runtime_watchers()
-  return runtime.get_owner_watchers(TABBAR_RUNTIME_KEY)
-end
-
----@param patch qck.UiRuntimeWatchers
----@return nil
-local function patch_runtime_watchers(patch)
-  local watchers = get_runtime_watchers()
-
-  for key, value in pairs(patch) do
-    watchers[key] = value
-  end
-
-  runtime.set_owner_watchers(TABBAR_RUNTIME_KEY, watchers)
-end
 
 ---@param buf integer|nil
 ---@return boolean
@@ -405,83 +385,14 @@ local function restore_cursor_position(previous_line, line_count, current_idx)
   vim.api.nvim_win_set_cursor(winid, { target_line, get_line_cursor_col(target_line) })
 end
 
----@param term_win integer
-local function watch_terminal_win(term_win)
-  local watchers = get_runtime_watchers()
-  if watchers.watched_term_win == term_win then
-    return
-  end
-
-  autocmd.delete(watchers.terminal_watch_autocmd_id)
-  patch_runtime_watchers({
-    terminal_watch_autocmd_id = nil,
-    watched_term_win = term_win,
-  })
-
-  local autocmd_id = autocmd.create("WinClosed", {
-    pattern = tostring(term_win),
-    callback = function()
-      patch_runtime_watchers({
-        terminal_watch_autocmd_id = nil,
-        watched_term_win = nil,
-      })
-      tabbar.hide()
-    end,
-    once = true,
-  })
-
-  patch_runtime_watchers({ terminal_watch_autocmd_id = autocmd_id })
-end
-
----@param tab_win integer
-local function watch_tabbar_win(tab_win)
-  local watchers = get_runtime_watchers()
-  if watchers.watched_tabbar_win == tab_win then
-    return
-  end
-
-  autocmd.delete(watchers.tabbar_close_watch_autocmd_id)
-  patch_runtime_watchers({
-    tabbar_close_watch_autocmd_id = nil,
-    watched_tabbar_win = tab_win,
-  })
-
-  local autocmd_id = autocmd.create("WinClosed", {
-    pattern = tostring(tab_win),
-    callback = function()
-      local active_watchers = get_runtime_watchers()
-      patch_runtime_watchers({
-        tabbar_close_watch_autocmd_id = nil,
-        watched_tabbar_win = nil,
-      })
-      if active_watchers.suppress_tabbar_close_action then
-        patch_runtime_watchers({ suppress_tabbar_close_action = false })
-        return
-      end
-      actions.close_current()
-    end,
-    once = true,
-  })
-
-  patch_runtime_watchers({ tabbar_close_watch_autocmd_id = autocmd_id })
-end
-
 ---@return nil
 function tabbar.hide()
   local winid = runtime.get_tabbar_winid()
-  local watchers = get_runtime_watchers()
   if is_valid_win(winid) then
-    patch_runtime_watchers({ suppress_tabbar_close_action = true })
-    local ok_close = pcall(vim.api.nvim_win_close, winid, true)
-    if not ok_close then
-      patch_runtime_watchers({ suppress_tabbar_close_action = false })
-    end
+    pcall(vim.api.nvim_win_close, winid, true)
   end
   runtime.clear_tabbar_winid()
   render_rows = {}
-  autocmd.delete(watchers.terminal_watch_autocmd_id)
-  autocmd.delete(watchers.tabbar_close_watch_autocmd_id)
-  runtime.clear_owner_watchers(TABBAR_RUNTIME_KEY)
 end
 
 ---@param fns { open?: fun(id: integer), delete?: fun(id: integer), move_up?: fun(id: integer), move_down?: fun(id: integer), close_current?: fun(), focus_current?: fun() }|nil
@@ -589,8 +500,6 @@ function tabbar.show_for_terminal(terminal)
     tabbar.hide()
     return
   end
-  watch_terminal_win(term_win)
-
   local conf = build_tabbar_window_config(term_win)
   if not conf then
     tabbar.hide()
@@ -601,7 +510,6 @@ function tabbar.show_for_terminal(terminal)
   ensure_tabbar_window(buf, conf)
   local winid = runtime.get_tabbar_winid()
   if not winid then return end
-  watch_tabbar_win(winid)
 
   apply_window_opts(winid)
   tabbar.render()

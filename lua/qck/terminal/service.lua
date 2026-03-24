@@ -25,6 +25,45 @@ local previous_mapping_lhs = {}
 local deleting_ids = {}
 local terminal_mapping_modes = { "n", "t" }
 
+---@return qck.ui|nil
+local function get_ui()
+  local ok, ui = pcall(require, "qck.ui")
+  if ok then
+    return ui
+  end
+
+  return nil
+end
+
+---@param handle any
+---@return nil
+local function sync_ui_watchers_for_handle(handle)
+  local ui = get_ui()
+  if ui and type(ui.ensure_tab_watchers_for_handle) == "function" then
+    ui.ensure_tab_watchers_for_handle(handle)
+  end
+end
+
+---@param handle any
+---@return nil
+local function clear_ui_visible_watchers_for_handle(handle)
+  local ui = get_ui()
+  if ui and type(ui.clear_visible_watchers_for_handle) == "function" then
+    ui.clear_visible_watchers_for_handle(handle)
+  end
+end
+
+---@param callback fun(): any
+---@return any
+local function with_ui_focus_leave_suppressed(callback)
+  local ui = get_ui()
+  if ui and type(ui.with_suppressed_focus_leave) == "function" then
+    return ui.with_suppressed_focus_leave(callback)
+  end
+
+  return callback()
+end
+
 ---@param rec qck.TerminalRecord|nil
 ---@return qck.TerminalHandle|nil
 local function get_terminal_handle(rec)
@@ -294,6 +333,7 @@ function terminal.refresh_current_layout()
 
   apply_terminal_layout(current_rec)
   tabbar.sync(current_rec, current_id)
+  sync_ui_watchers_for_handle(get_terminal_handle(current_rec))
 end
 
 ---@param id integer
@@ -312,6 +352,8 @@ local function hide_window_if_open(id)
     return
   end
 
+  clear_ui_visible_watchers_for_handle(rec_win)
+
   local ok_hide, err = pcall(function() rec_win:toggle() end)
   if not ok_hide then
     notify(("failed to hide terminal %d: %s"):format(id, tostring(err)), vim.log.levels.ERROR)
@@ -321,6 +363,8 @@ local function hide_window_if_open(id)
   if state.get_current_id() == id then
     runtime.clear_content_winid()
   end
+
+  sync_ui_watchers_for_handle(rec_win)
 end
 
 ---@param target_id integer
@@ -365,67 +409,57 @@ end
 ---@param preserve_mode boolean|nil
 ---@return qck.TerminalRecord|nil
 function terminal.create(id, preserve_mode)
-  preserve_mode = preserve_mode == true
-  local previous_visible_id = get_previous_visible_id(id)
-  local mode_intent = preserve_mode and capture_mode_intent() or nil
+  return with_ui_focus_leave_suppressed(function()
+    preserve_mode = preserve_mode == true
+    local previous_visible_id = get_previous_visible_id(id)
+    local mode_intent = preserve_mode and capture_mode_intent() or nil
 
-  if not snacks or not ensure_snacks() then return nil end
+    if not snacks or not ensure_snacks() then return nil end
 
-  local rec = {
-    win = nil,
-    meta = {},
-  }
+    local rec = {
+      win = nil,
+      meta = {},
+    }
 
-  local term_opts = {
-    interactive = true,
-    auto_close = true,
-    count = id,
-    win = vim.tbl_extend("force", layout.build_initial_terminal_config(), {
-      position = "float",
-    }),
-  }
+    local term_opts = {
+      interactive = true,
+      auto_close = true,
+      count = id,
+      win = vim.tbl_extend("force", layout.build_initial_terminal_config(), {
+        position = "float",
+      }),
+    }
 
-  local ok_open, term_or_err = pcall(snacks.terminal.open, nil, term_opts)
-  if not ok_open or not term_or_err then
-    local msg = ok_open and "failed to open terminal"
-      or ("failed to open terminal: " .. tostring(term_or_err))
-    notify(msg, vim.log.levels.ERROR)
-    return nil
-  end
+    local ok_open, term_or_err = pcall(snacks.terminal.open, nil, term_opts)
+    if not ok_open or not term_or_err then
+      local msg = ok_open and "failed to open terminal"
+        or ("failed to open terminal: " .. tostring(term_or_err))
+      notify(msg, vim.log.levels.ERROR)
+      return nil
+    end
 
-  rec.win = term_or_err
-  local rec_win = get_terminal_handle(rec)
-  if not rec_win then
-    safe_close_handle(term_or_err)
-    notify(("failed to initialize terminal %d handle"):format(id), vim.log.levels.ERROR)
-    return nil
-  end
+    rec.win = term_or_err
+    local rec_win = get_terminal_handle(rec)
+    if not rec_win then
+      safe_close_handle(term_or_err)
+      notify(("failed to initialize terminal %d handle"):format(id), vim.log.levels.ERROR)
+      return nil
+    end
 
-  state.set_terminal(id, rec)
-  runtime.register_handle(id, rec_win)
-  runtime.set_owner_watchers(id, { buf_wipeout = true })
-  apply_terminal_layout(rec)
-  if previous_visible_id then
-    hide_window_if_open(previous_visible_id)
-  end
-  state.set_current_id(id)
-  apply_user_mappings_to_buf(terminal_bufnr(rec))
-  tabbar.sync(rec, id)
-  restore_mode_intent(rec, mode_intent)
+    state.set_terminal(id, rec)
+    runtime.register_handle(id, rec_win)
+    apply_terminal_layout(rec)
+    if previous_visible_id then
+      hide_window_if_open(previous_visible_id)
+    end
+    state.set_current_id(id)
+    apply_user_mappings_to_buf(terminal_bufnr(rec))
+    tabbar.sync(rec, id)
+    restore_mode_intent(rec, mode_intent)
+    sync_ui_watchers_for_handle(rec_win)
 
-  if type(rec_win.on) == "function" then
-    rec_win:on("BufWipeout", function()
-      if deleting_ids[id] then
-        return
-      end
-      if state.get_terminal(id) == rec then
-        remove_terminal_record(id)
-        sync_tabbar_for_current()
-      end
-    end, { buf = true })
-  end
-
-  return rec
+    return rec
+  end)
 end
 
 ---@param id integer
@@ -444,39 +478,42 @@ end
 ---@param preserve_mode boolean|nil
 ---@return qck.TerminalRecord|nil
 function terminal.open(id, preserve_mode)
-  preserve_mode = preserve_mode == true
-  local previous_visible_id = get_previous_visible_id(id)
-  local mode_intent = preserve_mode and capture_mode_intent() or nil
+  return with_ui_focus_leave_suppressed(function()
+    preserve_mode = preserve_mode == true
+    local previous_visible_id = get_previous_visible_id(id)
+    local mode_intent = preserve_mode and capture_mode_intent() or nil
 
-  local rec = terminal.ensure(id)
-  if not rec then
-    return nil
-  end
-
-  local rec_win = get_terminal_handle(rec)
-  if not rec_win then
-    remove_terminal_record(id)
-    return nil
-  end
-
-  if previous_visible_id then
-    hide_window_if_open(previous_visible_id)
-  end
-
-  if not state.is_window_open(rec) then
-    local ok_show, err = pcall(function() rec_win:show() end)
-    if not ok_show then
-      notify(("failed to open terminal %d: %s"):format(id, tostring(err)), vim.log.levels.ERROR)
+    local rec = terminal.ensure(id)
+    if not rec then
       return nil
     end
-  end
 
-  apply_terminal_layout(rec)
+    local rec_win = get_terminal_handle(rec)
+    if not rec_win then
+      remove_terminal_record(id)
+      return nil
+    end
 
-  state.set_current_id(id)
-  tabbar.sync(rec, id)
-  restore_mode_intent(rec, mode_intent)
-  return rec
+    if previous_visible_id then
+      hide_window_if_open(previous_visible_id)
+    end
+
+    if not state.is_window_open(rec) then
+      local ok_show, err = pcall(function() rec_win:show() end)
+      if not ok_show then
+        notify(("failed to open terminal %d: %s"):format(id, tostring(err)), vim.log.levels.ERROR)
+        return nil
+      end
+    end
+
+    apply_terminal_layout(rec)
+
+    state.set_current_id(id)
+    tabbar.sync(rec, id)
+    restore_mode_intent(rec, mode_intent)
+    sync_ui_watchers_for_handle(rec_win)
+    return rec
+  end)
 end
 
 ---@param id integer
@@ -539,6 +576,8 @@ function terminal.toggle(id)
     runtime.clear_content_winid()
     tabbar.hide()
   end
+
+  sync_ui_watchers_for_handle(rec_win)
 end
 
 ---@return nil
@@ -625,6 +664,23 @@ function terminal.delete(id)
   else
     tabbar.hide()
   end
+end
+
+---@param id integer
+---@param handle any
+---@return nil
+function terminal.handle_invalidation(id, handle)
+  if deleting_ids[id] then
+    return
+  end
+
+  local rec = state.get_terminal(id)
+  if not rec or rec.win ~= handle then
+    return
+  end
+
+  remove_terminal_record(id)
+  sync_tabbar_for_current()
 end
 
 return terminal
