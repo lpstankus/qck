@@ -1,35 +1,13 @@
 ---@class qck
 local qck = {}
 require("qck.shared.types")
-local state = require("qck.terminal.state")
-local terminal = require("qck.terminal.service")
 local ui = require("qck.ui")
 local task_form = require("qck.tasks.form")
 local storage = require("qck.tasks.storage")
 local app_setup = require("qck.app.setup")
-require("qck.app.focus").setup()
+ui.setup()
 
 local notify = require("qck.shared.notify").notify
-
----@return integer|nil
-local function resolve_active_terminal_id()
-  local ids = state.live_ids()
-  if #ids == 0 then
-    state.set_current_id(nil)
-    return nil
-  end
-
-  local current_id = state.get_current_id()
-  if current_id then
-    for _, id in ipairs(ids) do
-      if id == current_id then
-        return current_id
-      end
-    end
-  end
-
-  return ids[1]
-end
 
 ---@alias qck.MappingMode "n"|"t"
 ---@class qck.MappingSpec
@@ -114,7 +92,7 @@ end
 ---```
 ---@return nil
 function qck.new()
-  terminal.create(state.next_free_id(), terminal.get_current_winid() ~= nil)
+  ui.create_terminal(ui.is_visible())
 end
 
 ---Open the task-creation form for adding a saved task in this workspace.
@@ -142,12 +120,7 @@ end
 ---```
 ---@return nil
 function qck.open()
-  local target_id = resolve_active_terminal_id()
-  if not target_id then
-    target_id = state.next_free_id()
-  end
-
-  terminal.open(target_id)
+  ui.open_active_or_create()
 end
 
 ---Close the active qck terminal window and remove that terminal from qck state.
@@ -161,14 +134,22 @@ end
 ---```
 ---@return nil
 function qck.close()
-  local target_id = resolve_active_terminal_id()
-  if not target_id then
+  local ok, err = ui.close_active()
+  if ok then
+    return
+  end
+
+  if err == "no active tab" then
     notify("no current terminal selected (no-op)", vim.log.levels.WARN)
     return
   end
 
-  state.set_current_id(target_id)
-  terminal.close_if_open(target_id)
+  if err == "active tab is hidden" then
+    notify("current terminal window is closed (no-op)", vim.log.levels.WARN)
+    return
+  end
+
+  notify(("failed to close current terminal: %s"):format(tostring(err)), vim.log.levels.ERROR)
 end
 
 ---Hide the current qck terminal if it is visible, or show it if it is hidden.
@@ -182,14 +163,7 @@ end
 ---```
 ---@return nil
 function qck.toggle()
-  local current_id = resolve_active_terminal_id()
-
-  if not current_id then
-    terminal.open(state.next_free_id())
-    return
-  end
-
-  terminal.toggle(current_id)
+  ui.toggle_active_or_create()
 end
 
 ---Move to the next live qck terminal, wrapping around at the end.
@@ -203,10 +177,7 @@ end
 ---```
 ---@return nil
 function qck.cycle_next()
-  local target_id = state.get_cycle_id(1)
-  if not target_id then return end
-
-  terminal.open(target_id, true)
+  ui.cycle(1)
 end
 
 ---Move to the previous live qck terminal, wrapping around at the beginning.
@@ -220,10 +191,7 @@ end
 ---```
 ---@return nil
 function qck.cycle_prev()
-  local target_id = state.get_cycle_id(-1)
-  if not target_id then return end
-
-  terminal.open(target_id, true)
+  ui.cycle(-1)
 end
 
 ---Switch cursor focus between the current qck terminal and its tab bar.

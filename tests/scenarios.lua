@@ -23,6 +23,11 @@ local function tabbar_labels(tabbar_win)
   return trim_lines(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
 end
 
+local function feed(keys)
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), "xt", false)
+  vim.wait(20, function() return false end)
+end
+
 function scenarios.task_form_create_and_overwrite()
   local env = helpers.load_qck()
   local qck, storage, task_form, workspace =
@@ -444,6 +449,23 @@ function scenarios.ui_init_orchestration_contract()
   helpers.assert_eq(vim.api.nvim_get_current_win(), tabbar_win, "toggle_tabbar_focus() should move focus from content to tabbar")
   ui.toggle_tabbar_focus()
   helpers.assert_eq(vim.api.nvim_get_current_win(), content_win, "toggle_tabbar_focus() should move focus back to content")
+
+  ui.toggle_tabbar_focus()
+  vim.api.nvim_set_current_win(tabbar_win)
+  vim.api.nvim_win_set_cursor(tabbar_win, { 1, 0 })
+  feed("<CR>")
+  helpers.assert_eq(ui_state.resolve_active_tab(), second_tab_id, "tabbar <CR> should select the targeted ui tab")
+  helpers.assert_truthy(handle_b:valid(), "tabbar <CR> should show the selected tab")
+  helpers.assert_truthy(not handle_a:valid(), "tabbar <CR> should hide the previously active tab")
+  helpers.assert_eq(vim.api.nvim_get_current_win(), ui_runtime.get_content_winid(), "tabbar <CR> should return focus to content")
+
+  ui.toggle_tabbar_focus()
+  vim.api.nvim_set_current_win(ui_tabbar.get_winid())
+  feed("J")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(ui_tabbar.get_winid()), { "T1", "T2" }), "tabbar J should move the selected row through ui-owned ordering")
+
+  local ok_reselect = select(1, ui.set_active_tab(first_tab_id))
+  helpers.assert_truthy(ok_reselect, "set_active_tab() should still allow direct ui selection after tabbar actions")
 
   local ok_delete = select(1, ui.delete_tab(first_tab_id))
   helpers.assert_truthy(ok_delete, "delete_tab() should remove registered tabs")

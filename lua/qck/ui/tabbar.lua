@@ -1,10 +1,9 @@
--- Pre-handoff UI-owned tabbar presentation scaffolding.
+-- UI-owned tabbar presentation and row actions.
 --
--- This module now owns tabbar row generation/rendering from `qck.ui.state`
--- while terminal runtime still drives visibility and terminal-specific actions
--- through the temporary `qck.terminal.tabbar` shim.
+-- Rendering comes from `qck.ui.state`, and tabbar interactions now route back
+-- through `qck.ui` so UI remains the canonical owner of selection, deletion,
+-- motion, and focus behavior.
 local ui_state = require("qck.ui.state")
-local terminal_state = require("qck.terminal.state")
 local keymaps = require("qck.shared.keymaps")
 local layout = require("qck.ui.layout")
 local runtime = require("qck.ui.runtime")
@@ -19,20 +18,20 @@ local user_mappings = {}
 local mapping_lhs = {}
 local previous_mapping_lhs = {}
 local center_text
-local actions = {
-  open = function(_) end,
-  delete = function(_) end,
-  move_up = function(_) end,
-  move_down = function(_) end,
-  close_current = function() end,
-  focus_current = function() end,
-}
-
 ---@class qck.UiTabbarRow
 ---@field tab_id qck.UiTabId|nil
----@field terminal_id integer|nil
 ---@field visual_label string
 ---@field selectable boolean
+
+---@return qck.ui|nil
+local function get_ui()
+  local ok, ui = pcall(require, "qck.ui")
+  if ok then
+    return ui
+  end
+
+  return nil
+end
 
 ---@param buf integer|nil
 ---@return boolean
@@ -67,8 +66,8 @@ local function get_terminal_window_id(terminal)
   return nil
 end
 
----@return integer|nil
-local function get_selected_terminal_id()
+---@return qck.UiTabId|nil
+local function get_selected_tab_id()
   local winid = runtime.get_tabbar_winid()
   if not winid or not is_valid_win(winid) then
     return nil
@@ -84,18 +83,18 @@ local function get_selected_terminal_id()
     return nil
   end
 
-  return row.terminal_id
+  return row.tab_id
 end
 
----@param id integer
+---@param id qck.UiTabId
 ---@return integer|nil
-local function get_line_for_terminal_id(id)
+local function get_line_for_tab_id(id)
   if type(id) ~= "number" then
     return nil
   end
 
   for line, row in ipairs(render_rows) do
-    if row.terminal_id == id then
+    if row.tab_id == id then
       return line
     end
   end
@@ -170,25 +169,26 @@ local function move_selection(delta)
 end
 
 ---@param delta integer
-local function move_selected_terminal(delta)
-  local id = get_selected_terminal_id()
-  if not id then
+local function move_selected_tab(delta)
+  local tab_id = get_selected_tab_id()
+  if not tab_id then
     return
   end
 
-  if delta < 0 then
-    actions.move_up(id)
-  else
-    actions.move_down(id)
+  local ui = get_ui()
+  if not ui or type(ui.move_tab) ~= "function" then
+    return
+  end
+
+  ui.move_tab(tab_id, delta < 0 and -1 or 1)
+
+  local line = get_line_for_tab_id(tab_id)
+  if not line or not is_selectable_line(line) then
+    return
   end
 
   local winid = runtime.get_tabbar_winid()
   if not winid or not is_valid_win(winid) then
-    return
-  end
-
-  local line = get_line_for_terminal_id(id)
-  if not line or not is_selectable_line(line) then
     return
   end
 
@@ -199,24 +199,31 @@ end
 local function set_buffer_mappings(buf)
   vim.keymap.set("n", "j", function() move_selection(1) end, { buffer = buf, noremap = true, silent = true })
   vim.keymap.set("n", "k", function() move_selection(-1) end, { buffer = buf, noremap = true, silent = true })
-  vim.keymap.set("n", "J", function() move_selected_terminal(1) end, { buffer = buf, noremap = true, silent = true })
-  vim.keymap.set("n", "K", function() move_selected_terminal(-1) end, { buffer = buf, noremap = true, silent = true })
+  vim.keymap.set("n", "J", function() move_selected_tab(1) end, { buffer = buf, noremap = true, silent = true })
+  vim.keymap.set("n", "K", function() move_selected_tab(-1) end, { buffer = buf, noremap = true, silent = true })
 
   vim.keymap.set("n", "<CR>", function()
-    local id = get_selected_terminal_id()
-    if not id then return end
-    actions.open(id)
-    actions.focus_current()
+    local tab_id = get_selected_tab_id()
+    local ui = get_ui()
+    if not tab_id or not ui then return end
+    ui.set_active_tab(tab_id)
+    ui.toggle_tabbar_focus()
   end, { buffer = buf, noremap = true, silent = true })
 
   vim.keymap.set("n", "dd", function()
-    local id = get_selected_terminal_id()
-    if not id then return end
-    actions.delete(id)
-    actions.focus_current()
+    local tab_id = get_selected_tab_id()
+    local ui = get_ui()
+    if not tab_id or not ui then return end
+    ui.delete_tab(tab_id)
+    ui.toggle_tabbar_focus()
   end, { buffer = buf, noremap = true, silent = true })
 
-  vim.keymap.set("n", "<Esc>", function() actions.focus_current() end, { buffer = buf, noremap = true, silent = true })
+  vim.keymap.set("n", "<Esc>", function()
+    local ui = get_ui()
+    if ui then
+      ui.toggle_tabbar_focus()
+    end
+  end, { buffer = buf, noremap = true, silent = true })
 end
 
 ---@param buf integer
@@ -312,7 +319,6 @@ local function build_render_rows()
     if tab then
       rows[#rows + 1] = {
         tab_id = tab.id,
-        terminal_id = terminal_state.get_id_by_terminal(tab.terminal),
         visual_label = ("%s%d"):format(tab.category_label, tab.category_display_id),
         selectable = true,
       }
@@ -395,31 +401,9 @@ function tabbar.hide()
   render_rows = {}
 end
 
----@param fns { open?: fun(id: integer), delete?: fun(id: integer), move_up?: fun(id: integer), move_down?: fun(id: integer), close_current?: fun(), focus_current?: fun() }|nil
+---@param _ any
 ---@return nil
-function tabbar.set_actions(fns)
-  if type(fns) ~= "table" then
-    return
-  end
-  if type(fns.open) == "function" then
-    actions.open = fns.open
-  end
-  if type(fns.delete) == "function" then
-    actions.delete = fns.delete
-  end
-  if type(fns.move_up) == "function" then
-    actions.move_up = fns.move_up
-  end
-  if type(fns.move_down) == "function" then
-    actions.move_down = fns.move_down
-  end
-  if type(fns.close_current) == "function" then
-    actions.close_current = fns.close_current
-  end
-  if type(fns.focus_current) == "function" then
-    actions.focus_current = fns.focus_current
-  end
-end
+function tabbar.set_actions(_) end
 
 ---@param raw_mappings table|nil
 ---@return nil

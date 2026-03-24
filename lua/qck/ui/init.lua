@@ -708,6 +708,81 @@ function ui.setup()
   install_global_watchers()
 end
 
+---@return boolean
+function ui.is_visible()
+  return runtime.is_visible()
+end
+
+---@param preserve_mode boolean|nil
+---@return qck.TerminalRecord|nil
+function ui.create_terminal(preserve_mode)
+  return terminal_service.create(terminal_state.next_free_id(), preserve_mode == true)
+end
+
+---@return nil
+function ui.open_active_or_create()
+  prune_invalid_tabs()
+
+  if not resolve_active_tab_id() then
+    terminal_service.create(terminal_state.next_free_id())
+    return
+  end
+
+  ui.show()
+end
+
+---@return nil
+function ui.toggle_active_or_create()
+  prune_invalid_tabs()
+
+  if not resolve_active_tab_id() then
+    terminal_service.create(terminal_state.next_free_id())
+    return
+  end
+
+  ui.toggle()
+end
+
+---@return boolean, string?
+function ui.close_active()
+  prune_invalid_tabs()
+
+  local tab_id = resolve_active_tab_id()
+  if not tab_id then
+    return false, "no active tab"
+  end
+
+  local tab = state.get_tab(tab_id)
+  if not tab then
+    return false, "no active tab"
+  end
+
+  if not is_window_open(tab.terminal) then
+    return false, "active tab is hidden"
+  end
+
+  ui.hide()
+  local ok, err = delete_tab_internal(tab_id)
+  if not ok then
+    return false, err
+  end
+
+  local ordered_ids = terminal_state.ordered_ids()
+  terminal_state.set_current_id(ordered_ids[1])
+  return true
+end
+
+---@param direction integer
+---@return nil
+function ui.cycle(direction)
+  local target_id = terminal_state.get_cycle_id(direction)
+  if not target_id then
+    return
+  end
+
+  terminal_service.open(target_id, true)
+end
+
 ---@param tab_id qck.UiTabId
 ---@return nil
 function ui.clear_watchers_for_tab(tab_id)
