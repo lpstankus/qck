@@ -7,7 +7,6 @@ local owner_to_handle = {}
 local handle_to_owner = setmetatable({}, { __mode = "k" })
 local owner_watchers = {}
 local global_watchers = {}
-local focus_target = nil
 
 ---@param value any
 ---@return integer|nil
@@ -61,7 +60,6 @@ function runtime.reset()
   handle_to_owner = setmetatable({}, { __mode = "k" })
   owner_watchers = {}
   global_watchers = {}
-  focus_target = nil
 end
 
 ---@param winid integer|nil
@@ -105,14 +103,6 @@ function runtime.get_tabbar_winid()
   return tabbar_winid
 end
 
----@param bufnr integer|nil
----@param winid integer|nil
----@return nil
-function runtime.set_tabbar_surface(bufnr, winid)
-  runtime.set_tabbar_bufnr(bufnr)
-  runtime.set_tabbar_winid(winid)
-end
-
 ---@return nil
 function runtime.clear_tabbar_winid()
   tabbar_winid = nil
@@ -121,22 +111,6 @@ end
 ---@return boolean
 function runtime.is_visible()
   return runtime.get_content_winid() ~= nil
-end
-
----@param target string|nil
----@return nil
-function runtime.set_focus_target(target)
-  if type(target) ~= "string" or target == "" then
-    focus_target = nil
-    return
-  end
-
-  focus_target = target
-end
-
----@return string|nil
-function runtime.get_focus_target()
-  return focus_target
 end
 
 ---@param owner_id any
@@ -164,12 +138,6 @@ function runtime.register_handle(owner_id, handle)
   owner_to_handle[owner_id] = handle
   handle_to_owner[handle] = owner_id
   return true
-end
-
----@param owner_id any
----@return any
-function runtime.get_registered_handle(owner_id)
-  return owner_to_handle[owner_id]
 end
 
 ---@param handle any
@@ -226,11 +194,6 @@ end
 ---@return table
 function runtime.get_global_watchers()
   return copy_table(global_watchers)
-end
-
----@return nil
-function runtime.clear_global_watchers()
-  global_watchers = {}
 end
 
 return runtime

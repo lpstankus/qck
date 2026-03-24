@@ -1,4 +1,4 @@
--- Terminal-backed client primitives for the UI handoff migration.
+-- Terminal-backed client primitives for the UI-owned runtime.
 --
 -- UI now owns registered terminal-tab runtime behavior after a successful
 -- `attach_and_show(...)` handoff. This module is limited to Snacks terminal
@@ -159,29 +159,6 @@ local function ensure_snacks()
   return true
 end
 
----@return nil
-function terminal.refresh_current_layout()
-  local ui = get_ui()
-  if ui and type(ui.refresh_current_layout) == "function" then
-    ui.refresh_current_layout()
-  end
-end
-
----@return integer|nil
-function terminal.get_current_winid()
-  local current_id = state.get_current_id()
-  if not current_id then
-    return nil
-  end
-
-  local rec = state.get_terminal(current_id)
-  if not state.is_window_open(rec) then
-    return nil
-  end
-
-  return terminal_winid(rec)
-end
-
 ---@param id integer
 ---@param preserve_mode boolean|nil
 ---@return qck.TerminalRecord|nil
@@ -319,38 +296,6 @@ function terminal.toggle(id)
 
   ui.toggle()
   state.sync_current_from_ui()
-end
-
----@return nil
-function terminal.hide_current_if_open()
-  local ui = get_ui()
-  if ui and type(ui.hide) == "function" then
-    ui.hide()
-  end
-end
-
----@param id integer
----@return boolean
-function terminal.move_up(id)
-  local ui = get_ui()
-  local tab_id = state.get_tab_id(id)
-  if ui and tab_id and type(ui.move_tab) == "function" then
-    return select(1, ui.move_tab(tab_id, -1))
-  end
-
-  return state.move_id(id, -1)
-end
-
----@param id integer
----@return boolean
-function terminal.move_down(id)
-  local ui = get_ui()
-  local tab_id = state.get_tab_id(id)
-  if ui and tab_id and type(ui.move_tab) == "function" then
-    return select(1, ui.move_tab(tab_id, 1))
-  end
-
-  return state.move_id(id, 1)
 end
 
 ---@param id integer

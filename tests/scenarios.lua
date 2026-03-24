@@ -310,7 +310,8 @@ function scenarios.ui_runtime_and_layout_scaffolding()
   })
 
   runtime.set_content_winid(content_win)
-  runtime.set_tabbar_surface(tabbar_buf, tabbar_win)
+  runtime.set_tabbar_bufnr(tabbar_buf)
+  runtime.set_tabbar_winid(tabbar_win)
   helpers.assert_eq(runtime.get_content_winid(), content_win, "ui runtime should track the visible content winid")
   helpers.assert_eq(runtime.get_tabbar_bufnr(), tabbar_buf, "ui runtime should track the tabbar bufnr")
   helpers.assert_eq(runtime.get_tabbar_winid(), tabbar_win, "ui runtime should track the tabbar winid")
@@ -319,12 +320,11 @@ function scenarios.ui_runtime_and_layout_scaffolding()
   local handle_a = {}
   local handle_b = {}
   helpers.assert_truthy(select(1, runtime.register_handle(1, handle_a)), "ui runtime should register owned handles")
-  helpers.assert_eq(runtime.get_registered_handle(1), handle_a, "ui runtime should expose the registered handle by owner id")
   helpers.assert_eq(runtime.get_handle_owner(handle_a), 1, "ui runtime should reverse-index registered handles")
   helpers.assert_eq(select(1, runtime.register_handle(2, handle_a)), false, "ui runtime should reject duplicate handle ownership")
   helpers.assert_eq(select(1, runtime.register_handle(1, handle_b)), false, "ui runtime should reject conflicting owner re-registration")
   runtime.unregister_handle(1)
-  helpers.assert_eq(runtime.get_registered_handle(1), nil, "ui runtime should unregister owned handles")
+  helpers.assert_eq(runtime.get_handle_owner(handle_a), nil, "ui runtime should unregister owned handles")
 
   runtime.set_owner_watchers(7, { watched_term_win = 11, terminal_watch_autocmd_id = 12 })
   local owner_watchers = runtime.get_owner_watchers(7)
@@ -388,7 +388,8 @@ function scenarios.ui_tabbar_renders_from_ui_state()
     height = 4,
     style = "minimal",
   })
-  ui_runtime.set_tabbar_surface(buf, win)
+  ui_runtime.set_tabbar_bufnr(buf)
+  ui_runtime.set_tabbar_winid(win)
 
   ui_tabbar.render()
 
@@ -603,6 +604,7 @@ function scenarios.terminals_and_layout()
   local env = helpers.load_qck()
   local qck, state, terminal, tabbar, layout =
     env.qck, env.state, env.terminal, env.tabbar, env.layout
+  local ui = require("qck.ui")
   local ui_runtime = require("qck.ui.runtime")
   local ui_state = require("qck.ui.state")
   local expected = helpers.expected_layout(layout)
@@ -663,14 +665,14 @@ function scenarios.terminals_and_layout()
   assert_ids(state.ordered_ids(), { 1, 2, 3 }, "ordered ids should track all live terminals")
   assert_ids(tabbar_labels(tabbar.get_winid()), { "T1", "T2", "T3" }, "tabbar should render all live terminals")
 
-  local moved_up = terminal.move_up(3)
-  helpers.assert_truthy(moved_up, "move_up() should reorder generic terminals")
-  assert_ids(state.ordered_ids(), { 1, 3, 2 }, "move_up() should update the shared terminal order")
+  local moved_up = select(1, ui.move_tab(state.get_tab_id(3), -1))
+  helpers.assert_truthy(moved_up, "ui.move_tab() should reorder generic terminals upward")
+  assert_ids(state.ordered_ids(), { 1, 3, 2 }, "moving a terminal up should update the shared terminal order")
   assert_ids(tabbar_labels(tabbar.get_winid()), { "T1", "T3", "T2" }, "tabbar should reflect reordered terminal rows")
 
-  local moved_down = terminal.move_down(3)
-  helpers.assert_truthy(moved_down, "move_down() should reorder generic terminals")
-  assert_ids(state.ordered_ids(), { 1, 2, 3 }, "move_down() should restore the original order")
+  local moved_down = select(1, ui.move_tab(state.get_tab_id(3), 1))
+  helpers.assert_truthy(moved_down, "ui.move_tab() should reorder generic terminals downward")
+  assert_ids(state.ordered_ids(), { 1, 2, 3 }, "moving a terminal down should restore the original order")
 
   qck.cycle_prev()
   helpers.assert_eq(state.get_current_id(), 2, "cycle_prev() should follow the generic terminal order")

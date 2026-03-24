@@ -238,12 +238,9 @@ local function get_tab_and_terminal_id(tab_id)
 end
 
 ---@param tab_id qck.UiTabId
----@param handle any
 ---@return nil
-local function clear_owned_runtime(tab_id, handle)
-  if runtime.get_handle_owner(handle) == tab_id then
-    runtime.unregister_handle(tab_id)
-  end
+local function clear_owned_runtime(tab_id)
+  runtime.unregister_handle(tab_id)
   clear_tab_watchers(tab_id)
 end
 
@@ -327,7 +324,7 @@ end
 ---@param handle_win_config table|nil
 ---@return string|nil
 local function rollback_failed_attach(tab_id, handle, previous_active, previous_visible, handle_was_visible, handle_win_config)
-  clear_owned_runtime(tab_id, handle)
+  clear_owned_runtime(tab_id)
   clear_terminal_mappings(handle)
   runtime.clear_content_winid()
   tabbar.hide()
@@ -388,7 +385,7 @@ local function prune_invalid_tab(tab_id)
 
   local terminal_id = terminal_state.get_id_by_terminal(tab.terminal)
 
-  clear_owned_runtime(tab_id, tab.terminal)
+  clear_owned_runtime(tab_id)
   if terminal_id then
     terminal_state.remove_terminal(terminal_id)
   end
@@ -420,7 +417,7 @@ local function handle_invalidated_tab(tab_id, handle)
   local _, terminal_id = get_tab_and_terminal_id(tab_id)
 
   local was_active = resolve_active_tab_id() == tab_id
-  clear_owned_runtime(tab_id, handle)
+  clear_owned_runtime(tab_id)
   if terminal_id then
     terminal_state.remove_terminal(terminal_id)
   end
@@ -706,7 +703,7 @@ show_tab = function(tab_id)
   end
 
   if not is_valid_handle(tab.terminal) then
-    clear_owned_runtime(tab_id, tab.terminal)
+    clear_owned_runtime(tab_id)
     if terminal_id then
       terminal_state.remove_terminal(terminal_id)
     end
@@ -753,7 +750,7 @@ local function delete_tab_internal(tab_id)
   local was_active = is_active_tab(tab_id)
   local was_visible = runtime.is_visible()
 
-  clear_owned_runtime(tab_id, tab.terminal)
+  clear_owned_runtime(tab_id)
   close_handle(tab.terminal)
 
   if terminal_id then
@@ -880,12 +877,6 @@ function ui.cycle(direction)
   end
 
   terminal_service.open(target_id, true)
-end
-
----@param tab_id qck.UiTabId
----@return nil
-function ui.clear_watchers_for_tab(tab_id)
-  clear_tab_watchers(tab_id)
 end
 
 ---@param raw_mappings table|nil

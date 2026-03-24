@@ -495,21 +495,4 @@ function tabbar.show_for_terminal(terminal)
   tabbar.render()
 end
 
----@param rec qck.TerminalRecord|nil
----@return nil
-function tabbar.sync(rec)
-  if not rec or not terminal_state.is_window_open(rec) then
-    tabbar.hide()
-    return
-  end
-
-  local active_tab_id = ui_state.resolve_active_tab()
-  if not active_tab_id or #ui_state.traversal_ids() == 0 then
-    tabbar.hide()
-    return
-  end
-
-  tabbar.show_for_terminal(rec.win)
-end
-
 return tabbar
