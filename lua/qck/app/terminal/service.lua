@@ -1,5 +1,4 @@
--- Snacks terminal handle creation adapter for the UI-owned runtime.
-local layout = require("qck.ui.layout")
+-- Snacks terminal handle creation adapter for the app-owned terminal workflow.
 local notify = require("qck.shared.notify").notify
 
 local terminal = {}
@@ -61,21 +60,21 @@ function terminal.set_snacks(snacks_impl)
   next_handle_count = 1
 end
 
+---@param cmd qck.Command|nil
+---@param opts table|nil
 ---@return qck.TerminalHandle|nil
-function terminal.create_handle()
+function terminal.create_handle(cmd, opts)
   if not ensure_snacks() then
     return nil
   end
 
-  local ok_open, handle_or_err = pcall(snacks.terminal.open, nil, {
-    interactive = true,
-    auto_close = true,
-    count = next_handle_count,
-    win = vim.tbl_extend("force", layout.build_initial_terminal_config(), {
-      position = "float",
-    }),
-  })
-  next_handle_count = next_handle_count + 1
+  opts = type(opts) == "table" and vim.deepcopy(opts) or {}
+  if opts.count == nil then
+    opts.count = next_handle_count
+  end
+
+  local ok_open, handle_or_err = pcall(snacks.terminal.open, cmd, opts)
+  next_handle_count = math.max(next_handle_count, (type(opts.count) == "number" and opts.count or 0) + 1)
 
   if not ok_open or not handle_or_err then
     local msg = ok_open and "failed to open terminal"

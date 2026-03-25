@@ -1,4 +1,4 @@
-local terminal = require("qck.terminal.service")
+local terminal = require("qck.app.terminal.service")
 local ui = require("qck.ui")
 local tabbar = require("qck.ui.tabbar")
 local storage = require("qck.tasks.storage")
@@ -10,6 +10,7 @@ local setup = {}
 local ok, Snacks = pcall(require, "snacks")
 if not ok then error("QCK: snacks.nvim is required") end
 terminal.set_snacks(Snacks)
+ui.setup()
 ui.set_terminal_user_mappings({})
 tabbar.set_user_mappings({})
 

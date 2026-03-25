@@ -5,7 +5,6 @@ local tabbar = require("qck.ui.tabbar")
 local autocmd = require("qck.shared.autocmd")
 local keymaps = require("qck.shared.keymaps")
 local notify = require("qck.shared.notify").notify
-local terminal_service = require("qck.terminal.service")
 
 local ui = {}
 
@@ -790,50 +789,28 @@ function ui.is_visible()
   return runtime.is_visible()
 end
 
----@param preserve_mode boolean|nil
----@return any
-function ui.create_terminal(preserve_mode)
-  return with_suppressed_focus_leave(function()
-    local mode_intent = preserve_mode == true and capture_mode_intent() or nil
-    local handle = terminal_service.create_handle()
-    if not handle then
-      return nil
-    end
-
-    local tab_id, err = ui.attach_and_show(UI_TERMINAL_CATEGORY.key, handle)
-    if not tab_id then
-      terminal_service.close_handle(handle)
-      notify(err or "failed to attach terminal to ui", vim.log.levels.ERROR)
-      return nil
-    end
-
-    restore_mode_intent(handle, mode_intent)
-    return state.get_tab(tab_id)
-  end)
-end
-
----@return nil
-function ui.open_active_or_create()
+---@return boolean
+function ui.open_active()
   prune_invalid_tabs()
 
   if not resolve_active_tab_id() then
-    ui.create_terminal()
-    return
+    return false
   end
 
   ui.show()
+  return true
 end
 
----@return nil
-function ui.toggle_active_or_create()
+---@return boolean
+function ui.toggle_active()
   prune_invalid_tabs()
 
   if not resolve_active_tab_id() then
-    ui.create_terminal()
-    return
+    return false
   end
 
   ui.toggle()
+  return true
 end
 
 ---@return boolean, string?

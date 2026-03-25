@@ -9,7 +9,8 @@ This repository is a Neovim plugin written in Lua.
 - `lua/qck/shared/keymaps.lua`: shared mapping parsing/state/application helpers for user-configured buffer mappings.
 - `lua/qck/shared/notify.lua`: shared `QCK:` notification helper.
 - `lua/qck/shared/types.lua`: shared EmmyLua type aliases/classes.
-- `lua/qck/terminal/service.lua`: raw `snacks.terminal` handle creation/cleanup adapter; UI owns terminal identity, selection, traversal, layout, visibility, and lifecycle after creation.
+- `lua/qck/app/terminal/init.lua`: caller-side ad hoc terminal creation flow that builds initial Snacks opts, creates raw handles, and hands them off to the UI for ownership.
+- `lua/qck/app/terminal/service.lua`: raw `snacks.terminal` handle creation/cleanup adapter used by `app/terminal/init.lua`.
 - `lua/qck/ui/runtime.lua`: UI runtime state for visible content/tabbar winids, owned-handle registration, and watcher bookkeeping.
 - `lua/qck/ui/layout.lua`: UI-owned shared float geometry for content/tabbar layout math.
 - `lua/qck/ui/state.lua`: pure internal UI state for category registration, tab metadata, active-tab fallback, display-id reuse, and traversal ordering.
@@ -18,7 +19,7 @@ This repository is a Neovim plugin written in Lua.
 - `lua/qck/ui/types.lua`: UI-local EmmyLua aliases/classes for categories, tab ids, and tab metadata.
 - `lua/qck/tasks/storage.lua`: workspace-persistent storage for workspace-created task definitions.
 - `lua/qck/tasks/form.lua`: floating task-creation form UI (name/cmd fields, Tab cycling, overwrite confirmation, workspace save).
-- `lua/qck/app/setup.lua`: setup-time wiring for Snacks bootstrapping, mapping parsing, UI/tabbar mapping configuration, and storage load.
+- `lua/qck/app/setup.lua`: setup-time wiring for Snacks bootstrapping, UI setup, mapping parsing, UI/tabbar mapping configuration, and storage load.
 - `tests/mock_snacks.lua`: deterministic Snacks terminal mock for headless `mini.test` coverage/integration runs.
 - `tests/helpers.lua`: shared `mini.test` helper utilities for storage seeding, environment reset, and repeated UI/layout assertions.
 - `tests/test_smoke.lua`: `mini.test` suite covering the current smoke-test behavior in isolated cases.
@@ -30,7 +31,7 @@ This repository is a Neovim plugin written in Lua.
 - `tests/vendor/`: vendored test-only dependencies (`mini.test` and `luacov`).
 - `LICENSE`: project license.
 
-Keep new runtime code under `lua/qck/`. `init.lua` should remain the public entrypoint; internal behavior should be split by package responsibility across `shared/`, `terminal/`, `tasks/`, and `app/`.
+Keep new runtime code under `lua/qck/`. `init.lua` should remain the public entrypoint; internal behavior should be split by package responsibility across `shared/`, `tasks/`, `ui/`, and `app/`.
 
 ## Build, Test, and Development Commands
 There is no build system or package manifest. Use Neovim headless/manual checks:
@@ -139,21 +140,20 @@ Additional tests should be placed under `tests/` and documented in this section.
 ## Current Architecture Findings
 - `snacks.nvim` is required at runtime; plugin load should fail early if unavailable.
 - Package boundaries are:
-  - `shared/`: leaf utilities only, with no imports from `terminal/`, `tasks/`, `ui/`, or `app/`,
-  - `terminal/`: raw Snacks terminal creation/cleanup helpers only,
+  - `shared/`: leaf utilities only, with no imports from `tasks/`, `ui/`, or `app/`,
   - `ui/`: tab/category state, layout, tabbar rendering, visibility, focus, and watcher orchestration,
   - `tasks/`: workspace-persistent task storage and the floating task form UI,
-  - `app/`: setup-time wiring used by `init.lua`.
+  - `app/`: setup-time wiring plus caller-side terminal creation/handoff flow and the raw Snacks adapter used before UI ownership begins.
 - State validity checks guard terminal-handle method calls with `pcall`, so stale/invalid handle behavior cannot break prune/cycle paths.
-- `terminal_service.create_handle()` closes partially opened terminal handles when handle initialization fails, preventing leaked untracked terminal resources.
+- `app/terminal/service.lua` closes partially opened terminal handles when handle initialization fails, preventing leaked untracked terminal resources.
 - Workspace persistence lives in `tasks/storage.lua` (`stdpath("data") .. "/qck.json"`) and stores only per-workspace saved task commands created through `qck.new_task()`.
 - `storage.load()` / `storage.save()` return `(ok, err)` and track `storage.last_error`, so callers can report concrete persistence failure details.
 - Storage loading is fail-fast on unsupported/invalid schema and does not mutate files automatically.
 - `qck.clear_storage()` is the explicit user-triggered storage reset entrypoint for current workspace state.
 - Shared EmmyLua type aliases/classes live in `lua/qck/shared/types.lua`, and module annotations use these types to tighten internal contracts for LuaLS.
-- `lua/qck/init.lua` is limited to the public API surface plus imports and now routes active-tab behavior through `ui/init.lua` helpers.
+- `lua/qck/init.lua` is limited to the public API surface plus imports and delegates internal setup/terminal creation behavior into `app/` modules.
 - Command normalization/cloning/validation is centralized in `lua/qck/shared/cmd.lua` and reused by `tasks/form.lua` and `tasks/storage.lua`.
-- Shared `QCK:` notifications are centralized in `lua/qck/shared/notify.lua` and reused by `init.lua`, `tasks/form.lua`, `terminal/service.lua`, and `app/`.
+- Shared `QCK:` notifications are centralized in `lua/qck/shared/notify.lua` and reused by `init.lua`, `tasks/form.lua`, and `app/`.
 - Mapping-state diff/cleanup helpers are centralized in `lua/qck/shared/keymaps.lua` and reused by both terminal and tabbar mapping application paths.
 - Tab bar presentation renders through `ui/tabbar.lua`, and the close/invalidation watcher lifecycle lives in `ui/init.lua`.
 - Floating window geometry source-of-truth lives in `lua/qck/ui/layout.lua`.
@@ -170,7 +170,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - `tasks/form.lua` keeps runtime UI state in a single local state table (`bufnr`/`winid`/selection/pending overwrite/autocmd ids) instead of scattered module globals.
 - Task form submit sanitization preserves support for legacy inline labels (`Name: ...` / `Command: ...`) by normalizing to current prefixed scaffold rows before validation/save.
 - `tasks/form.lua` writes workspace task commands directly through `tasks/storage.lua` and checks duplicates against persisted workspace data.
-- `terminal/service.lua` now only creates raw Snacks terminal handles (plus adapter-level cleanup), and `ui/init.lua` immediately attaches those handles into the UI-owned runtime.
+- `app/terminal/service.lua` only creates raw Snacks terminal handles (plus adapter-level cleanup), and `app/terminal/init.lua` immediately hands those handles off through `ui/init.lua`.
 - Tabbar presentation is UI-owned:
   - `ui/tabbar.lua` builds row order, row labels, and active-row highlighting from `ui.state` traversal/category metadata,
   - built-in row actions call UI-owned selection/deletion/reorder/focus entrypoints directly.

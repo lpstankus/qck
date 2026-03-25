@@ -5,7 +5,7 @@ local ui = require("qck.ui")
 local task_form = require("qck.tasks.form")
 local storage = require("qck.tasks.storage")
 local app_setup = require("qck.app.setup")
-ui.setup()
+local app_terminal = require("qck.app.terminal")
 
 local notify = require("qck.shared.notify").notify
 
@@ -92,7 +92,7 @@ end
 ---```
 ---@return nil
 function qck.new()
-  ui.create_terminal(ui.is_visible())
+  app_terminal.create_and_attach(ui.is_visible())
 end
 
 ---Open the task-creation form for adding a saved task in this workspace.
@@ -120,7 +120,7 @@ end
 ---```
 ---@return nil
 function qck.open()
-  ui.open_active_or_create()
+  app_terminal.open_active_or_create()
 end
 
 ---Close the active qck terminal tab and remove it from qck state.
@@ -158,7 +158,7 @@ end
 ---```
 ---@return nil
 function qck.toggle()
-  ui.toggle_active_or_create()
+  app_terminal.toggle_active_or_create()
 end
 
 ---Move to the next live qck terminal, wrapping around at the end.
