@@ -81,66 +81,179 @@ function scenarios.task_form_create_and_overwrite()
   local env = helpers.load_qck()
   local qck, storage, task_form, workspace =
     env.qck, env.storage, env.task_form, env.workspace
+  local original_notify = vim.notify
 
-  qck.new_task()
-  local form_win = task_form.get_winid()
-  helpers.assert_truthy(type(form_win) == "number", "new_task() should open task form window")
+  vim.notify = function() end
 
-  qck.new_task()
-  helpers.assert_eq(task_form.get_winid(), form_win, "new_task() should focus existing task form window")
+  local ok, err = pcall(function()
 
-  local form_buf = vim.api.nvim_win_get_buf(form_win)
-  helpers.assert_eq(vim.bo[form_buf].filetype, "qck-task-form", "task form should set filetype")
-  helpers.assert_form_scaffold(form_buf)
+    qck.new_task()
+    local form_win = task_form.get_winid()
+    helpers.assert_truthy(type(form_win) == "number", "new_task() should open task form window")
 
-  helpers.set_form_fields(form_buf, "Name: lint", "Command: echo lint")
-  task_form.submit()
-  helpers.assert_eq(task_form.get_winid(), nil, "task form should close after successful create")
-  helpers.assert_eq(storage.get_task_cmd(workspace, "lint"), "echo lint", "created task command should persist")
+    qck.new_task()
+    helpers.assert_eq(task_form.get_winid(), form_win, "new_task() should focus existing task form window")
 
-  qck.new_task()
-  form_win = task_form.get_winid()
-  helpers.assert_truthy(type(form_win) == "number", "second new_task() should open task form")
+    local form_buf = vim.api.nvim_win_get_buf(form_win)
+    helpers.assert_eq(vim.bo[form_buf].filetype, "qck-task-form", "task form should set filetype")
+    helpers.assert_form_scaffold(form_buf)
 
-  form_buf = vim.api.nvim_win_get_buf(form_win)
-  helpers.set_form_fields(form_buf, "Name: lint", "Command: echo lint 2")
-  task_form.submit()
-  helpers.assert_truthy(task_form.get_winid() ~= nil, "first duplicate save should require confirmation")
-  helpers.assert_eq(
-    storage.get_task_cmd(workspace, "lint"),
-    "echo lint",
-    "first duplicate save should not overwrite existing task"
-  )
+    helpers.set_form_fields(form_buf, "Name: lint", "Command: echo lint")
+    task_form.submit()
+    helpers.assert_eq(task_form.get_winid(), nil, "task form should close after successful create")
+    helpers.assert_eq(storage.get_task_cmd(workspace, "lint"), "echo lint", "created task command should persist")
 
-  form_buf = vim.api.nvim_win_get_buf(task_form.get_winid())
-  helpers.set_form_fields(form_buf, "Name: ", "Command: echo lint 2")
-  task_form.submit()
-  helpers.assert_truthy(task_form.get_winid() ~= nil, "empty name validation should keep task form open")
+    qck.new_task()
+    form_win = task_form.get_winid()
+    helpers.assert_truthy(type(form_win) == "number", "second new_task() should open task form")
 
-  helpers.set_form_fields(form_buf, "Name: lint", "Command: echo lint 2")
-  task_form.submit()
-  helpers.assert_truthy(
-    task_form.get_winid() ~= nil,
-    "changing form contents after duplicate warning should require overwrite confirmation again"
-  )
-  helpers.assert_eq(
-    storage.get_task_cmd(workspace, "lint"),
-    "echo lint",
-    "duplicate overwrite confirmation should not persist before second submit"
-  )
+    form_buf = vim.api.nvim_win_get_buf(form_win)
+    helpers.set_form_fields(form_buf, "Name: lint", "Command: echo lint 2")
+    task_form.submit()
+    helpers.assert_truthy(task_form.get_winid() ~= nil, "first duplicate save should require confirmation")
+    helpers.assert_eq(
+      storage.get_task_cmd(workspace, "lint"),
+      "echo lint",
+      "first duplicate save should not overwrite existing task"
+    )
 
-  task_form.submit()
-  helpers.assert_eq(task_form.get_winid(), nil, "second duplicate save should close task form")
-  helpers.assert_eq(
-    storage.get_task_cmd(workspace, "lint"),
-    "echo lint 2",
-    "second duplicate save should overwrite existing task"
-  )
-  helpers.assert_eq(
-    storage.get_task_cmd(workspace .. "-other", "lint"),
-    nil,
-    "task form should only persist to the current workspace"
-  )
+    form_buf = vim.api.nvim_win_get_buf(task_form.get_winid())
+    helpers.set_form_fields(form_buf, "Name: ", "Command: echo lint 2")
+    task_form.submit()
+    helpers.assert_truthy(task_form.get_winid() ~= nil, "empty name validation should keep task form open")
+
+    helpers.set_form_fields(form_buf, "Name: lint", "Command: echo lint 2")
+    task_form.submit()
+    helpers.assert_truthy(
+      task_form.get_winid() ~= nil,
+      "changing form contents after duplicate warning should require overwrite confirmation again"
+    )
+    helpers.assert_eq(
+      storage.get_task_cmd(workspace, "lint"),
+      "echo lint",
+      "duplicate overwrite confirmation should not persist before second submit"
+    )
+
+    task_form.submit()
+    helpers.assert_eq(task_form.get_winid(), nil, "second duplicate save should close task form")
+    helpers.assert_eq(
+      storage.get_task_cmd(workspace, "lint"),
+      "echo lint 2",
+      "second duplicate save should overwrite existing task"
+    )
+    helpers.assert_eq(
+      storage.get_task_cmd(workspace .. "-other", "lint"),
+      nil,
+      "task form should only persist to the current workspace"
+    )
+  end)
+
+  vim.notify = original_notify
+  if not ok then
+    error(err)
+  end
+end
+
+function scenarios.task_runner_selects_workspace_task()
+  local env = helpers.load_qck()
+  local qck, storage, task_runner, workspace =
+    env.qck, env.storage, env.task_runner, env.workspace
+  local other_workspace = workspace .. "-other"
+  local notifications = {}
+  local original_notify = vim.notify
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  storage.set_task_cmd(workspace, "test", { "npm", "test" })
+  storage.set_task_cmd(other_workspace, "build", "echo build")
+
+  vim.notify = function(msg, level)
+    notifications[#notifications + 1] = { msg = msg, level = level }
+  end
+
+  local ok, err = pcall(function()
+    qck.run_task()
+    local runner_win = task_runner.get_winid()
+    helpers.assert_truthy(type(runner_win) == "number", "run_task() should open task runner window")
+
+    qck.run_task()
+    helpers.assert_eq(task_runner.get_winid(), runner_win, "run_task() should focus existing task runner window")
+
+    local runner_buf = vim.api.nvim_win_get_buf(runner_win)
+    helpers.assert_eq(vim.bo[runner_buf].filetype, "qck-task-runner", "task runner should set filetype")
+    helpers.assert_truthy(vim.bo[runner_buf].modifiable == false, "task runner buffer should not be modifiable")
+    helpers.assert_truthy(buf_has_mapping(runner_buf, "n", "j"), "task runner should map j")
+    helpers.assert_truthy(buf_has_mapping(runner_buf, "n", "k"), "task runner should map k")
+    helpers.assert_truthy(buf_has_mapping(runner_buf, "n", "<CR>"), "task runner should map <CR>")
+    helpers.assert_truthy(buf_has_mapping(runner_buf, "n", "<Esc>"), "task runner should map <Esc>")
+    helpers.assert_truthy(buf_has_mapping(runner_buf, "n", "i"), "task runner should block insert entry")
+
+    local lines = vim.api.nvim_buf_get_lines(runner_buf, 0, -1, false)
+    helpers.assert_truthy(vim.deep_equal(lines, { "lint │ echo lint", "test │ npm test" }), "task runner should render current workspace tasks sorted by name with divider")
+
+    local current_line = vim.api.nvim_win_get_cursor(runner_win)[1]
+    helpers.assert_eq(current_line, 1, "task runner should start on first task")
+    local marks = vim.api.nvim_buf_get_extmarks(runner_buf, -1, 0, -1, { details = true })
+    helpers.assert_eq(#marks, 1, "task runner should highlight the selected line")
+    helpers.assert_eq(marks[1][2], 0, "task runner highlight should start on current line")
+    helpers.assert_truthy(marks[1][4].hl_group == "QckTaskRunnerCurrent", "task runner should use its current-row highlight")
+    helpers.assert_truthy(marks[1][4].hl_eol == true, "task runner should highlight the whole current row")
+
+    feed("j")
+    helpers.assert_eq(vim.api.nvim_win_get_cursor(runner_win)[1], 2, "j should move selection down")
+    feed("j")
+    helpers.assert_eq(vim.api.nvim_win_get_cursor(runner_win)[1], 2, "j should stop at the last task")
+    feed("k")
+    helpers.assert_eq(vim.api.nvim_win_get_cursor(runner_win)[1], 1, "k should move selection up")
+    feed("k")
+    helpers.assert_eq(vim.api.nvim_win_get_cursor(runner_win)[1], 1, "k should stop at the first task")
+
+    feed("i")
+    helpers.assert_truthy(vim.api.nvim_get_mode().mode:sub(1, 1) ~= "i", "task runner should not allow insert mode")
+    helpers.assert_truthy(vim.deep_equal(vim.api.nvim_buf_get_lines(runner_buf, 0, -1, false), lines), "blocked insert should not mutate runner rows")
+
+    feed("j")
+    feed("<CR>")
+    helpers.assert_eq(#notifications, 1, "<CR> should notify the selected task")
+    helpers.assert_eq(notifications[1].msg, "QCK: selected task `test`: npm test", "task runner notification should include selected task name and command")
+    helpers.assert_eq(task_runner.get_winid(), nil, "<CR> should close the task runner after selecting a task")
+  end)
+
+  vim.notify = original_notify
+  if not ok then
+    error(err)
+  end
+end
+
+function scenarios.task_runner_empty_workspace()
+  local env = helpers.load_qck()
+  local qck, task_runner = env.qck, env.task_runner
+  local notifications = {}
+  local original_notify = vim.notify
+
+  vim.notify = function(msg, level)
+    notifications[#notifications + 1] = { msg = msg, level = level }
+  end
+
+  local ok, err = pcall(function()
+    qck.run_task()
+    local runner_win = task_runner.get_winid()
+    helpers.assert_truthy(type(runner_win) == "number", "run_task() should open empty task runner window")
+
+    local runner_buf = vim.api.nvim_win_get_buf(runner_win)
+    local lines = vim.api.nvim_buf_get_lines(runner_buf, 0, -1, false)
+    helpers.assert_truthy(vim.deep_equal(lines, { "No tasks for current workspace" }), "empty task runner should render empty state")
+
+    feed("<CR>")
+    helpers.assert_eq(#notifications, 0, "<CR> should be a no-op without runnable tasks")
+
+    feed("<Esc>")
+    helpers.assert_eq(task_runner.get_winid(), nil, "<Esc> should close empty task runner")
+  end)
+
+  vim.notify = original_notify
+  if not ok then
+    error(err)
+  end
 end
 
 function scenarios.storage_roundtrip()
@@ -1052,6 +1165,8 @@ end
 function scenarios.ordered()
   return {
     { name = "task form | creates and overwrites workspace task", run = scenarios.task_form_create_and_overwrite },
+    { name = "task runner | selects workspace task", run = scenarios.task_runner_selects_workspace_task },
+    { name = "task runner | handles empty workspace", run = scenarios.task_runner_empty_workspace },
     { name = "storage | persists workspace task commands across load/save", run = scenarios.storage_roundtrip },
     { name = "ui state | registers categories and traverses tabs", run = scenarios.ui_state_registration_and_traversal },
     { name = "ui runtime | tracks windows, handles, and layout scaffolding", run = scenarios.ui_runtime_and_layout_scaffolding },

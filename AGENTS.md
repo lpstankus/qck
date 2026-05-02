@@ -3,7 +3,7 @@
 ## Project Structure & Module Organization
 This repository is a Neovim plugin written in Lua.
 
-- `lua/qck/init.lua`: public plugin API (`setup`, `clear_storage`, `new`, `new_task`, `open`, `close`, `toggle`, `cycle_next`, `cycle_prev`, `switch_focus`).
+- `lua/qck/init.lua`: public plugin API (`setup`, `clear_storage`, `new`, `new_task`, `run_task`, `open`, `close`, `toggle`, `cycle_next`, `cycle_prev`, `switch_focus`).
 - `lua/qck/shared/autocmd.lua`: shared plugin autocmd wrapper exposing a single `qck` augroup.
 - `lua/qck/shared/cmd.lua`: shared command normalization/cloning/validation helpers (`string` or string-list commands).
 - `lua/qck/shared/keymaps.lua`: shared mapping parsing/state/application helpers for user-configured buffer mappings.
@@ -19,6 +19,7 @@ This repository is a Neovim plugin written in Lua.
 - `lua/qck/ui/types.lua`: UI-local EmmyLua aliases/classes for categories, tab ids, and tab metadata.
 - `lua/qck/tasks/storage.lua`: workspace-persistent storage for workspace-created task definitions.
 - `lua/qck/tasks/form.lua`: floating task-creation form UI (name/cmd fields, Tab cycling, overwrite confirmation, workspace save).
+- `lua/qck/tasks/runner.lua`: floating task-runner selector UI for current-workspace saved tasks; normal-mode-only navigation, `<CR>` selection notification, and `<Esc>` close.
 - `lua/qck/app/setup.lua`: setup-time wiring for Snacks bootstrapping, UI setup, mapping parsing, UI/tabbar mapping configuration, and storage load.
 - `tests/mock_snacks.lua`: deterministic Snacks terminal mock for headless `mini.test` coverage/integration runs.
 - `tests/helpers.lua`: shared `mini.test` helper utilities for storage seeding, environment reset, and repeated UI/layout assertions.
@@ -68,7 +69,7 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
 2. Coverage collection (`tests/coverage.lua`).
 3. Coverage report generation (`tests/luacov_report.lua`).
 4. Headless load check.
-5. Manual workflow checks: `new`, `open`, `close`, `toggle`, `cycle_next`, `cycle_prev`, `clear_storage`.
+5. Manual workflow checks: `new`, `open`, `close`, `toggle`, `cycle_next`, `cycle_prev`, `new_task`, `run_task`, `clear_storage`.
 6. Multi-terminal visibility checks:
     - creating/opening a different terminal should hide the previously visible terminal window,
     - `toggle` should affect only the current terminal visibility,
@@ -104,32 +105,41 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
     - after changing form contents following a duplicate warning, overwrite must require confirmation again,
     - second save on the same duplicate name overwrites and closes form,
     - successful save persists task command for the current workspace only.
-11. Storage-only task checks:
+11. Task runner checks:
+    - `run_task()` opens a floating selector with only current-workspace saved tasks,
+    - calling `run_task()` while the selector is already open should focus/reuse the same window,
+    - task rows are sorted by name and the selected row uses full-row reverse highlight,
+    - `j`/`k` navigate within task rows without wrapping beyond bounds,
+    - the selector is normal-mode-only and read-only,
+    - `<CR>` on a task row should notify the selected task name and command,
+    - `<CR>` on an empty workspace should be a no-op,
+    - `<Esc>` closes the selector.
+12. Storage-only task checks:
     - storage load/save round-trips normalized workspace task commands,
     - workspace task data remains isolated per working directory.
-12. UI state checks:
+13. UI state checks:
     - category registration is ordered and idempotent only for matching metadata,
     - category labels stay unique across categories,
     - registered tabs capture category label/display metadata,
     - per-category ordering drives derived global traversal order,
     - category display ids reuse the lowest missing value after deletion,
     - stale-or-nil active tab fallback adopts the first live tab in traversal order.
-13. UI runtime/layout checks:
+14. UI runtime/layout checks:
     - runtime tracks visible content/tabbar winids and clears stale winids lazily on read,
     - runtime keeps owned-handle and watcher bookkeeping isolated from caller mutation,
     - UI layout math matches the existing shared terminal/tabbar float footprint.
-14. UI tabbar checks:
+15. UI tabbar checks:
      - tabbar row order is derived from `ui.state` traversal order,
      - row labels come from category label plus category display id,
      - active-row highlight follows `ui.state` active-tab selection.
-15. UI init contract checks:
+16. UI init contract checks:
     - `attach_and_show()` registers a new tab, makes it active, shows it immediately, and hides the previously visible tab,
     - `show()`/`hide()`/`toggle()` preserve active-tab selection while updating visibility,
     - `set_active_tab()` swaps visible content without reordering when UI is open,
     - `move_tab()` rerenders tabbar order and rejects invalid directions,
     - `delete_tab()` adopts the next live tab and hides the UI when the last tab is removed,
     - failed `attach_and_show()` rolls back tab registration, active selection, visibility, owned-handle bookkeeping, and watcher state.
-16. UI watcher ownership checks:
+17. UI watcher ownership checks:
     - global focus-leave and resize watchers are installed through `ui.init`,
     - per-tab watcher bookkeeping covers buffer invalidation plus visible content/tabbar close behavior,
     - hiding or replacing a visible tab clears only visibility watchers while preserving invalidation cleanup,
@@ -143,7 +153,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - Package boundaries are:
   - `shared/`: leaf utilities only, with no imports from `tasks/`, `ui/`, or `app/`,
   - `ui/`: tab/category state, layout, tabbar rendering, visibility, focus, and watcher orchestration,
-  - `tasks/`: workspace-persistent task storage and the floating task form UI,
+  - `tasks/`: workspace-persistent task storage, the floating task creation form, and the current-workspace task runner selector,
   - `app/`: setup-time wiring plus caller-side terminal creation/handoff flow and the raw Snacks adapter used before UI ownership begins.
 - State validity checks guard terminal-handle method calls with `pcall`, so stale/invalid handle behavior cannot break prune/cycle paths.
 - `app/terminal/service.lua` closes partially opened terminal handles when handle initialization fails, preventing leaked untracked terminal resources.
@@ -165,8 +175,9 @@ Additional tests should be placed under `tests/` and documented in this section.
 - `noautocmd` is valid when creating the tab bar float (`nvim_open_win`), but must not be passed to `nvim_win_set_config` for an existing window.
 - `qck.new()` creates a new ad hoc terminal tab and does not accept task or terminal options.
 - Terminal runtime manages ad hoc qck terminal instances only; it does not accept task-specific command/runtime options.
-- Task support is intentionally limited to `qck.new_task()`, `tasks/storage.lua`, and `qck.clear_storage()`; there is no task execution, hydration, override, or task-linked terminal runtime.
+- Task support is intentionally limited to `qck.new_task()`, `qck.run_task()`, `tasks/storage.lua`, and `qck.clear_storage()`; `run_task()` currently validates selection by notification only, with no task execution, hydration, override, or task-linked terminal runtime.
 - `qck.new_task()` opens `tasks/form.lua` floating UI for creating workspace-scoped tasks; form saves trimmed task commands into workspace storage.
+- `qck.run_task()` opens `tasks/runner.lua` floating UI for selecting current-workspace saved tasks; the selector is read-only, normal-mode-only, uses `j`/`k` navigation, `<CR>` notification, and `<Esc>` close.
 - Task form duplicate protection is explicit two-step overwrite: first submit on an existing task warns, second submit with the same name confirms overwrite.
 - `tasks/form.lua` keeps runtime UI state in a single local state table (`bufnr`/`winid`/selection/pending overwrite/autocmd ids) instead of scattered module globals.
 - Task form submit sanitization preserves support for legacy inline labels (`Name: ...` / `Command: ...`) by normalizing to current prefixed scaffold rows before validation/save.

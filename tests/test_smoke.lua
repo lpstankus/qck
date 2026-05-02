@@ -12,6 +12,10 @@ local T = new_set({
 T["task form"] = new_set()
 T["task form"]["creates and overwrites workspace task"] = scenarios.task_form_create_and_overwrite
 
+T["task runner"] = new_set()
+T["task runner"]["selects workspace task"] = scenarios.task_runner_selects_workspace_task
+T["task runner"]["handles empty workspace"] = scenarios.task_runner_empty_workspace
+
 T["storage"] = new_set()
 T["storage"]["persists workspace task commands across load/save"] = scenarios.storage_roundtrip
 T["storage"]["clears workspace data for current workspace"] = scenarios.clear_storage

@@ -3,6 +3,7 @@ local qck = {}
 require("qck.shared.types")
 local ui = require("qck.ui")
 local task_form = require("qck.tasks.form")
+local task_runner = require("qck.tasks.runner")
 local storage = require("qck.tasks.storage")
 local app_setup = require("qck.app.setup")
 local app_terminal = require("qck.app.terminal")
@@ -107,6 +108,20 @@ end
 ---@return nil
 function qck.new_task()
   task_form.open()
+end
+
+---Open the task runner selector for saved tasks in this workspace.
+---
+---Parameters:
+---  - None.
+---
+---Example:
+---```lua
+---require("qck").run_task()
+---```
+---@return nil
+function qck.run_task()
+  task_runner.open()
 end
 
 ---Show the active qck terminal, creating a new one when none exist.

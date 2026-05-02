@@ -72,6 +72,7 @@ function M.load_qck(opts)
     ui_state = require("qck.ui.state"),
     storage = require("qck.tasks.storage"),
     task_form = require("qck.tasks.form"),
+    task_runner = require("qck.tasks.runner"),
     tabbar = require("qck.ui.tabbar"),
     layout = require("qck.ui.layout"),
     workspace = vim.fn.getcwd(),
@@ -91,7 +92,7 @@ function M.expected_layout(layout)
   )
   local expected_total_height = math.max(
     1,
-    math.min(vim.o.lines, vim.o.lines - (vertical_margin * 2 + border_footprint))
+    math.min(vim.o.lines, vim.o.lines - vim.o.cmdheight - (vertical_margin * 2 + border_footprint))
   )
 
   return {
@@ -157,7 +158,7 @@ function M.assert_window_layout(term_win, tab_win, expected, msg_prefix)
     msg_prefix .. ": right margin should match configured spacing"
   )
   M.assert_eq(
-    vim.o.lines - (math.floor(tonumber(tab_cfg.row) or 0) + expected.total_height + border_footprint),
+    vim.o.lines - vim.o.cmdheight - (math.floor(tonumber(tab_cfg.row) or 0) + expected.total_height + border_footprint),
     expected.vertical_margin,
     msg_prefix .. ": bottom margin should match configured spacing"
   )

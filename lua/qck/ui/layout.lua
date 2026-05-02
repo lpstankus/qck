@@ -40,7 +40,7 @@ end
 
 ---@return integer
 function layout.get_total_height()
-  local editor_height = math.max(1, vim.o.lines)
+  local editor_height = math.max(1, vim.o.lines - vim.o.cmdheight)
   return math.max(1, editor_height - (VERTICAL_MARGIN * 2 + FLOAT_BORDER_FOOTPRINT))
 end
 
