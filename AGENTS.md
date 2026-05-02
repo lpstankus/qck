@@ -119,7 +119,7 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
     - task terminals should use `auto_close = false` so command completion keeps Neovim's default exited-command prompt open for user input,
     - task terminals should be pinned before regular terminals in traversal/tabbar order (`K#` before `T#`),
     - `<CR>` on an empty workspace should be a no-op,
-    - `<Esc>` closes the selector.
+    - `<Esc>` and `q` close the selector.
 12. Storage-only task checks:
     - storage load/save round-trips normalized workspace task commands,
     - storage survives a fresh module reload in the same data directory,
@@ -186,7 +186,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - UI setup registers the `K` task category before the `T` terminal category so task terminals stay pinned before regular terminals in traversal and tabbar order.
 - Task support is intentionally limited to `qck.new_task()`, `qck.run_task()`, `tasks/storage.lua`, and `qck.clear_storage()`; `run_task()` executes saved commands in `K#` task terminals, with no task hydration or override runtime.
 - `qck.new_task()` opens `tasks/form.lua` floating UI for creating workspace-scoped tasks; form saves trimmed task commands into workspace storage.
-- `qck.run_task()` opens `tasks/runner.lua` floating UI for selecting current-workspace saved tasks; the selector is read-only, normal-mode-only, uses `j`/`k` navigation, `<CR>` task-terminal spawn, and `<Esc>` close.
+- `qck.run_task()` opens `tasks/runner.lua` floating UI for selecting current-workspace saved tasks; the selector is read-only, normal-mode-only, uses `j`/`k` navigation, `<CR>` task-terminal spawn, and `<Esc>`/`q` close.
 - Task-run terminal reuse is keyed by normalized command value, not task name; two task names with the same command share one live `K#` terminal.
 - Task-run terminals use `auto_close = false`, so completed commands keep the terminal window/tabbar visible and wait on Neovim's default command-exited prompt until the user acts.
 - Task form duplicate protection is explicit two-step overwrite: first submit on an existing task warns, second submit with the same name confirms overwrite.

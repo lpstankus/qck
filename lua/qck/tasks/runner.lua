@@ -217,6 +217,7 @@ local function apply_keymaps()
   vim.keymap.set("n", "k", function() move_selection(-1) end, opts)
   vim.keymap.set("n", "<CR>", select_current, opts)
   vim.keymap.set("n", "<Esc>", close, opts)
+  vim.keymap.set("n", "q", close, opts)
 
   for _, lhs in ipairs({ "i", "I", "a", "A", "o", "O", "s", "S", "c", "C", "r", "R" }) do
     vim.keymap.set("n", lhs, block_insert, opts)

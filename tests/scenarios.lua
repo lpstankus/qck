@@ -186,6 +186,7 @@ function scenarios.task_runner_selects_workspace_task()
     helpers.assert_truthy(buf_has_mapping(runner_buf, "n", "k"), "task runner should map k")
     helpers.assert_truthy(buf_has_mapping(runner_buf, "n", "<CR>"), "task runner should map <CR>")
     helpers.assert_truthy(buf_has_mapping(runner_buf, "n", "<Esc>"), "task runner should map <Esc>")
+    helpers.assert_truthy(buf_has_mapping(runner_buf, "n", "q"), "task runner should map q")
     helpers.assert_truthy(buf_has_mapping(runner_buf, "n", "i"), "task runner should block insert entry")
 
     local lines = vim.api.nvim_buf_get_lines(runner_buf, 0, -1, false)
@@ -211,6 +212,13 @@ function scenarios.task_runner_selects_workspace_task()
     feed("i")
     helpers.assert_truthy(vim.api.nvim_get_mode().mode:sub(1, 1) ~= "i", "task runner should not allow insert mode")
     helpers.assert_truthy(vim.deep_equal(vim.api.nvim_buf_get_lines(runner_buf, 0, -1, false), lines), "blocked insert should not mutate runner rows")
+
+    feed("q")
+    helpers.assert_eq(task_runner.get_winid(), nil, "q should close the task runner")
+
+    qck.run_task()
+    runner_win = task_runner.get_winid()
+    helpers.assert_truthy(type(runner_win) == "number", "run_task() should reopen task runner after q closes it")
 
     feed("j")
     feed("<CR>")
