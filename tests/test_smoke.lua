@@ -42,6 +42,7 @@ T["terminals"]["manages generic terminals with shared layout"] = scenarios.termi
 T["terminals"]["preserves lifecycle watcher behavior and focus routing"] = scenarios.terminal_lifecycle_watchers_and_focus
 T["terminals"]["keeps finished task terminal open"] = scenarios.task_terminal_finish_keeps_task_tab_open
 T["terminals"]["preserves mixed terminal tabbar after task finish"] = scenarios.task_terminal_finish_preserves_mixed_tabbar
+T["terminals"]["pins task terminals before regular terminals"] = scenarios.task_terminals_are_pinned_before_regular_terminals
 T["terminals"]["prunes invalid terminals and adopts live fallbacks"] = scenarios.terminal_invalidation_and_active_fallbacks
 
 return T

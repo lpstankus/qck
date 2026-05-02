@@ -17,6 +17,10 @@ local user_terminal_mappings = {}
 local terminal_mapping_lhs = {}
 local previous_terminal_mapping_lhs = {}
 local terminal_mapping_modes = { "n", "t" }
+local UI_TASK_CATEGORY = {
+  key = "task",
+  label = "K",
+}
 local UI_TERMINAL_CATEGORY = {
   key = "terminal",
   label = "T",
@@ -793,6 +797,7 @@ end
 
 ---@return nil
 function ui.setup()
+  state.register_category(UI_TASK_CATEGORY)
   state.register_category(UI_TERMINAL_CATEGORY)
 
   if initialized then

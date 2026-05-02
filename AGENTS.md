@@ -19,7 +19,7 @@ This repository is a Neovim plugin written in Lua.
 - `lua/qck/ui/types.lua`: UI-local EmmyLua aliases/classes for categories, tab ids, and tab metadata.
 - `lua/qck/tasks/storage.lua`: workspace-persistent storage for workspace-created task definitions.
 - `lua/qck/tasks/form.lua`: floating task-creation form UI (name/cmd fields, Tab cycling, overwrite confirmation, workspace save).
-- `lua/qck/tasks/runner.lua`: floating task-runner selector UI for current-workspace saved tasks; normal-mode-only navigation, `<CR>` selection notification, and `<Esc>` close.
+- `lua/qck/tasks/runner.lua`: floating task-runner selector UI for current-workspace saved tasks; normal-mode-only navigation, `<CR>` task-terminal spawn, and `<Esc>` close.
 - `lua/qck/app/setup.lua`: setup-time wiring for Snacks bootstrapping, UI setup, mapping parsing, UI/tabbar mapping configuration, and storage load.
 - `tests/mock_snacks.lua`: deterministic Snacks terminal mock for headless `mini.test` coverage/integration runs.
 - `tests/helpers.lua`: shared `mini.test` helper utilities for storage seeding, environment reset, and repeated UI/layout assertions.
@@ -116,6 +116,7 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
     - the selector is normal-mode-only and read-only,
     - `<CR>` on a task row should spawn and focus a `K#` task terminal with the selected command and close the selector,
     - task terminals should use `auto_close = false` so command completion keeps Neovim's default exited-command prompt open for user input,
+    - task terminals should be pinned before regular terminals in traversal/tabbar order (`K#` before `T#`),
     - `<CR>` on an empty workspace should be a no-op,
     - `<Esc>` closes the selector.
 12. Storage-only task checks:
@@ -181,6 +182,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - `noautocmd` is valid when creating the tab bar float (`nvim_open_win`), but must not be passed to `nvim_win_set_config` for an existing window.
 - `qck.new()` creates a new ad hoc terminal tab and does not accept task or terminal options.
 - Terminal runtime manages ad hoc `T#` terminals and task-runner `K#` terminals through the shared UI category model.
+- UI setup registers the `K` task category before the `T` terminal category so task terminals stay pinned before regular terminals in traversal and tabbar order.
 - Task support is intentionally limited to `qck.new_task()`, `qck.run_task()`, `tasks/storage.lua`, and `qck.clear_storage()`; `run_task()` executes saved commands in `K#` task terminals, with no task hydration or override runtime.
 - `qck.new_task()` opens `tasks/form.lua` floating UI for creating workspace-scoped tasks; form saves trimmed task commands into workspace storage.
 - `qck.run_task()` opens `tasks/runner.lua` floating UI for selecting current-workspace saved tasks; the selector is read-only, normal-mode-only, uses `j`/`k` navigation, `<CR>` task-terminal spawn, and `<Esc>` close.
@@ -215,7 +217,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - `lua/qck/ui/init.lua` now makes the internal handoff contract executable for this chunk: it can register categories, attach caller-created handles, manage active-tab visibility for UI-owned tabs, expose thin public-behavior wrappers (`create/open/toggle/close/cycle`) for `qck.init`, roll back failed `attach_and_show()` attempts, and route focus switching through UI-owned content/tabbar winids.
 - `ui/init.lua` now owns watcher installation and cleanup for both global focus/resize behavior and per-tab buffer/window lifecycle tracking; focus/resize behavior no longer depends on app-level bridges.
 - UI-owned watcher helpers explicitly separate long-lived global watcher state from per-tab watcher state, and terminal-backed window swaps temporarily suppress focus-leave auto-hide so internal hide/show churn does not collapse the UI.
-- `ui/state.lua` is now the sole owner of terminal-tab identity, ordering, cycling, active-tab fallback, and `T#` display ids.
+- `ui/state.lua` is now the sole owner of terminal-tab identity, ordering, cycling, active-tab fallback, and `K#`/`T#` display ids.
 - `ui/init.lua` resolves active-tab-only behavior strictly through `ui/state.lua`; no terminal-id compatibility layer remains in runtime flows.
 - deleting the active tab now always follows `ui.state` traversal fallback rules: visible deletes immediately show the adopted next live tab when one exists, while hidden deletes keep the UI hidden and only update active selection.
 - category re-registration stays mutable until that specific category gets its first attached tab; after first use, only metadata-identical re-registration is allowed.

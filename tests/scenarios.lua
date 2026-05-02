@@ -290,7 +290,7 @@ function scenarios.task_terminal_finish_preserves_mixed_tabbar()
   helpers.assert_eq(task_tab and task_tab.category_label, "K", "task terminal should use K labels in mixed traversal")
   helpers.assert_truthy(handle_is_open(task_handle), "task terminal should be visible before finish")
   helpers.assert_truthy(not handle_is_open(base_handle), "base terminal should be hidden while task terminal is active")
-  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "T1", "K1" }), "tabbar should render terminal and task categories")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K1", "T1" }), "tabbar should render task terminals before regular terminals")
 
   mock_snacks.finish_handle(task_handle)
   vim.wait(20, function() return false end)
@@ -298,7 +298,36 @@ function scenarios.task_terminal_finish_preserves_mixed_tabbar()
   helpers.assert_truthy(handle_is_open(task_handle), "finished task terminal should remain visible")
   helpers.assert_truthy(not handle_is_open(base_handle), "base terminal should stay hidden while finished task remains active")
   helpers.assert_eq(ui_state.resolve_active_tab(), task_tab_id, "finished active task should stay active")
-  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "T1", "K1" }), "tabbar should keep terminal and task rows after task finish")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K1", "T1" }), "tabbar should keep task terminals before regular terminals after task finish")
+end
+
+function scenarios.task_terminals_are_pinned_before_regular_terminals()
+  local env = helpers.load_qck()
+  local qck, storage, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.ui_state, env.tabbar, env.workspace
+
+  helpers.assert_truthy(
+    vim.deep_equal(ui_state.category_keys(), { "task", "terminal" }),
+    "plugin setup should register task category before regular terminal category"
+  )
+
+  qck.open()
+  local terminal_tab_id = ui_state.resolve_active_tab()
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  qck.run_task()
+  feed("<CR>")
+
+  local task_tab_id = ui_state.resolve_active_tab()
+  helpers.assert_truthy(task_tab_id ~= nil and task_tab_id ~= terminal_tab_id, "task runner should create a separate task tab")
+  helpers.assert_truthy(
+    vim.deep_equal(ui_state.traversal_ids(), { task_tab_id, terminal_tab_id }),
+    "ui traversal should pin task terminals before regular terminals"
+  )
+  helpers.assert_truthy(
+    vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K1", "T1" }),
+    "tabbar should render pinned task terminals before regular terminals"
+  )
 end
 
 function scenarios.task_runner_empty_workspace()
@@ -1319,6 +1348,7 @@ function scenarios.ordered()
     { name = "terminals | preserves lifecycle watcher behavior and focus routing", run = scenarios.terminal_lifecycle_watchers_and_focus },
     { name = "terminals | keeps finished task terminal open", run = scenarios.task_terminal_finish_keeps_task_tab_open },
     { name = "terminals | preserves mixed terminal tabbar after task finish", run = scenarios.task_terminal_finish_preserves_mixed_tabbar },
+    { name = "terminals | pins task terminals before regular terminals", run = scenarios.task_terminals_are_pinned_before_regular_terminals },
     { name = "terminals | prunes invalid terminals and adopts live fallbacks", run = scenarios.terminal_invalidation_and_active_fallbacks },
     { name = "storage | clears workspace data for current workspace", run = scenarios.clear_storage },
     { name = "storage | fails invalid load and repairs storage through clear_storage", run = scenarios.invalid_storage_repair },
