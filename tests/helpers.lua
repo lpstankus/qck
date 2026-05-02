@@ -236,10 +236,10 @@ function M.set_form_fields(buf, name_line, cmd_line)
   })
 end
 
-function M.assert_form_scaffold(buf)
+function M.assert_form_scaffold(buf, expected_description)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   M.assert_eq(#lines, 6, "task form should render six scaffold lines")
-  M.assert_eq(lines[1], "Please provide the name and command of the new task", "task form should render description")
+  M.assert_eq(lines[1], expected_description or "Please provide the name and command of the new task", "task form should render description")
   M.assert_truthy(vim.startswith(lines[3], "Name    | "), "task form should render name field prefix")
   M.assert_truthy(vim.startswith(lines[4], "Command | "), "task form should render command field prefix")
   M.assert_eq(lines[6], "<Tab>/<S-Tab> switch  <CR> save  <Esc> close", "task form should render help line")

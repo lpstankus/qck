@@ -1,5 +1,6 @@
 local runner = {}
 local autocmd = require("qck.shared.autocmd")
+local task_form = require("qck.tasks.form")
 local terminal = require("qck.app.terminal")
 local storage = require("qck.tasks.storage")
 
@@ -159,6 +160,22 @@ local function select_current()
   end
 end
 
+local function edit_current()
+  if not is_valid_win(state.winid) or #state.rows == 0 then
+    return
+  end
+
+  clamp_cursor()
+  local line = vim.api.nvim_win_get_cursor(state.winid)[1]
+  local row = state.rows[line]
+  if not row then
+    return
+  end
+
+  close()
+  task_form.open_edit(row.name, row.cmd)
+end
+
 local function build_window_config()
   local width = math.max(40, math.floor(vim.o.columns * 0.45))
   local row_count = math.max(1, #state.rows)
@@ -216,6 +233,7 @@ local function apply_keymaps()
   vim.keymap.set("n", "j", function() move_selection(1) end, opts)
   vim.keymap.set("n", "k", function() move_selection(-1) end, opts)
   vim.keymap.set("n", "<CR>", select_current, opts)
+  vim.keymap.set("n", "e", edit_current, opts)
   vim.keymap.set("n", "<Esc>", close, opts)
   vim.keymap.set("n", "q", close, opts)
 

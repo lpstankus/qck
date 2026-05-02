@@ -11,9 +11,12 @@ local T = new_set({
 
 T["task form"] = new_set()
 T["task form"]["creates and overwrites workspace task"] = scenarios.task_form_create_and_overwrite
+T["task form"]["edits existing workspace task"] = scenarios.task_form_edit_existing_task
 
 T["task runner"] = new_set()
 T["task runner"]["selects workspace task"] = scenarios.task_runner_selects_workspace_task
+T["task runner"]["edits selected task"] = scenarios.task_runner_edits_selected_task
+T["task runner"]["edit is no-op for empty workspace"] = scenarios.task_runner_edit_empty_workspace_noops
 T["task runner"]["handles empty workspace"] = scenarios.task_runner_empty_workspace
 
 T["storage"] = new_set()
@@ -43,6 +46,7 @@ T["terminals"]["preserves lifecycle watcher behavior and focus routing"] = scena
 T["terminals"]["keeps finished task terminal open"] = scenarios.task_terminal_finish_keeps_task_tab_open
 T["terminals"]["preserves mixed terminal tabbar after task finish"] = scenarios.task_terminal_finish_preserves_mixed_tabbar
 T["terminals"]["pins task terminals before regular terminals"] = scenarios.task_terminals_are_pinned_before_regular_terminals
+T["terminals"]["skips tabbar kind divider"] = scenarios.tabbar_skips_kind_divider
 T["terminals"]["reuses existing task terminal"] = scenarios.task_runner_reuses_existing_task_terminal
 T["terminals"]["reopens hidden matching task terminal"] = scenarios.task_runner_reopens_hidden_matching_task_terminal
 T["terminals"]["creates task terminals for distinct commands"] = scenarios.task_runner_spawns_distinct_task_terminals_for_distinct_commands

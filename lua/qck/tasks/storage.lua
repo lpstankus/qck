@@ -328,6 +328,38 @@ function storage.set_task_cmd(workspace, task_type, cmd)
 end
 
 ---@param workspace string
+---@param task_type string
+---@return nil
+function storage.remove_task(workspace, task_type)
+  if not storage.ok then
+    return
+  end
+
+  if type(workspace) ~= "string" or workspace == "" then
+    return
+  end
+
+  if type(task_type) ~= "string" then
+    return
+  end
+
+  local normalized_task_type = vim.trim(task_type)
+  if normalized_task_type == "" then
+    return
+  end
+
+  local ws = storage.workspaces[workspace]
+  if type(ws) ~= "table" or type(ws.tasks) ~= "table" then
+    return
+  end
+
+  ws.tasks[normalized_task_type] = nil
+  if next(ws.tasks) == nil then
+    storage.workspaces[workspace] = nil
+  end
+end
+
+---@param workspace string
 ---@return nil
 function storage.clear_workspace(workspace)
   if not storage.ok then

@@ -101,6 +101,9 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
 10. Task form checks:
     - `new_task()` opens a floating form with task name/command fields,
     - calling `new_task()` while the form is already open should focus/reuse the same window,
+    - edit mode opens the same form with an edit title and prefilled task name/command,
+    - edit mode saves command changes in place and renames by removing the original task name,
+    - edit mode rename collisions require the same two-step overwrite confirmation,
     - form scaffold lines (description/prefix/help) should be rendered and preserved,
     - `Tab`/`Shift-Tab` cycles fields in both normal and insert modes,
     - first save on duplicate name warns and keeps form open,
@@ -115,6 +118,7 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
     - `j`/`k` navigate within task rows without wrapping beyond bounds,
     - the selector is normal-mode-only and read-only,
     - `<CR>` on a task row should spawn and focus a `K#` task terminal with the selected command and close the selector,
+    - `e` on a task row should close the selector and open the task form in edit mode for that task,
     - selecting a task whose normalized command already has a live `K#` terminal should focus/reuse that terminal instead of spawning another one,
     - task terminals should use `auto_close = false` so command completion keeps Neovim's default exited-command prompt open for user input,
     - task terminals should be pinned before regular terminals in traversal/tabbar order (`K#` before `T#`),
@@ -138,7 +142,8 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
 15. UI tabbar checks:
      - tabbar row order is derived from `ui.state` traversal order,
      - row labels come from category label plus category display id,
-     - active-row highlight follows `ui.state` active-tab selection.
+     - active-row highlight follows `ui.state` active-tab selection,
+     - task and regular terminal groups are separated by a box-drawing divider that keyboard and mouse selection skip.
 16. UI init contract checks:
     - `attach_and_show()` registers a new tab, makes it active, shows it immediately, and hides the previously visible tab,
     - `show()`/`hide()`/`toggle()` preserve active-tab selection while updating visibility,
@@ -186,6 +191,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - UI setup registers the `K` task category before the `T` terminal category so task terminals stay pinned before regular terminals in traversal and tabbar order.
 - Task support is intentionally limited to `qck.new_task()`, `qck.run_task()`, `tasks/storage.lua`, and `qck.clear_storage()`; `run_task()` executes saved commands in `K#` task terminals, with no task hydration or override runtime.
 - `qck.new_task()` opens `tasks/form.lua` floating UI for creating workspace-scoped tasks; form saves trimmed task commands into workspace storage.
+- The task form has create and edit modes; edit mode is opened from the runner, pre-fills the selected task, and renames by removing the original task key after validation/overwrite confirmation.
 - `qck.run_task()` opens `tasks/runner.lua` floating UI for selecting current-workspace saved tasks; the selector is read-only, normal-mode-only, uses `j`/`k` navigation, `<CR>` task-terminal spawn, and `<Esc>`/`q` close.
 - Task-run terminal reuse is keyed by normalized command value, not task name; two task names with the same command share one live `K#` terminal.
 - Task-run terminals use `auto_close = false`, so completed commands keep the terminal window/tabbar visible and wait on Neovim's default command-exited prompt until the user acts.
