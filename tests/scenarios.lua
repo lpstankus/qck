@@ -156,14 +156,15 @@ end
 
 function scenarios.task_runner_selects_workspace_task()
   local env = helpers.load_qck()
-  local qck, storage, task_runner, workspace =
-    env.qck, env.storage, env.task_runner, env.workspace
+  local qck, storage, task_runner, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.task_runner, env.ui_state, env.tabbar, env.workspace
+  local ui_runtime = require("qck.ui.runtime")
   local other_workspace = workspace .. "-other"
   local notifications = {}
   local original_notify = vim.notify
 
   storage.set_task_cmd(workspace, "lint", "echo lint")
-  storage.set_task_cmd(workspace, "test", { "npm", "test" })
+  storage.set_task_cmd(workspace, "test", { "sh", "-c", "echo qck-task" })
   storage.set_task_cmd(other_workspace, "build", "echo build")
 
   vim.notify = function(msg, level)
@@ -188,7 +189,7 @@ function scenarios.task_runner_selects_workspace_task()
     helpers.assert_truthy(buf_has_mapping(runner_buf, "n", "i"), "task runner should block insert entry")
 
     local lines = vim.api.nvim_buf_get_lines(runner_buf, 0, -1, false)
-    helpers.assert_truthy(vim.deep_equal(lines, { "lint │ echo lint", "test │ npm test" }), "task runner should render current workspace tasks sorted by name with divider")
+    helpers.assert_truthy(vim.deep_equal(lines, { "lint │ echo lint", "test │ sh -c echo qck-task" }), "task runner should render current workspace tasks sorted by name with divider")
 
     local current_line = vim.api.nvim_win_get_cursor(runner_win)[1]
     helpers.assert_eq(current_line, 1, "task runner should start on first task")
@@ -213,15 +214,91 @@ function scenarios.task_runner_selects_workspace_task()
 
     feed("j")
     feed("<CR>")
-    helpers.assert_eq(#notifications, 1, "<CR> should notify the selected task")
-    helpers.assert_eq(notifications[1].msg, "QCK: selected task `test`: npm test", "task runner notification should include selected task name and command")
-    helpers.assert_eq(task_runner.get_winid(), nil, "<CR> should close the task runner after selecting a task")
+    helpers.assert_eq(#notifications, 0, "<CR> should not emit validation-only task notifications")
+    helpers.assert_eq(task_runner.get_winid(), nil, "<CR> should close the task runner after spawning a task terminal")
+
+    local active_tab_id = ui_state.resolve_active_tab()
+    local active_tab = active_tab_id and ui_state.get_tab(active_tab_id) or nil
+    local handle = active_tab and active_tab.terminal or nil
+    helpers.assert_truthy(active_tab_id ~= nil, "<CR> should create an active task tab")
+    helpers.assert_eq(active_tab and active_tab.category_key, "task", "task runner should attach selected tasks to the task category")
+    helpers.assert_eq(active_tab and active_tab.category_label, "K", "task runner should label task terminals as K")
+    helpers.assert_eq(active_tab and active_tab.category_display_id, 1, "first task terminal should be K1")
+    helpers.assert_truthy(handle_is_open(handle), "<CR> should attach a visible task terminal")
+    helpers.assert_eq(vim.api.nvim_get_current_win(), ui_runtime.get_content_winid(), "task terminal should be focused after selection")
+    helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K1" }), "tabbar should render the task terminal label")
+
+    local terminal_lines = vim.api.nvim_buf_get_lines(handle.buf, 0, -1, false)
+    helpers.assert_truthy(vim.deep_equal(terminal_lines, { "cmd: sh -c echo qck-task" }), "task terminal should run the selected task command")
   end)
 
   vim.notify = original_notify
   if not ok then
     error(err)
   end
+end
+
+function scenarios.task_terminal_finish_keeps_task_tab_open()
+  local env = helpers.load_qck()
+  local qck, storage, task_runner, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.task_runner, env.ui_state, env.tabbar, env.workspace
+  local mock_snacks = require("mock_snacks")
+
+  storage.set_task_cmd(workspace, "lint", { "sh", "-c", "echo qck-task" })
+
+  qck.run_task()
+  feed("<CR>")
+
+  local task_tab_id = ui_state.resolve_active_tab()
+  local task_tab = task_tab_id and ui_state.get_tab(task_tab_id) or nil
+  local task_handle = task_tab and task_tab.terminal or nil
+  helpers.assert_truthy(task_tab_id ~= nil and handle_is_open(task_handle), "task runner should create a visible task terminal")
+  helpers.assert_eq(task_tab and task_tab.category_label, "K", "task terminal should use K labels")
+  helpers.assert_eq(task_handle.auto_close, false, "task terminal should opt out of command-finish auto-close")
+
+  mock_snacks.finish_handle(task_handle)
+  vim.wait(20, function() return false end)
+
+  helpers.assert_truthy(handle_is_open(task_handle), "finished task terminal should stay open for user acknowledgement")
+  helpers.assert_truthy(ui_state.get_tab(task_tab_id) ~= nil, "finished task terminal should remain in ui state")
+  helpers.assert_eq(ui_state.resolve_active_tab(), task_tab_id, "finished task terminal should remain active")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K1" }), "tabbar should keep the finished task terminal row")
+  helpers.assert_eq(task_runner.get_winid(), nil, "task runner should stay closed after task spawn")
+end
+
+function scenarios.task_terminal_finish_preserves_mixed_tabbar()
+  local env = helpers.load_qck()
+  local qck, storage, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.ui_state, env.tabbar, env.workspace
+  local mock_snacks = require("mock_snacks")
+
+  qck.open()
+  local base_tab_id = ui_state.resolve_active_tab()
+  local base_tab = base_tab_id and ui_state.get_tab(base_tab_id) or nil
+  local base_handle = base_tab and base_tab.terminal or nil
+  helpers.assert_truthy(base_tab_id ~= nil and handle_is_open(base_handle), "base terminal should start visible")
+  helpers.assert_eq(base_tab and base_tab.category_label, "T", "regular terminal should keep T labels")
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  qck.run_task()
+  feed("<CR>")
+
+  local task_tab_id = ui_state.resolve_active_tab()
+  local task_tab = task_tab_id and ui_state.get_tab(task_tab_id) or nil
+  local task_handle = task_tab and task_tab.terminal or nil
+  helpers.assert_truthy(task_tab_id ~= nil and task_tab_id ~= base_tab_id, "task terminal should create a new tab")
+  helpers.assert_eq(task_tab and task_tab.category_label, "K", "task terminal should use K labels in mixed traversal")
+  helpers.assert_truthy(handle_is_open(task_handle), "task terminal should be visible before finish")
+  helpers.assert_truthy(not handle_is_open(base_handle), "base terminal should be hidden while task terminal is active")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "T1", "K1" }), "tabbar should render terminal and task categories")
+
+  mock_snacks.finish_handle(task_handle)
+  vim.wait(20, function() return false end)
+
+  helpers.assert_truthy(handle_is_open(task_handle), "finished task terminal should remain visible")
+  helpers.assert_truthy(not handle_is_open(base_handle), "base terminal should stay hidden while finished task remains active")
+  helpers.assert_eq(ui_state.resolve_active_tab(), task_tab_id, "finished active task should stay active")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "T1", "K1" }), "tabbar should keep terminal and task rows after task finish")
 end
 
 function scenarios.task_runner_empty_workspace()
@@ -1240,6 +1317,8 @@ function scenarios.ordered()
     { name = "ui init | manages internal ui orchestration and rollback", run = scenarios.ui_init_orchestration_contract },
     { name = "terminals | manages generic terminals with shared layout", run = scenarios.terminals_and_layout },
     { name = "terminals | preserves lifecycle watcher behavior and focus routing", run = scenarios.terminal_lifecycle_watchers_and_focus },
+    { name = "terminals | keeps finished task terminal open", run = scenarios.task_terminal_finish_keeps_task_tab_open },
+    { name = "terminals | preserves mixed terminal tabbar after task finish", run = scenarios.task_terminal_finish_preserves_mixed_tabbar },
     { name = "terminals | prunes invalid terminals and adopts live fallbacks", run = scenarios.terminal_invalidation_and_active_fallbacks },
     { name = "storage | clears workspace data for current workspace", run = scenarios.clear_storage },
     { name = "storage | fails invalid load and repairs storage through clear_storage", run = scenarios.invalid_storage_repair },

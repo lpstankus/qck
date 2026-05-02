@@ -25,7 +25,7 @@ local function normalize_win_config(id, win_opts)
   return conf
 end
 
-local function create_handle(id, cmd, win_opts)
+local function create_handle(id, cmd, opts)
   local buf = vim.api.nvim_create_buf(false, true)
   local lines = {}
   if type(cmd) == "string" then
@@ -37,6 +37,7 @@ local function create_handle(id, cmd, win_opts)
   end
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
 
+  local win_opts = type(opts) == "table" and opts.win or nil
   local win_config = normalize_win_config(id, win_opts)
 
   local function open_win()
@@ -46,6 +47,7 @@ local function create_handle(id, cmd, win_opts)
   local handle = {
     buf = buf,
     win = open_win(),
+    auto_close = not (type(opts) == "table" and opts.auto_close == false),
     _autocmd_ids = {},
   }
 
@@ -107,8 +109,7 @@ function M.install()
     terminal = {
       open = function(cmd, opts)
         local id = type(opts) == "table" and opts.count or 1
-        local win_opts = type(opts) == "table" and opts.win or nil
-        local handle = create_handle(id, cmd, win_opts)
+        local handle = create_handle(id, cmd, opts)
         handles[id] = handle
         return handle
       end,
@@ -125,6 +126,26 @@ end
 
 function M.get_handles()
   return handles
+end
+
+function M.finish_handle(handle)
+  if type(handle) ~= "table" then
+    return
+  end
+
+  if handle.auto_close == false then
+    return
+  end
+
+  if type(handle.win) ~= "number" then
+    return
+  end
+
+  local win = handle.win
+  handle.win = nil
+  if vim.api.nvim_win_is_valid(win) then
+    vim.api.nvim_win_close(win, true)
+  end
 end
 
 return M

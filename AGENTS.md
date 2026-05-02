@@ -114,7 +114,8 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
     - task rows are sorted by name and the selected row uses full-row reverse highlight,
     - `j`/`k` navigate within task rows without wrapping beyond bounds,
     - the selector is normal-mode-only and read-only,
-    - `<CR>` on a task row should notify the selected task name and command,
+    - `<CR>` on a task row should spawn and focus a `K#` task terminal with the selected command and close the selector,
+    - task terminals should use `auto_close = false` so command completion keeps Neovim's default exited-command prompt open for user input,
     - `<CR>` on an empty workspace should be a no-op,
     - `<Esc>` closes the selector.
 12. Storage-only task checks:
@@ -179,10 +180,11 @@ Additional tests should be placed under `tests/` and documented in this section.
 - When switching terminals, hiding the previous window (`toggle`) is safer than closing it (`close`), because closing may wipe the buffer and terminate the terminal job.
 - `noautocmd` is valid when creating the tab bar float (`nvim_open_win`), but must not be passed to `nvim_win_set_config` for an existing window.
 - `qck.new()` creates a new ad hoc terminal tab and does not accept task or terminal options.
-- Terminal runtime manages ad hoc qck terminal instances only; it does not accept task-specific command/runtime options.
-- Task support is intentionally limited to `qck.new_task()`, `qck.run_task()`, `tasks/storage.lua`, and `qck.clear_storage()`; `run_task()` currently validates selection by notification only, with no task execution, hydration, override, or task-linked terminal runtime.
+- Terminal runtime manages ad hoc `T#` terminals and task-runner `K#` terminals through the shared UI category model.
+- Task support is intentionally limited to `qck.new_task()`, `qck.run_task()`, `tasks/storage.lua`, and `qck.clear_storage()`; `run_task()` executes saved commands in `K#` task terminals, with no task hydration or override runtime.
 - `qck.new_task()` opens `tasks/form.lua` floating UI for creating workspace-scoped tasks; form saves trimmed task commands into workspace storage.
-- `qck.run_task()` opens `tasks/runner.lua` floating UI for selecting current-workspace saved tasks; the selector is read-only, normal-mode-only, uses `j`/`k` navigation, `<CR>` notification, and `<Esc>` close.
+- `qck.run_task()` opens `tasks/runner.lua` floating UI for selecting current-workspace saved tasks; the selector is read-only, normal-mode-only, uses `j`/`k` navigation, `<CR>` task-terminal spawn, and `<Esc>` close.
+- Task-run terminals use `auto_close = false`, so completed commands keep the terminal window/tabbar visible and wait on Neovim's default command-exited prompt until the user acts.
 - Task form duplicate protection is explicit two-step overwrite: first submit on an existing task warns, second submit with the same name confirms overwrite.
 - `tasks/form.lua` keeps runtime UI state in a single local state table (`bufnr`/`winid`/selection/pending overwrite/autocmd ids) instead of scattered module globals.
 - Task form submit sanitization preserves support for legacy inline labels (`Name: ...` / `Command: ...`) by normalizing to current prefixed scaffold rows before validation/save.

@@ -1,6 +1,6 @@
 local runner = {}
 local autocmd = require("qck.shared.autocmd")
-local notify = require("qck.shared.notify").notify
+local terminal = require("qck.app.terminal")
 local storage = require("qck.tasks.storage")
 
 local TITLE = "QCK Run Task"
@@ -154,8 +154,9 @@ local function select_current()
     return
   end
 
-  notify(("selected task `%s`: %s"):format(row.name, command_to_string(row.cmd)), vim.log.levels.INFO)
-  close()
+  if terminal.create_task_and_attach(row.cmd) then
+    close()
+  end
 end
 
 local function build_window_config()
