@@ -6,8 +6,13 @@ local storage_path = vim.fn.stdpath("data") .. "/qck.json"
 
 storage.ok = false
 storage.version = STORAGE_VERSION
-storage.workspaces = {}
+storage.workspaces = vim.empty_dict()
 storage.last_error = nil
+
+---@return table
+local function empty_map()
+  return vim.empty_dict()
+end
 
 ---@param tbl table
 ---@param allowed table<string, boolean>
@@ -25,7 +30,7 @@ end
 local function blank_state()
   return {
     version = STORAGE_VERSION,
-    workspaces = {},
+    workspaces = empty_map(),
   }
 end
 
@@ -128,6 +133,7 @@ end
 ---@return nil
 local function write_data(data)
   local encoded = vim.json.encode(data)
+  vim.fn.mkdir(vim.fn.fnamemodify(storage_path, ":h"), "p")
   vim.fn.writefile({ encoded }, storage_path)
 end
 
@@ -155,14 +161,14 @@ function storage.load()
   local ok_read, data_or_err, read_err = pcall(read_data)
   if not ok_read then
     storage.ok = false
-    storage.workspaces = {}
+    storage.workspaces = empty_map()
     storage.last_error = ("failed to read storage file: %s"):format(tostring(data_or_err))
     return false, storage.last_error
   end
 
   if read_err then
     storage.ok = false
-    storage.workspaces = {}
+    storage.workspaces = empty_map()
     storage.last_error = read_err
     return false, storage.last_error
   end
@@ -170,7 +176,7 @@ function storage.load()
   local sanitized, sanitize_err = sanitize_data(data_or_err)
   if not sanitized then
     storage.ok = false
-    storage.workspaces = {}
+    storage.workspaces = empty_map()
     storage.last_error = sanitize_err or "failed to validate storage data"
     return false, storage.last_error
   end
@@ -206,17 +212,17 @@ end
 ---@return qck.StorageWorkspaceState
 function storage.ensure_workspace(workspace)
   if type(storage.workspaces) ~= "table" then
-    storage.workspaces = {}
+    storage.workspaces = empty_map()
   end
 
   if not storage.workspaces[workspace] then
     storage.workspaces[workspace] = {
-      tasks = {},
+      tasks = empty_map(),
     }
   end
 
   if type(storage.workspaces[workspace].tasks) ~= "table" then
-    storage.workspaces[workspace].tasks = {}
+    storage.workspaces[workspace].tasks = empty_map()
   end
 
   return storage.workspaces[workspace]

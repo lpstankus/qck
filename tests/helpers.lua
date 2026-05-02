@@ -3,13 +3,20 @@ local M = {}
 local STORAGE_VERSION = "0.1.0"
 local DEFAULT_COLUMNS = vim.o.columns
 local DEFAULT_LINES = vim.o.lines
+local TEST_DATA_MARKER = "/tests/.tmp/"
 
 local function clear_qck_modules()
+  local names = {}
   for name in pairs(package.loaded) do
     if name == "qck" or name:match("^qck%.") then
-      package.loaded[name] = nil
+      names[#names + 1] = name
     end
   end
+
+  for _, name in ipairs(names) do
+    package.loaded[name] = nil
+  end
+
   package.loaded.snacks = nil
 end
 
@@ -31,6 +38,7 @@ end
 
 function M.write_storage(data)
   local path = vim.fn.stdpath("data") .. "/qck.json"
+  M.assert_truthy(path:find(TEST_DATA_MARKER, 1, true) ~= nil, "test storage must use isolated XDG_DATA_HOME")
   vim.fn.mkdir(vim.fn.fnamemodify(path, ":h"), "p")
   vim.fn.writefile({ vim.json.encode(data) }, path)
 end
@@ -38,7 +46,7 @@ end
 function M.write_blank_storage()
   M.write_storage({
     version = STORAGE_VERSION,
-    workspaces = {},
+    workspaces = vim.empty_dict(),
   })
 end
 

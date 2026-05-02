@@ -63,7 +63,7 @@ function qck.clear_storage()
       vim.log.levels.WARN
     )
     storage.ok = true
-    storage.workspaces = {}
+    storage.workspaces = vim.empty_dict()
     storage.last_error = nil
   end
 

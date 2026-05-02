@@ -30,6 +30,7 @@ This repository is a Neovim plugin written in Lua.
 - `tests/luacov_report.lua`: headless coverage-report generator using vendored `luacov`.
 - `tests/smoke.lua`: deprecated compatibility shim that warns and forwards to the `mini.test` runner.
 - `tests/vendor/`: vendored test-only dependencies (`mini.test` and `luacov`).
+- `tests/.tmp/`: ignored test-only data root used to keep headless storage tests away from the real Neovim data directory.
 - `LICENSE`: project license.
 
 Keep new runtime code under `lua/qck/`. `init.lua` should remain the public entrypoint; internal behavior should be split by package responsibility across `shared/`, `tasks/`, `ui/`, and `app/`.
@@ -44,9 +45,9 @@ There is no build system or package manifest. Use Neovim headless/manual checks:
 - `luac -p $(rg --files lua/qck -g '*.lua')`
   Fast syntax check for all Lua modules, including packaged subdirectories.
 - `nvim --headless --clean -u NONE +"lua dofile('tests/minitest.lua')"`
-  Runs the mocked `mini.test` suite headlessly with vendored `mini.test`.
+  Runs the mocked `mini.test` suite headlessly with vendored `mini.test` and isolated `XDG_DATA_HOME`.
 - `nvim --headless --clean -u NONE +"lua dofile('tests/coverage.lua')"`
-  Runs the same smoke-behavior scenarios under vendored `luacov` to collect line coverage stats.
+  Runs the same smoke-behavior scenarios under vendored `luacov` with isolated `XDG_DATA_HOME` to collect line coverage stats.
 - `nvim --headless --clean -u NONE +"lua dofile('tests/luacov_report.lua')" +qa`
   Generates the `luacov` line-coverage report after `tests/coverage.lua` has written coverage stats.
 - `nvim --headless --clean -u NONE +"set rtp+=." +"luafile tests/smoke.lua"`
@@ -93,6 +94,8 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
 8. Storage behavior checks:
    - unsupported or invalid schema should fail load and warn users,
    - `clear_storage()` should clear persisted data for current workspace,
+   - saves should create the parent data directory when it is missing,
+   - empty storage maps should be written as JSON objects, not arrays,
    - no implicit storage reset should happen on failed load.
 9. Terminal exit checks (`exit`, `exit 1`) to verify close/error behavior.
 10. Task form checks:
@@ -116,6 +119,7 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
     - `<Esc>` closes the selector.
 12. Storage-only task checks:
     - storage load/save round-trips normalized workspace task commands,
+    - storage survives a fresh module reload in the same data directory,
     - workspace task data remains isolated per working directory.
 13. UI state checks:
     - category registration is ordered and idempotent only for matching metadata,
@@ -159,6 +163,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - `app/terminal/service.lua` closes partially opened terminal handles when handle initialization fails, preventing leaked untracked terminal resources.
 - Workspace persistence lives in `tasks/storage.lua` (`stdpath("data") .. "/qck.json"`) and stores only per-workspace saved task commands created through `qck.new_task()`.
 - `storage.load()` / `storage.save()` return `(ok, err)` and track `storage.last_error`, so callers can report concrete persistence failure details.
+- `storage.save()` creates the parent data directory before writing and preserves empty workspace maps as JSON objects (`{}`), avoiding accidental array-shaped storage.
 - Storage loading is fail-fast on unsupported/invalid schema and does not mutate files automatically.
 - `qck.clear_storage()` is the explicit user-triggered storage reset entrypoint for current workspace state.
 - Shared EmmyLua type aliases/classes live in `lua/qck/shared/types.lua`, and module annotations use these types to tighten internal contracts for LuaLS.
@@ -223,6 +228,7 @@ Additional tests should be placed under `tests/` and documented in this section.
   - smoke coverage focuses on generic terminal runtime plus task form/storage behavior only,
   - `tests/coverage.lua` executes the same scenarios directly under `luacov` to produce deterministic coverage stats,
   - `.luacov` limits coverage reporting to loaded `lua/qck/**` files, excludes tests/vendor code, and writes outputs under `tests/.coverage/`,
+  - `tests/minitest.lua` and `tests/coverage.lua` force separate `XDG_DATA_HOME` roots under `tests/.tmp/` so storage tests cannot mutate the user’s real `qck.json` or race each other,
   - `tests/smoke.lua` is deprecated and exists only as a forwarding shim to the new test runner.
 
 ## Commit & Pull Request Guidelines

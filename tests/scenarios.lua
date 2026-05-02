@@ -289,6 +289,69 @@ function scenarios.storage_roundtrip()
   )
 end
 
+function scenarios.storage_persists_across_module_reload()
+  local env = helpers.load_qck()
+  local storage = env.storage
+  local workspace = env.workspace
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  local ok_save = storage.save()
+  helpers.assert_truthy(ok_save, "storage save should persist task before module reload")
+
+  local loaded_names = {}
+  for name in pairs(package.loaded) do
+    if name == "qck" or name:match("^qck%.") then
+      loaded_names[#loaded_names + 1] = name
+    end
+  end
+  for _, name in ipairs(loaded_names) do
+    package.loaded[name] = nil
+  end
+
+  local reloaded_storage = require("qck.tasks.storage")
+  local ok_load = reloaded_storage.load()
+  helpers.assert_truthy(ok_load, "storage load should succeed after module reload")
+  helpers.assert_eq(reloaded_storage.get_task_cmd(workspace, "lint"), "echo lint", "storage should preserve tasks across module reload")
+end
+
+function scenarios.storage_save_creates_missing_data_dir()
+  local env = helpers.load_qck()
+  local storage = env.storage
+  local workspace = env.workspace
+  local data_dir = vim.fn.stdpath("data")
+  local storage_path = data_dir .. "/qck.json"
+
+  vim.fn.delete(data_dir, "rf")
+  storage.ok = true
+  storage.workspaces = vim.empty_dict()
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+
+  local ok_save, save_err = storage.save()
+  helpers.assert_truthy(ok_save, "storage save should create missing data directory: " .. tostring(save_err))
+  helpers.assert_eq(vim.fn.filereadable(storage_path), 1, "storage save should create qck.json")
+
+  storage.workspaces = {}
+  local ok_load = storage.load()
+  helpers.assert_truthy(ok_load, "storage load should read file created after missing data dir")
+  helpers.assert_eq(storage.get_task_cmd(workspace, "lint"), "echo lint", "storage should preserve task after creating missing data dir")
+end
+
+function scenarios.storage_empty_state_writes_object_maps()
+  local env = helpers.load_qck()
+  local qck, storage, workspace = env.qck, env.storage, env.workspace
+  local storage_path = vim.fn.stdpath("data") .. "/qck.json"
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  helpers.assert_truthy(storage.save(), "storage should save seeded task")
+
+  qck.clear_storage()
+  local encoded = table.concat(vim.fn.readfile(storage_path), "\n")
+  local decoded = vim.json.decode(encoded)
+
+  helpers.assert_truthy(type(decoded.workspaces) == "table", "storage workspaces should decode to a table")
+  helpers.assert_truthy(encoded:find('"workspaces":{}', 1, true) ~= nil, "empty storage workspaces should be encoded as a JSON object")
+end
+
 function scenarios.ui_state_registration_and_traversal()
   local state = require("qck.ui.state")
   state.reset()
@@ -1168,6 +1231,9 @@ function scenarios.ordered()
     { name = "task runner | selects workspace task", run = scenarios.task_runner_selects_workspace_task },
     { name = "task runner | handles empty workspace", run = scenarios.task_runner_empty_workspace },
     { name = "storage | persists workspace task commands across load/save", run = scenarios.storage_roundtrip },
+    { name = "storage | persists across module reload", run = scenarios.storage_persists_across_module_reload },
+    { name = "storage | creates missing data dir on save", run = scenarios.storage_save_creates_missing_data_dir },
+    { name = "storage | writes empty object maps", run = scenarios.storage_empty_state_writes_object_maps },
     { name = "ui state | registers categories and traverses tabs", run = scenarios.ui_state_registration_and_traversal },
     { name = "ui runtime | tracks windows, handles, and layout scaffolding", run = scenarios.ui_runtime_and_layout_scaffolding },
     { name = "ui tabbar | renders from ui-owned traversal and active state", run = scenarios.ui_tabbar_renders_from_ui_state },

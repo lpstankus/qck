@@ -1,4 +1,5 @@
 local root = vim.fn.getcwd()
+vim.env.XDG_DATA_HOME = root .. "/tests/.tmp/minitest-data"
 vim.o.showmode = false
 
 vim.opt.rtp:prepend(root .. "/tests/vendor/mini.nvim")

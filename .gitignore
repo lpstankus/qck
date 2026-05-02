@@ -1,2 +1,4 @@
 plans/
 tests/.coverage/
+tests/.tmp/
+nvim.log
