@@ -258,20 +258,39 @@ end
 ---@param handle any
 ---@return nil
 local function apply_terminal_mappings(handle)
+  local buf = get_buffer_id(handle)
   keymaps.apply_to_buffer(
-    get_buffer_id(handle),
+    buf,
     previous_terminal_mapping_lhs,
     terminal_mapping_lhs,
     user_terminal_mappings,
     terminal_mapping_modes,
     get_terminal_mapping_modes
   )
+
+  if not buf or not vim.api.nvim_buf_is_valid(buf) then
+    return
+  end
+
+  local function handle_mouse_release()
+    tabbar.handle_left_click(vim.fn.getmousepos())
+  end
+
+  vim.keymap.set("n", "<LeftRelease>", handle_mouse_release, { buffer = buf, noremap = true, silent = true })
+  vim.keymap.set("t", "<LeftRelease>", handle_mouse_release, { buffer = buf, noremap = true, silent = true })
 end
 
 ---@param handle any
 ---@return nil
 local function clear_terminal_mappings(handle)
-  keymaps.apply_to_buffer(get_buffer_id(handle), previous_terminal_mapping_lhs, terminal_mapping_lhs, nil, terminal_mapping_modes)
+  local buf = get_buffer_id(handle)
+  keymaps.apply_to_buffer(buf, previous_terminal_mapping_lhs, terminal_mapping_lhs, nil, terminal_mapping_modes)
+  if not buf or not vim.api.nvim_buf_is_valid(buf) then
+    return
+  end
+
+  pcall(vim.keymap.del, "n", "<LeftRelease>", { buffer = buf })
+  pcall(vim.keymap.del, "t", "<LeftRelease>", { buffer = buf })
 end
 
 ---@param tab_id qck.UiTabId|nil

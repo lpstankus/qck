@@ -48,6 +48,23 @@ local function buf_has_mapping(bufnr, mode, lhs)
   return false
 end
 
+---@param mode string
+---@param msg string
+local function assert_terminal_mode(mode, msg)
+  helpers.assert_truthy(type(mode) == "string" and mode:find("t", 1, true) ~= nil, msg)
+end
+
+---@param handle table
+local function attach_terminal_job(handle)
+  helpers.assert_truthy(handle and type(handle.win) == "number", "terminal test handle should have a window")
+  vim.api.nvim_set_current_win(handle.win)
+  vim.bo[handle.buf].modifiable = true
+  vim.api.nvim_buf_set_lines(handle.buf, 0, -1, false, {})
+  vim.bo[handle.buf].modified = false
+  local job_id = vim.fn.termopen({ "sh", "-c", "cat" })
+  helpers.assert_truthy(type(job_id) == "number" and job_id > 0, "terminal test buffer should start a terminal job")
+end
+
 ---@param matcher fun(item: table): boolean
 ---@return boolean
 local function any_qck_autocmd(matcher)
@@ -603,6 +620,90 @@ function scenarios.ui_init_orchestration_contract()
     false,
     "late attach rollback should clear failed tab autocmd watchers"
   )
+end
+
+function scenarios.ui_mouse_tabbar_selection_contract()
+  require("mock_snacks").install()
+
+  local ui = require("qck.ui")
+  local ui_state = require("qck.ui.state")
+  local ui_runtime = require("qck.ui.runtime")
+  local ui_tabbar = require("qck.ui.tabbar")
+  local snacks = require("snacks")
+
+  ui_tabbar.hide()
+  ui_state.reset()
+  ui_runtime.reset()
+  ui.setup()
+
+  helpers.assert_truthy(ui.register_category({ key = "terminal", label = "T" }), "mouse tabbar scenario should register categories")
+
+  local handle_a = snacks.terminal.open(nil, { count = 1 })
+  attach_terminal_job(handle_a)
+  local first_tab_id = select(1, ui.attach_and_show("terminal", handle_a))
+  local handle_b = snacks.terminal.open(nil, { count = 2 })
+  attach_terminal_job(handle_b)
+  local second_tab_id = select(1, ui.attach_and_show("terminal", handle_b))
+  helpers.assert_truthy(first_tab_id ~= nil and second_tab_id ~= nil, "mouse tabbar scenario should register tabs")
+  helpers.assert_truthy(select(1, ui.set_active_tab(first_tab_id)), "mouse tabbar scenario should reselect the first tab")
+
+  local tabbar_win = ui_tabbar.get_winid()
+  local content_win = ui_runtime.get_content_winid()
+  local tabbar_buf = vim.api.nvim_win_get_buf(tabbar_win)
+  local content_buf = vim.api.nvim_win_get_buf(content_win)
+
+  helpers.assert_truthy(buf_has_mapping(tabbar_buf, "n", "<LeftRelease>"), "tabbar should install a left-release mapping")
+  helpers.assert_truthy(buf_has_mapping(content_buf, "n", "<LeftRelease>"), "content should install a normal-mode left-release mapping")
+  helpers.assert_truthy(buf_has_mapping(content_buf, "t", "<LeftRelease>"), "content should install a terminal-mode left-release mapping")
+
+  vim.api.nvim_set_current_win(content_win)
+  ui_tabbar.handle_left_click({
+    winid = tabbar_win,
+    line = 2,
+    screenrow = vim.fn.screenpos(tabbar_win, 2, 1).row,
+  })
+  helpers.assert_eq(ui_state.resolve_active_tab(), second_tab_id, "tabbar mouse should select the targeted tab from content focus")
+  helpers.assert_truthy(handle_b:valid(), "tabbar mouse should show the clicked tab from content focus")
+  helpers.assert_truthy(not handle_a:valid(), "tabbar mouse should hide the previous tab from content focus")
+  helpers.assert_eq(vim.api.nvim_get_current_win(), handle_b.win, "tabbar mouse should focus the clicked terminal")
+  assert_terminal_mode(vim.api.nvim_get_mode().mode, "tabbar mouse should enter terminal mode for the clicked terminal")
+
+  local active_before_blank_click = ui_state.resolve_active_tab()
+  local visible_before_blank_click = ui_runtime.get_content_winid()
+  local focused_before_blank_click = vim.api.nvim_get_current_win()
+  local mode_before_blank_click = vim.api.nvim_get_mode().mode
+  tabbar_win = ui_tabbar.get_winid()
+  ui_tabbar.handle_left_click({
+    winid = tabbar_win,
+    line = 2,
+    screenrow = vim.fn.screenpos(tabbar_win, 2, 1).row + 1,
+  })
+  helpers.assert_eq(ui_state.resolve_active_tab(), active_before_blank_click, "tabbar clicks outside rendered rows should be ignored")
+  helpers.assert_eq(ui_runtime.get_content_winid(), visible_before_blank_click, "blank tabbar clicks should preserve visible content")
+  helpers.assert_eq(vim.api.nvim_get_current_win(), focused_before_blank_click, "blank tabbar clicks should preserve focus")
+  helpers.assert_eq(vim.api.nvim_get_mode().mode, mode_before_blank_click, "blank tabbar clicks should preserve mode")
+
+  vim.api.nvim_set_current_win(ui_tabbar.get_winid())
+  vim.cmd("startinsert")
+  vim.wait(20, function() return false end)
+  ui_tabbar.handle_left_click({
+    winid = ui_tabbar.get_winid(),
+    line = 1,
+    screenrow = vim.fn.screenpos(ui_tabbar.get_winid(), 1, 1).row,
+  })
+  helpers.assert_eq(ui_state.resolve_active_tab(), first_tab_id, "tabbar mouse should still select while escaping insert mode")
+  helpers.assert_eq(vim.api.nvim_get_current_win(), handle_a.win, "tabbar mouse should focus the clicked terminal after insert mode")
+  assert_terminal_mode(vim.api.nvim_get_mode().mode, "tabbar mouse should enter terminal mode after tabbar insert mode")
+
+  vim.api.nvim_set_current_win(ui_tabbar.get_winid())
+  vim.cmd("stopinsert")
+  feed("j")
+  feed("<CR>")
+  helpers.assert_eq(ui_state.resolve_active_tab(), second_tab_id, "tabbar <CR> should still work after a mouse selection")
+  helpers.assert_eq(vim.api.nvim_get_current_win(), ui_runtime.get_content_winid(), "tabbar <CR> should still return focus to content after mouse selection")
+
+  pcall(vim.cmd, "stopinsert")
+  helpers.cleanup_terminals(ui, ui_state, ui_tabbar)
 end
 
 function scenarios.terminals_and_layout()

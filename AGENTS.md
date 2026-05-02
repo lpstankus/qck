@@ -84,6 +84,7 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
     - closing the tabbar window manually (for example `:q`) should hide the current terminal window,
     - `switch_focus()` should route focus terminal <-> tabbar and fall back to the terminal from a non-qck window,
     - pressing `<Esc>` in the tabbar focuses the current terminal window,
+    - left-clicking a tabbar row should select that terminal and place focus in the terminal window in terminal mode,
     - pressing `K`/`J` in the tabbar should move the selected terminal up/down within the single terminal list,
     - `T*` labels should stay with the same terminal when rows are reordered,
     - creating a new terminal should assign the lowest missing `T*` label number for the current session,
@@ -174,6 +175,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - Tabbar presentation is UI-owned:
   - `ui/tabbar.lua` builds row order, row labels, and active-row highlighting from `ui.state` traversal/category metadata,
   - built-in row actions call UI-owned selection/deletion/reorder/focus entrypoints directly.
+- Tabbar left-click selection routes focus to the clicked terminal window and enters terminal mode so typing can continue immediately.
 - Tabbar supports manual reordering in normal mode with `K` (move selected terminal up) and `J` (move selected terminal down) within the single terminal list.
 - User mappings configured via `qck.setup({ mappings = ... })` are normalized in `app/setup.lua`, then applied through `ui/init.lua` for terminal buffers and `ui/tabbar.lua` for the tabbar buffer:
   - legacy entries (`lhs = rhs`) default to terminal `n`+`t`,

@@ -28,6 +28,7 @@ T["ui tabbar"]["renders from ui-owned traversal and active state"] = scenarios.u
 
 T["ui init"] = new_set()
 T["ui init"]["manages internal ui orchestration and rollback"] = scenarios.ui_init_orchestration_contract
+T["ui init"]["handles mouse tabbar selection without insert-mode regressions"] = scenarios.ui_mouse_tabbar_selection_contract
 
 T["terminals"] = new_set()
 T["terminals"]["manages generic terminals with shared layout"] = scenarios.terminals_and_layout

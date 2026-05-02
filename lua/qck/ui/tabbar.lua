@@ -81,6 +81,64 @@ local function get_selected_tab_id()
   return row and row.tab_id or nil
 end
 
+---@param winid integer
+---@param line integer
+---@param screenrow integer|nil
+---@return boolean
+local function is_mouse_on_line(winid, line, screenrow)
+  if not is_valid_win(winid) or type(line) ~= "number" or line < 1 then
+    return false
+  end
+
+  if type(screenrow) ~= "number" or screenrow < 1 then
+    return true
+  end
+
+  local pos = vim.fn.screenpos(winid, line, 1)
+  return type(pos) == "table" and tonumber(pos.row) == screenrow
+end
+
+---@param mouse table|nil
+---@return qck.UiTabId|nil
+local function get_mouse_tab_id(mouse)
+  local winid = runtime.get_tabbar_winid()
+  if not winid or not is_valid_win(winid) then
+    return nil
+  end
+
+  local mousepos = type(mouse) == "table" and mouse or vim.fn.getmousepos()
+  if type(mousepos) ~= "table" then
+    return nil
+  end
+
+  if type(mousepos.winid) == "number" and mousepos.winid ~= winid then
+    return nil
+  end
+
+  local line = tonumber(mousepos.line)
+  if not line or line < 1 or line > #render_rows then
+    return nil
+  end
+
+  if not is_mouse_on_line(winid, line, tonumber(mousepos.screenrow)) then
+    return nil
+  end
+
+  local row = render_rows[line]
+  return row and row.tab_id or nil
+end
+
+---@return nil
+local function focus_visible_terminal()
+  local winid = runtime.get_content_winid()
+  if not winid or not is_valid_win(winid) then
+    return
+  end
+
+  pcall(vim.api.nvim_set_current_win, winid)
+  pcall(vim.cmd, "startinsert")
+end
+
 ---@param id qck.UiTabId
 ---@return integer|nil
 local function get_line_for_tab_id(id)
@@ -187,6 +245,7 @@ local function set_buffer_mappings(buf)
   vim.keymap.set("n", "k", function() move_selection(-1) end, { buffer = buf, noremap = true, silent = true })
   vim.keymap.set("n", "J", function() move_selected_tab(1) end, { buffer = buf, noremap = true, silent = true })
   vim.keymap.set("n", "K", function() move_selected_tab(-1) end, { buffer = buf, noremap = true, silent = true })
+  vim.keymap.set("n", "<LeftRelease>", function() tabbar.handle_left_click() end, { buffer = buf, noremap = true, silent = true })
 
   vim.keymap.set("n", "<CR>", function()
     local tab_id = get_selected_tab_id()
@@ -352,6 +411,27 @@ function tabbar.hide()
   end
   runtime.clear_tabbar_winid()
   render_rows = {}
+end
+
+---@param mouse table|nil
+---@return boolean
+function tabbar.handle_left_click(mouse)
+  local tab_id = get_mouse_tab_id(mouse)
+  local ui = get_ui()
+  if not tab_id or not ui then
+    return false
+  end
+
+  if type(ui.set_active_tab) ~= "function" then
+    return false
+  end
+
+  local ok = select(1, ui.set_active_tab(tab_id))
+  if ok then
+    focus_visible_terminal()
+  end
+
+  return ok == true
 end
 
 ---@param raw_mappings table|nil
