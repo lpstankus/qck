@@ -7,8 +7,9 @@ local notify = require("qck.shared.notify").notify
 local terminal = {}
 
 local UI_TERMINAL_CATEGORY_KEY = "terminal"
+local UI_TASK_CATEGORY_KEY = "task"
 local UI_TASK_CATEGORY = {
-  key = "task",
+  key = UI_TASK_CATEGORY_KEY,
   label = "K",
 }
 
@@ -78,6 +79,68 @@ local function focus_terminal(handle)
   pcall(vim.cmd, "startinsert")
 end
 
+---@param handle any
+---@return boolean
+local function is_valid_handle(handle)
+  if type(handle) ~= "table" or type(handle.buf_valid) ~= "function" then
+    return false
+  end
+
+  local ok, valid = pcall(function() return handle:buf_valid() end)
+  return ok and valid == true
+end
+
+---@param cmd qck.Command
+---@return string
+local function task_command_key(cmd)
+  if type(cmd) == "string" then
+    return "s:" .. cmd
+  end
+
+  return "l:" .. vim.json.encode(cmd)
+end
+
+---@param key string
+---@return qck.UiTabRecord|nil
+local function find_task_tab_by_key(key)
+  for _, tab_id in ipairs(ui_state.traversal_ids()) do
+    local tab = ui_state.get_tab(tab_id)
+    local handle = tab and tab.terminal or nil
+    if tab
+      and tab.category_key == UI_TASK_CATEGORY_KEY
+      and type(handle) == "table"
+      and handle.qck_task_command_key == key
+      and is_valid_handle(handle)
+    then
+      return tab
+    end
+  end
+
+  return nil
+end
+
+---@param tab qck.UiTabRecord
+---@return qck.UiTabRecord|nil
+local function show_existing_task_tab(tab)
+  return ui.with_suppressed_focus_leave(function()
+    local ok, err = ui.set_active_tab(tab.id)
+    if not ok then
+      notify(err or "failed to select task terminal", vim.log.levels.ERROR)
+      return nil
+    end
+
+    if not ui.is_visible() then
+      ui.show()
+    end
+
+    local selected = ui_state.get_tab(tab.id)
+    if selected then
+      focus_terminal(selected.terminal)
+    end
+    return selected
+  end)
+end
+
 ---@param cmd qck.Command|nil
 ---@param category_key qck.UiCategoryKey
 ---@param auto_close boolean
@@ -128,7 +191,17 @@ function terminal.create_task_and_attach(cmd)
     return nil
   end
 
-  return create_and_attach_command(cmd, UI_TASK_CATEGORY.key, false, false, true)
+  local key = task_command_key(cmd)
+  local existing = find_task_tab_by_key(key)
+  if existing then
+    return show_existing_task_tab(existing)
+  end
+
+  local tab = create_and_attach_command(cmd, UI_TASK_CATEGORY.key, false, false, true)
+  if tab and type(tab.terminal) == "table" then
+    tab.terminal.qck_task_command_key = key
+  end
+  return tab
 end
 
 ---@return nil

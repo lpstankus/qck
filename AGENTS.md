@@ -115,6 +115,7 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
     - `j`/`k` navigate within task rows without wrapping beyond bounds,
     - the selector is normal-mode-only and read-only,
     - `<CR>` on a task row should spawn and focus a `K#` task terminal with the selected command and close the selector,
+    - selecting a task whose normalized command already has a live `K#` terminal should focus/reuse that terminal instead of spawning another one,
     - task terminals should use `auto_close = false` so command completion keeps Neovim's default exited-command prompt open for user input,
     - task terminals should be pinned before regular terminals in traversal/tabbar order (`K#` before `T#`),
     - `<CR>` on an empty workspace should be a no-op,
@@ -186,6 +187,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - Task support is intentionally limited to `qck.new_task()`, `qck.run_task()`, `tasks/storage.lua`, and `qck.clear_storage()`; `run_task()` executes saved commands in `K#` task terminals, with no task hydration or override runtime.
 - `qck.new_task()` opens `tasks/form.lua` floating UI for creating workspace-scoped tasks; form saves trimmed task commands into workspace storage.
 - `qck.run_task()` opens `tasks/runner.lua` floating UI for selecting current-workspace saved tasks; the selector is read-only, normal-mode-only, uses `j`/`k` navigation, `<CR>` task-terminal spawn, and `<Esc>` close.
+- Task-run terminal reuse is keyed by normalized command value, not task name; two task names with the same command share one live `K#` terminal.
 - Task-run terminals use `auto_close = false`, so completed commands keep the terminal window/tabbar visible and wait on Neovim's default command-exited prompt until the user acts.
 - Task form duplicate protection is explicit two-step overwrite: first submit on an existing task warns, second submit with the same name confirms overwrite.
 - `tasks/form.lua` keeps runtime UI state in a single local state table (`bufnr`/`winid`/selection/pending overwrite/autocmd ids) instead of scattered module globals.

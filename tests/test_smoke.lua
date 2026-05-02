@@ -43,6 +43,9 @@ T["terminals"]["preserves lifecycle watcher behavior and focus routing"] = scena
 T["terminals"]["keeps finished task terminal open"] = scenarios.task_terminal_finish_keeps_task_tab_open
 T["terminals"]["preserves mixed terminal tabbar after task finish"] = scenarios.task_terminal_finish_preserves_mixed_tabbar
 T["terminals"]["pins task terminals before regular terminals"] = scenarios.task_terminals_are_pinned_before_regular_terminals
+T["terminals"]["reuses existing task terminal"] = scenarios.task_runner_reuses_existing_task_terminal
+T["terminals"]["reopens hidden matching task terminal"] = scenarios.task_runner_reopens_hidden_matching_task_terminal
+T["terminals"]["creates task terminals for distinct commands"] = scenarios.task_runner_spawns_distinct_task_terminals_for_distinct_commands
 T["terminals"]["prunes invalid terminals and adopts live fallbacks"] = scenarios.terminal_invalidation_and_active_fallbacks
 
 return T

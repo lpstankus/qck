@@ -330,6 +330,95 @@ function scenarios.task_terminals_are_pinned_before_regular_terminals()
   )
 end
 
+function scenarios.task_runner_reuses_existing_task_terminal()
+  local env = helpers.load_qck()
+  local qck, storage, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.ui_state, env.tabbar, env.workspace
+  local mock_snacks = require("mock_snacks")
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+
+  qck.run_task()
+  feed("<CR>")
+  local first_task_tab_id = ui_state.resolve_active_tab()
+  local first_task_tab = first_task_tab_id and ui_state.get_tab(first_task_tab_id) or nil
+  local first_task_handle = first_task_tab and first_task_tab.terminal or nil
+  helpers.assert_truthy(first_task_tab_id ~= nil and handle_is_open(first_task_handle), "first task selection should spawn K1")
+  helpers.assert_eq(#mock_snacks.get_handles(), 1, "first task selection should create one terminal handle")
+
+  qck.run_task()
+  feed("<CR>")
+  local reused_task_tab_id = ui_state.resolve_active_tab()
+  local reused_task_tab = reused_task_tab_id and ui_state.get_tab(reused_task_tab_id) or nil
+  local reused_task_handle = reused_task_tab and reused_task_tab.terminal or nil
+
+  helpers.assert_eq(reused_task_tab_id, first_task_tab_id, "selecting the same command should reuse the existing task tab")
+  helpers.assert_eq(reused_task_handle, first_task_handle, "selecting the same command should reuse the existing task handle")
+  helpers.assert_eq(#mock_snacks.get_handles(), 1, "selecting the same command should not create another terminal handle")
+  helpers.assert_truthy(handle_is_open(first_task_handle), "reused task terminal should stay visible")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K1" }), "reused task terminal should keep one tabbar row")
+end
+
+function scenarios.task_runner_reopens_hidden_matching_task_terminal()
+  local env = helpers.load_qck()
+  local qck, storage, ui, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.ui, env.ui_state, env.tabbar, env.workspace
+  local mock_snacks = require("mock_snacks")
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+
+  qck.open()
+  local terminal_tab_id = ui_state.resolve_active_tab()
+  local terminal_tab = terminal_tab_id and ui_state.get_tab(terminal_tab_id) or nil
+  local terminal_handle = terminal_tab and terminal_tab.terminal or nil
+  helpers.assert_truthy(terminal_tab_id ~= nil and handle_is_open(terminal_handle), "open() should create a regular terminal")
+
+  qck.run_task()
+  feed("<CR>")
+  local task_tab_id = ui_state.resolve_active_tab()
+  local task_tab = task_tab_id and ui_state.get_tab(task_tab_id) or nil
+  local task_handle = task_tab and task_tab.terminal or nil
+  helpers.assert_truthy(task_tab_id ~= nil and task_tab_id ~= terminal_tab_id, "task selection should spawn K1")
+  helpers.assert_truthy(handle_is_open(task_handle), "task terminal should be visible before hiding it")
+  helpers.assert_truthy(not handle_is_open(terminal_handle), "regular terminal should be hidden while task terminal is active")
+
+  helpers.assert_truthy(select(1, ui.set_active_tab(terminal_tab_id)), "test setup should switch back to the regular terminal")
+  helpers.assert_truthy(handle_is_open(terminal_handle), "regular terminal should be visible before reuse")
+  helpers.assert_truthy(not handle_is_open(task_handle), "task terminal should be hidden while regular terminal is active")
+
+  qck.run_task()
+  feed("<CR>")
+
+  helpers.assert_eq(ui_state.resolve_active_tab(), task_tab_id, "selecting a hidden matching task should reselect that task tab")
+  helpers.assert_eq(#mock_snacks.get_handles(), 2, "reusing hidden task should not create another terminal handle")
+  helpers.assert_truthy(handle_is_open(task_handle), "reused hidden task should be shown again")
+  helpers.assert_truthy(not handle_is_open(terminal_handle), "regular terminal should be hidden after task reuse")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K1", "T1" }), "tabbar should keep pinned task and terminal rows")
+end
+
+function scenarios.task_runner_spawns_distinct_task_terminals_for_distinct_commands()
+  local env = helpers.load_qck()
+  local qck, storage, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.ui_state, env.tabbar, env.workspace
+  local mock_snacks = require("mock_snacks")
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  storage.set_task_cmd(workspace, "test", { "sh", "-c", "echo qck-task" })
+
+  qck.run_task()
+  feed("<CR>")
+  local lint_tab_id = ui_state.resolve_active_tab()
+
+  qck.run_task()
+  feed("j")
+  feed("<CR>")
+  local test_tab_id = ui_state.resolve_active_tab()
+
+  helpers.assert_truthy(lint_tab_id ~= nil and test_tab_id ~= nil and test_tab_id ~= lint_tab_id, "different commands should create different task tabs")
+  helpers.assert_eq(#mock_snacks.get_handles(), 2, "different commands should create separate terminal handles")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K1", "K2" }), "distinct task commands should render separate task rows")
+end
+
 function scenarios.task_runner_empty_workspace()
   local env = helpers.load_qck()
   local qck, task_runner = env.qck, env.task_runner
@@ -1349,6 +1438,9 @@ function scenarios.ordered()
     { name = "terminals | keeps finished task terminal open", run = scenarios.task_terminal_finish_keeps_task_tab_open },
     { name = "terminals | preserves mixed terminal tabbar after task finish", run = scenarios.task_terminal_finish_preserves_mixed_tabbar },
     { name = "terminals | pins task terminals before regular terminals", run = scenarios.task_terminals_are_pinned_before_regular_terminals },
+    { name = "terminals | reuses existing task terminal", run = scenarios.task_runner_reuses_existing_task_terminal },
+    { name = "terminals | reopens hidden matching task terminal", run = scenarios.task_runner_reopens_hidden_matching_task_terminal },
+    { name = "terminals | creates task terminals for distinct commands", run = scenarios.task_runner_spawns_distinct_task_terminals_for_distinct_commands },
     { name = "terminals | prunes invalid terminals and adopts live fallbacks", run = scenarios.terminal_invalidation_and_active_fallbacks },
     { name = "storage | clears workspace data for current workspace", run = scenarios.clear_storage },
     { name = "storage | fails invalid load and repairs storage through clear_storage", run = scenarios.invalid_storage_repair },
