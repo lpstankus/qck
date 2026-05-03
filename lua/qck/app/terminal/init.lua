@@ -11,7 +11,7 @@ local UI_TERMINAL_CATEGORY_KEY = "terminal"
 local UI_TASK_CATEGORY_KEY = "task"
 local UI_TASK_CATEGORY = {
   key = UI_TASK_CATEGORY_KEY,
-  label = "K",
+  label = "R",
 }
 
 ---@param mode string|nil

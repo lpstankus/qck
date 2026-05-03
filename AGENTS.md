@@ -119,14 +119,14 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
     - `j`/`k` navigate within task rows without wrapping beyond bounds,
     - `J`/`K` swap the selected task down/up, keep the moved task selected, and persist the new workspace order,
     - the selector is normal-mode-only and read-only,
-    - `<CR>` on a task row should spawn and focus a `K#` task terminal with the selected command and close the selector,
+    - `<CR>` on a task row should spawn and focus a `R#` task terminal with the selected command and close the selector,
     - `e` on a task row should close the selector and open the task form in edit mode for that task,
-    - selecting a task whose saved task identity already has a live `K#` terminal should focus/reuse that terminal instead of spawning another one,
+    - selecting a task whose saved task identity already has a live `R#` terminal should focus/reuse that terminal instead of spawning another one,
     - task terminals should use `auto_close = false` so command completion keeps Neovim's default exited-command prompt open for user input,
-    - task terminals should be pinned before regular terminals in traversal/tabbar order (`K#` before `T#`),
-    - task terminal `K#` labels should match the selected saved task's current workspace order number and update when task order changes,
-    - task terminal rows should render sorted by `K#` label number even when spawned in a different order,
-    - tabbar `J`/`K` should not manually reorder task terminal `K#` rows,
+    - task terminals should be pinned before regular terminals in traversal/tabbar order (`R#` before `T#`),
+    - task terminal `R#` labels should match the selected saved task's current workspace order number and update when task order changes,
+    - task terminal rows should render sorted by `R#` label number even when spawned in a different order,
+    - tabbar `J`/`K` should not manually reorder task terminal `R#` rows,
     - `<CR>` on an empty workspace should be a no-op,
     - `<Esc>` and `q` close the selector.
 12. Storage-only task checks:
@@ -194,18 +194,18 @@ Additional tests should be placed under `tests/` and documented in this section.
 - When switching terminals, hiding the previous window (`toggle`) is safer than closing it (`close`), because closing may wipe the buffer and terminate the terminal job.
 - `noautocmd` is valid when creating the tab bar float (`nvim_open_win`), but must not be passed to `nvim_win_set_config` for an existing window.
 - `qck.new()` creates a new ad hoc terminal tab and does not accept task or terminal options.
-- Terminal runtime manages ad hoc `T#` terminals and task-runner `K#` terminals through the shared UI category model.
-- UI setup registers the `K` task category before the `T` terminal category so task terminals stay pinned before regular terminals in traversal and tabbar order.
-- Task support is intentionally limited to `qck.new_task()`, `qck.run_task()`, `tasks/storage.lua`, and `qck.clear_storage()`; `run_task()` executes saved commands in `K#` task terminals, with no task hydration or override runtime.
+- Terminal runtime manages ad hoc `T#` terminals and task-runner `R#` terminals through the shared UI category model.
+- UI setup registers the `R` task category before the `T` terminal category so task terminals stay pinned before regular terminals in traversal and tabbar order.
+- Task support is intentionally limited to `qck.new_task()`, `qck.run_task()`, `tasks/storage.lua`, and `qck.clear_storage()`; `run_task()` executes saved commands in `R#` task terminals, with no task hydration or override runtime.
 - `qck.new_task()` opens `tasks/form.lua` floating UI for creating workspace-scoped tasks; form saves trimmed task commands into workspace storage.
 - The task form has create and edit modes; edit mode is opened from the runner, pre-fills the selected task, and renames by removing the original task key after validation/overwrite confirmation.
 - `qck.run_task()` opens `tasks/runner.lua` floating UI for selecting current-workspace saved tasks in stored creation order; `qck.run_task(number)` directly runs the task at that 1-based selector position and warns/no-ops for invalid or out-of-range numbers. The selector is read-only, normal-mode-only, uses `j`/`k` navigation, `J`/`K` persisted task reordering, `<CR>` task-terminal spawn, and `<Esc>`/`q` close.
 - Task runner rows display compact workspace order prefixes (`1.`, `2.`, ...), while storage keeps the underlying creation-order metadata with each task entry.
-- Task-run terminal reuse is keyed by saved task identity (`workspace` + task name), not command value; two task names with the same command get separate live `K#` terminals.
+- Task-run terminal reuse is keyed by saved task identity (`workspace` + task name), not command value; two task names with the same command get separate live `R#` terminals.
 - Editing a task name refreshes any matching live task terminal's saved-task identity after storage save succeeds; when a rename overwrites another live task, the renamed terminal keeps the new identity and the overwritten target terminal is deleted as stale.
-- Task-run terminal `K#` labels use the saved task's current workspace order number, so live task terminals relabel when `J`/`K` reorders tasks in the runner.
-- Task-run terminal rows render in ascending `K#` label order, independent of spawn order; regular `T#` terminals keep manual tabbar ordering semantics.
-- Tabbar `J`/`K` manual reordering applies to regular `T#` terminals, not sorted task terminal `K#` rows.
+- Task-run terminal `R#` labels use the saved task's current workspace order number, so live task terminals relabel when `J`/`K` reorders tasks in the runner.
+- Task-run terminal rows render in ascending `R#` label order, independent of spawn order; regular `T#` terminals keep manual tabbar ordering semantics.
+- Tabbar `J`/`K` manual reordering applies to regular `T#` terminals, not sorted task terminal `R#` rows.
 - Task-run terminals use `auto_close = false`, so completed commands keep the terminal window/tabbar visible and wait on Neovim's default command-exited prompt until the user acts.
 - Task form duplicate protection is explicit two-step overwrite: first submit on an existing task warns, second submit with the same name confirms overwrite.
 - `tasks/form.lua` keeps runtime UI state in a single local state table (`bufnr`/`winid`/selection/pending overwrite/autocmd ids) instead of scattered module globals.
@@ -237,7 +237,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - `lua/qck/ui/init.lua` now makes the internal handoff contract executable for this chunk: it can register categories, attach caller-created handles, manage active-tab visibility for UI-owned tabs, expose thin public-behavior wrappers (`create/open/toggle/close/cycle`) for `qck.init`, roll back failed `attach_and_show()` attempts, and route focus switching through UI-owned content/tabbar winids.
 - `ui/init.lua` now owns watcher installation and cleanup for both global focus/resize behavior and per-tab buffer/window lifecycle tracking; focus/resize behavior no longer depends on app-level bridges.
 - UI-owned watcher helpers explicitly separate long-lived global watcher state from per-tab watcher state, and terminal-backed window swaps temporarily suppress focus-leave auto-hide so internal hide/show churn does not collapse the UI.
-- `ui/state.lua` is now the sole owner of terminal-tab identity, ordering, cycling, active-tab fallback, and `K#`/`T#` display ids.
+- `ui/state.lua` is now the sole owner of terminal-tab identity, ordering, cycling, active-tab fallback, and `R#`/`T#` display ids.
 - `ui/init.lua` resolves active-tab-only behavior strictly through `ui/state.lua`; no terminal-id compatibility layer remains in runtime flows.
 - deleting the active tab now always follows `ui.state` traversal fallback rules: visible deletes immediately show the adopted next live tab when one exists, while hidden deletes keep the UI hidden and only update active selection.
 - category re-registration stays mutable until that specific category gets its first attached tab; after first use, only metadata-identical re-registration is allowed.

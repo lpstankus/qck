@@ -19,7 +19,7 @@ local previous_terminal_mapping_lhs = {}
 local terminal_mapping_modes = { "n", "t" }
 local UI_TASK_CATEGORY = {
   key = "task",
-  label = "K",
+  label = "R",
 }
 local UI_TERMINAL_CATEGORY = {
   key = "terminal",
