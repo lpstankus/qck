@@ -110,17 +110,24 @@ function qck.new_task()
   task_form.open()
 end
 
----Open the task runner selector for saved tasks in this workspace.
+---Open the task runner selector for saved tasks in this workspace, or run a task by list number.
 ---
 ---Parameters:
----  - None.
+---  - `task_number`: Optional 1-based task number from the task runner list.
 ---
 ---Example:
 ---```lua
 ---require("qck").run_task()
+---require("qck").run_task(3)
 ---```
+---@param task_number? integer
 ---@return nil
-function qck.run_task()
+function qck.run_task(task_number)
+  if task_number ~= nil then
+    task_runner.run_number(task_number)
+    return
+  end
+
   task_runner.open()
 end
 

@@ -1,6 +1,6 @@
 local runner = {}
 local autocmd = require("qck.shared.autocmd")
-local notify = require("qck.shared.notify")
+local notify = require("qck.shared.notify").notify
 local task_form = require("qck.tasks.form")
 local terminal = require("qck.app.terminal")
 local storage = require("qck.tasks.storage")
@@ -180,6 +180,21 @@ local function move_task(delta)
   highlight_current()
 end
 
+---@param row table|nil
+---@return boolean
+local function run_row(row)
+  if type(row) ~= "table" then
+    return false
+  end
+
+  return terminal.create_task_and_attach({
+    workspace = current_workspace(),
+    name = row.name,
+    cmd = row.cmd,
+    order = row.order,
+  }) ~= nil
+end
+
 local function select_current()
   if not is_valid_win(state.winid) or #state.rows == 0 then
     return
@@ -192,12 +207,7 @@ local function select_current()
     return
   end
 
-  if terminal.create_task_and_attach({
-    workspace = current_workspace(),
-    name = row.name,
-    cmd = row.cmd,
-    order = row.order,
-  }) then
+  if run_row(row) then
     close()
   end
 end
@@ -323,6 +333,26 @@ function runner.open()
     callback = reset_state,
     once = true,
   })
+end
+
+---@param task_number any
+---@return nil
+function runner.run_number(task_number)
+  if type(task_number) ~= "number" or task_number < 1 or task_number % 1 ~= 0 then
+    notify("run_task(number): task number must be a positive integer", vim.log.levels.WARN)
+    return
+  end
+
+  local rows = build_rows()
+  local row = rows[task_number]
+  if not row then
+    notify(("run_task(%d): no task at that position"):format(task_number), vim.log.levels.WARN)
+    return
+  end
+
+  if run_row(row) then
+    close()
+  end
 end
 
 function runner.get_winid()

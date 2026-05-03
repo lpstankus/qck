@@ -373,6 +373,111 @@ function scenarios.task_runner_selects_workspace_task()
   end
 end
 
+function scenarios.task_runner_runs_numbered_task()
+  local env = helpers.load_qck()
+  local qck, storage, task_runner, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.task_runner, env.ui_state, env.tabbar, env.workspace
+  local ui_runtime = require("qck.ui.runtime")
+  local notifications = {}
+  local original_notify = vim.notify
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  storage.set_task_cmd(workspace, "test", { "sh", "-c", "echo qck-task" })
+
+  vim.notify = function(msg, level)
+    notifications[#notifications + 1] = { msg = msg, level = level }
+  end
+
+  local ok, err = pcall(function()
+    qck.run_task(2)
+
+    helpers.assert_eq(task_runner.get_winid(), nil, "run_task(number) should not open the task selector")
+    helpers.assert_eq(#notifications, 0, "valid direct task run should not warn")
+
+    local active_tab_id = ui_state.resolve_active_tab()
+    local active_tab = active_tab_id and ui_state.get_tab(active_tab_id) or nil
+    local handle = active_tab and active_tab.terminal or nil
+    helpers.assert_truthy(active_tab_id ~= nil, "run_task(number) should create an active task tab")
+    helpers.assert_eq(active_tab and active_tab.category_key, "task", "run_task(number) should attach selected tasks to the task category")
+    helpers.assert_eq(active_tab and active_tab.category_display_id, 2, "run_task(2) should create a K2 task terminal")
+    helpers.assert_truthy(handle_is_open(handle), "run_task(number) should attach a visible task terminal")
+    helpers.assert_eq(vim.api.nvim_get_current_win(), ui_runtime.get_content_winid(), "task terminal should be focused after direct run")
+    helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K2" }), "tabbar should render the direct-run task label")
+
+    local terminal_lines = vim.api.nvim_buf_get_lines(handle.buf, 0, -1, false)
+    helpers.assert_truthy(vim.deep_equal(terminal_lines, { "cmd: sh -c echo qck-task" }), "direct run should execute the selected task command")
+
+    qck.run_task()
+    local runner_win = task_runner.get_winid()
+    helpers.assert_truthy(type(runner_win) == "number", "test setup should open the task selector")
+    qck.run_task(1)
+    helpers.assert_eq(task_runner.get_winid(), nil, "run_task(number) should close an open selector after a successful run")
+  end)
+
+  vim.notify = original_notify
+  if not ok then
+    error(err)
+  end
+end
+
+function scenarios.task_runner_rejects_invalid_task_numbers()
+  local env = helpers.load_qck()
+  local qck, storage, task_runner, ui_state, workspace =
+    env.qck, env.storage, env.task_runner, env.ui_state, env.workspace
+  local notifications = {}
+  local original_notify = vim.notify
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+
+  vim.notify = function(msg, level)
+    notifications[#notifications + 1] = { msg = msg, level = level }
+  end
+
+  local ok, err = pcall(function()
+    qck.run_task(99)
+    qck.run_task(0)
+    qck.run_task(1.5)
+    qck.run_task("1")
+
+    helpers.assert_eq(task_runner.get_winid(), nil, "invalid run_task(number) calls should not open the task selector")
+    helpers.assert_eq(ui_state.resolve_active_tab(), nil, "invalid run_task(number) calls should not create task terminals")
+    helpers.assert_eq(#notifications, 4, "invalid run_task(number) calls should warn once per invalid request")
+    for _, item in ipairs(notifications) do
+      helpers.assert_eq(item.level, vim.log.levels.WARN, "invalid run_task(number) warnings should use warn level")
+    end
+  end)
+
+  vim.notify = original_notify
+  if not ok then
+    error(err)
+  end
+end
+
+function scenarios.task_runner_reuses_numbered_task_terminal()
+  local env = helpers.load_qck()
+  local qck, storage, task_runner, ui_state, workspace =
+    env.qck, env.storage, env.task_runner, env.ui_state, env.workspace
+  local mock_snacks = require("mock_snacks")
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+
+  qck.run_task(1)
+  local first_tab_id = ui_state.resolve_active_tab()
+  local first_tab = first_tab_id and ui_state.get_tab(first_tab_id) or nil
+  local first_handle = first_tab and first_tab.terminal or nil
+
+  qck.run_task(1)
+  local second_tab_id = ui_state.resolve_active_tab()
+  local second_tab = second_tab_id and ui_state.get_tab(second_tab_id) or nil
+  local second_handle = second_tab and second_tab.terminal or nil
+
+  helpers.assert_eq(task_runner.get_winid(), nil, "reusing a numbered task should not open the task selector")
+  helpers.assert_eq(#mock_snacks.get_handles(), 1, "numbered task run should reuse an existing live task terminal")
+  helpers.assert_eq(second_tab_id, first_tab_id, "numbered task run should keep the reused task tab active")
+  helpers.assert_eq(second_handle, first_handle, "numbered task run should focus the existing task handle")
+  helpers.assert_truthy(handle_is_open(second_handle), "reused numbered task handle should remain open")
+end
+
 function scenarios.task_runner_reorders_workspace_tasks()
   local env = helpers.load_qck()
   local qck, storage, task_runner, workspace =
@@ -2026,6 +2131,9 @@ function scenarios.ordered()
     { name = "task form | creates and overwrites workspace task", run = scenarios.task_form_create_and_overwrite },
     { name = "task form | edits existing workspace task", run = scenarios.task_form_edit_existing_task },
     { name = "task runner | selects workspace task", run = scenarios.task_runner_selects_workspace_task },
+    { name = "task runner | runs numbered task directly", run = scenarios.task_runner_runs_numbered_task },
+    { name = "task runner | rejects invalid task numbers", run = scenarios.task_runner_rejects_invalid_task_numbers },
+    { name = "task runner | reuses numbered task terminal", run = scenarios.task_runner_reuses_numbered_task_terminal },
     { name = "task runner | reorders workspace tasks", run = scenarios.task_runner_reorders_workspace_tasks },
     { name = "task runner | edits selected task", run = scenarios.task_runner_edits_selected_task },
     { name = "task runner | edit is no-op for empty workspace", run = scenarios.task_runner_edit_empty_workspace_noops },

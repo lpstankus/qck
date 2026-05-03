@@ -19,7 +19,7 @@ This repository is a Neovim plugin written in Lua.
 - `lua/qck/ui/types.lua`: UI-local EmmyLua aliases/classes for categories, tab ids, and tab metadata.
 - `lua/qck/tasks/storage.lua`: workspace-persistent storage for workspace-created task definitions.
 - `lua/qck/tasks/form.lua`: floating task-creation form UI (name/cmd fields, Tab cycling, overwrite confirmation, workspace save).
-- `lua/qck/tasks/runner.lua`: floating task-runner selector UI for current-workspace saved tasks; normal-mode-only navigation, `<CR>` task-terminal spawn, and `<Esc>` close.
+- `lua/qck/tasks/runner.lua`: floating task-runner selector UI plus direct numbered task execution for current-workspace saved tasks; normal-mode-only navigation, `<CR>` task-terminal spawn, and `<Esc>` close.
 - `lua/qck/app/setup.lua`: setup-time wiring for Snacks bootstrapping, UI setup, mapping parsing, UI/tabbar mapping configuration, and storage load.
 - `tests/mock_snacks.lua`: deterministic Snacks terminal mock for headless `mini.test` coverage/integration runs.
 - `tests/helpers.lua`: shared `mini.test` helper utilities for storage seeding, environment reset, and repeated UI/layout assertions.
@@ -113,6 +113,7 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
     - successful save persists task command for the current workspace only.
 11. Task runner checks:
     - `run_task()` opens a floating selector with only current-workspace saved tasks,
+    - `run_task(number)` directly runs the task at that 1-based selector position and warns/no-ops for invalid or out-of-range numbers,
     - calling `run_task()` while the selector is already open should focus/reuse the same window,
     - task rows are sorted by stored workspace creation order, show compact `1.`, `2.`, ... prefixes, and the selected row uses reverse highlight after the number,
     - `j`/`k` navigate within task rows without wrapping beyond bounds,
@@ -198,7 +199,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - Task support is intentionally limited to `qck.new_task()`, `qck.run_task()`, `tasks/storage.lua`, and `qck.clear_storage()`; `run_task()` executes saved commands in `K#` task terminals, with no task hydration or override runtime.
 - `qck.new_task()` opens `tasks/form.lua` floating UI for creating workspace-scoped tasks; form saves trimmed task commands into workspace storage.
 - The task form has create and edit modes; edit mode is opened from the runner, pre-fills the selected task, and renames by removing the original task key after validation/overwrite confirmation.
-- `qck.run_task()` opens `tasks/runner.lua` floating UI for selecting current-workspace saved tasks in stored creation order; the selector is read-only, normal-mode-only, uses `j`/`k` navigation, `J`/`K` persisted task reordering, `<CR>` task-terminal spawn, and `<Esc>`/`q` close.
+- `qck.run_task()` opens `tasks/runner.lua` floating UI for selecting current-workspace saved tasks in stored creation order; `qck.run_task(number)` directly runs the task at that 1-based selector position and warns/no-ops for invalid or out-of-range numbers. The selector is read-only, normal-mode-only, uses `j`/`k` navigation, `J`/`K` persisted task reordering, `<CR>` task-terminal spawn, and `<Esc>`/`q` close.
 - Task runner rows display compact workspace order prefixes (`1.`, `2.`, ...), while storage keeps the underlying creation-order metadata with each task entry.
 - Task-run terminal reuse is keyed by saved task identity (`workspace` + task name), not command value; two task names with the same command get separate live `K#` terminals.
 - Task-run terminal `K#` labels use the saved task's current workspace order number, so live task terminals relabel when `J`/`K` reorders tasks in the runner.

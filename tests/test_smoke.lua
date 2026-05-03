@@ -15,6 +15,9 @@ T["task form"]["edits existing workspace task"] = scenarios.task_form_edit_exist
 
 T["task runner"] = new_set()
 T["task runner"]["selects workspace task"] = scenarios.task_runner_selects_workspace_task
+T["task runner"]["runs numbered task directly"] = scenarios.task_runner_runs_numbered_task
+T["task runner"]["rejects invalid task numbers"] = scenarios.task_runner_rejects_invalid_task_numbers
+T["task runner"]["reuses numbered task terminal"] = scenarios.task_runner_reuses_numbered_task_terminal
 T["task runner"]["reorders workspace tasks"] = scenarios.task_runner_reorders_workspace_tasks
 T["task runner"]["edits selected task"] = scenarios.task_runner_edits_selected_task
 T["task runner"]["edit is no-op for empty workspace"] = scenarios.task_runner_edit_empty_workspace_noops
