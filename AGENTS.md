@@ -97,7 +97,8 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
    - `clear_storage()` should clear persisted data for current workspace,
    - saves should create the parent data directory when it is missing,
    - empty storage maps should be written as JSON objects, not arrays,
-   - no implicit storage reset should happen on failed load.
+   - no implicit storage reset should happen on failed load,
+   - runtime-focused scenarios should not persist test-only config into qck storage.
 9. Terminal exit checks (`exit`, `exit 1`) to verify close/error behavior.
 10. Task form checks:
     - `new_task()` opens a floating form with task name/command fields,
@@ -266,7 +267,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - Automated tests now run through vendored `mini.test` with repo-local `luacov` wiring:
   - `tests/scenarios.lua` defines the shared smoke-behavior scenario functions,
   - `tests/test_smoke.lua` ports the old smoke harness into isolated `mini.test` cases with shared reset helpers,
-  - smoke coverage focuses on generic terminal runtime plus task form/storage behavior only,
+  - smoke coverage runs the shared ordered scenario list, including storage, UI state/runtime/tabbar/init, terminal, task, and agent behavior,
   - `tests/coverage.lua` executes the same scenarios directly under `luacov` to produce deterministic coverage stats,
   - `.luacov` limits coverage reporting to loaded `lua/qck/**` files, excludes tests/vendor code, and writes outputs under `tests/.coverage/`,
   - `tests/bootstrap.lua` forces test `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME`, and Neovim state directories under `tests/.tmp/` so tests cannot mutate the user's real Neovim config, storage, cache, or state,

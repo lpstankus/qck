@@ -1055,7 +1055,10 @@ function scenarios.agent_terminal_runs_and_reuses_workspace_agent()
     helpers.assert_truthy(#notifications >= 1, "run_agent() without config should warn")
 
     storage.set_agent_cmd(workspace, "echo agent")
-    helpers.assert_truthy(storage.save(), "agent command should save before run")
+    helpers.assert_truthy(
+      not helpers.read_storage_text():find("echo agent", 1, true),
+      "agent runtime test setup should not persist test command"
+    )
     qck.run_agent()
 
     local agent_tab_id = ui_state.resolve_active_tab()
@@ -1108,7 +1111,10 @@ function scenarios.agent_terminal_noop_completion_closes_windows()
     env.qck, env.storage, env.ui_state, env.tabbar, env.workspace
 
   storage.set_agent_cmd(workspace, "true")
-  helpers.assert_truthy(storage.save(), "noop agent command should save before run")
+  helpers.assert_truthy(
+    not helpers.read_storage_text():find('"true"', 1, true),
+    "noop agent setup should not persist test command before run"
+  )
   qck.run_agent()
 
   local agent_tab_id = ui_state.resolve_active_tab()
@@ -1129,6 +1135,10 @@ function scenarios.agent_terminal_noop_completion_closes_windows()
   helpers.assert_truthy(not vim.api.nvim_win_is_valid(terminal_win), "noop agent completion should close terminal window")
   helpers.assert_truthy(not vim.api.nvim_win_is_valid(tabbar_win), "noop agent completion should close tabbar window")
   helpers.assert_eq(ui_state.resolve_active_tab(), nil, "noop agent completion should remove the agent tab")
+  helpers.assert_truthy(
+    not helpers.read_storage_text():find('"true"', 1, true),
+    "noop agent completion test should not persist test command"
+  )
 end
 
 function scenarios.agent_terminal_orders_between_task_and_regular()
@@ -1140,7 +1150,6 @@ function scenarios.agent_terminal_orders_between_task_and_regular()
   local terminal_tab_id = ui_state.resolve_active_tab()
 
   storage.set_agent_cmd(workspace, "echo agent")
-  helpers.assert_truthy(storage.save(), "agent command should save before mixed traversal")
   qck.run_agent()
   local agent_tab_id = ui_state.resolve_active_tab()
 
@@ -2542,6 +2551,50 @@ function scenarios.storage_agent_roundtrip()
   helpers.assert_eq(storage.load(), false, "invalid agent command should fail storage load")
 end
 
+function scenarios.storage_neutral_scenarios_preserve_storage()
+  local storage_mutating_scenarios = {
+    ["task form | creates and overwrites workspace task"] = true,
+    ["task form | edits existing workspace task"] = true,
+    ["task form | normalizes task order after overwrite rename"] = true,
+    ["agent form | sets workspace agent command"] = true,
+    ["task runner | reorders workspace tasks"] = true,
+    ["storage | persists workspace task commands across load/save"] = true,
+    ["storage | stores task creation order numbers"] = true,
+    ["storage | moves task order numbers"] = true,
+    ["storage | persists across module reload"] = true,
+    ["storage | creates missing data dir on save"] = true,
+    ["storage | writes empty object maps"] = true,
+    ["storage | persists workspace agent command"] = true,
+    ["storage | clears workspace data for current workspace"] = true,
+    ["storage | fails invalid load and repairs storage through clear_storage"] = true,
+    ["terminals | updates R labels after task reorder"] = true,
+    ["terminals | reuses live task terminal after rename"] = true,
+    ["terminals | keeps renamed live tab after rename collision"] = true,
+    ["storage | keeps runtime scenarios storage-neutral"] = true,
+  }
+  local changed = {}
+
+  for _, scenario in ipairs(scenarios.ordered()) do
+    if not storage_mutating_scenarios[scenario.name] then
+      helpers.reset_environment()
+      local before = helpers.read_storage_text()
+      local ok, err = xpcall(scenario.run, debug.traceback)
+      local after = helpers.read_storage_text()
+
+      if not ok then
+        error(("storage-neutral scenario failed before storage comparison: %s\n%s"):format(scenario.name, err))
+      end
+
+      if before ~= after then
+        changed[#changed + 1] = scenario.name
+      end
+    end
+  end
+
+  helpers.reset_environment()
+  helpers.assert_eq(#changed, 0, "storage-neutral scenarios changed qck storage: " .. table.concat(changed, ", "))
+end
+
 function scenarios.ordered()
   return {
     { name = "task form | creates and overwrites workspace task", run = scenarios.task_form_create_and_overwrite },
@@ -2563,11 +2616,13 @@ function scenarios.ordered()
     { name = "storage | creates missing data dir on save", run = scenarios.storage_save_creates_missing_data_dir },
     { name = "storage | writes empty object maps", run = scenarios.storage_empty_state_writes_object_maps },
     { name = "storage | persists workspace agent command", run = scenarios.storage_agent_roundtrip },
+    { name = "storage | keeps runtime scenarios storage-neutral", run = scenarios.storage_neutral_scenarios_preserve_storage },
     { name = "ui state | registers categories and traverses tabs", run = scenarios.ui_state_registration_and_traversal },
     { name = "ui runtime | tracks windows, handles, and layout scaffolding", run = scenarios.ui_runtime_and_layout_scaffolding },
     { name = "ui tabbar | renders from ui-owned traversal and active state", run = scenarios.ui_tabbar_renders_from_ui_state },
     { name = "ui tabbar | keeps manually reordered T labels", run = scenarios.ui_tabbar_keeps_manually_reordered_t_labels },
     { name = "ui init | manages internal ui orchestration and rollback", run = scenarios.ui_init_orchestration_contract },
+    { name = "ui init | handles mouse tabbar selection without insert-mode regressions", run = scenarios.ui_mouse_tabbar_selection_contract },
     { name = "terminals | manages generic terminals with shared layout", run = scenarios.terminals_and_layout },
     { name = "terminals | preserves lifecycle watcher behavior and focus routing", run = scenarios.terminal_lifecycle_watchers_and_focus },
     { name = "terminals | keeps finished task terminal open", run = scenarios.task_terminal_finish_keeps_task_tab_open },
@@ -2583,6 +2638,8 @@ function scenarios.ordered()
     { name = "terminals | runs and reuses workspace agent terminal", run = scenarios.agent_terminal_runs_and_reuses_workspace_agent },
     { name = "terminals | closes noop agent terminal and tabbar on completion", run = scenarios.agent_terminal_noop_completion_closes_windows },
     { name = "terminals | orders mixed agent tabs between task and regular terminals", run = scenarios.agent_terminal_orders_between_task_and_regular },
+    { name = "terminals | reuses live task terminal after rename", run = scenarios.task_runner_reuses_live_task_terminal_after_rename },
+    { name = "terminals | keeps renamed live tab after rename collision", run = scenarios.task_runner_rename_collision_keeps_renamed_live_tab },
     { name = "terminals | prunes invalid terminals and adopts live fallbacks", run = scenarios.terminal_invalidation_and_active_fallbacks },
     { name = "storage | clears workspace data for current workspace", run = scenarios.clear_storage },
     { name = "storage | fails invalid load and repairs storage through clear_storage", run = scenarios.invalid_storage_repair },

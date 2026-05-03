@@ -70,6 +70,14 @@ function M.write_storage(data)
   vim.fn.writefile({ vim.json.encode(data) }, path)
 end
 
+function M.read_storage_text()
+  M.assert_isolated_xdg()
+  local path = vim.fn.stdpath("data") .. "/qck.json"
+  M.assert_truthy(path:find(TEST_DATA_MARKER, 1, true) ~= nil, "test storage must use isolated XDG_DATA_HOME")
+  local lines = vim.fn.filereadable(path) == 1 and vim.fn.readfile(path) or {}
+  return table.concat(lines, "\n")
+end
+
 function M.write_blank_storage()
   M.write_storage({
     version = STORAGE_VERSION,

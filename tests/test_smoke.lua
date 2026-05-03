@@ -35,6 +35,7 @@ T["storage"]["persists across module reload"] = scenarios.storage_persists_acros
 T["storage"]["creates missing data dir on save"] = scenarios.storage_save_creates_missing_data_dir
 T["storage"]["writes empty object maps"] = scenarios.storage_empty_state_writes_object_maps
 T["storage"]["persists workspace agent command"] = scenarios.storage_agent_roundtrip
+T["storage"]["keeps runtime scenarios storage-neutral"] = scenarios.storage_neutral_scenarios_preserve_storage
 T["storage"]["clears workspace data for current workspace"] = scenarios.clear_storage
 T["storage"]["fails invalid load and repairs storage through clear_storage"] = scenarios.invalid_storage_repair
 
