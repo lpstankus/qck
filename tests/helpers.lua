@@ -4,6 +4,12 @@ local STORAGE_VERSION = "0.1.0"
 local DEFAULT_COLUMNS = vim.o.columns
 local DEFAULT_LINES = vim.o.lines
 local TEST_DATA_MARKER = "/tests/.tmp/"
+local XDG_ENV_KEYS = {
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_STATE_HOME",
+  "XDG_CACHE_HOME",
+}
 
 local function clear_qck_modules()
   local names = {}
@@ -36,7 +42,28 @@ function M.assert_truthy(value, msg)
   end
 end
 
+function M.is_isolated_xdg()
+  for _, key in ipairs(XDG_ENV_KEYS) do
+    local value = vim.env[key]
+    if type(value) ~= "string" or value:find(TEST_DATA_MARKER, 1, true) == nil then
+      return false
+    end
+  end
+  return true
+end
+
+function M.assert_isolated_xdg()
+  for _, key in ipairs(XDG_ENV_KEYS) do
+    local value = vim.env[key]
+    M.assert_truthy(
+      type(value) == "string" and value:find(TEST_DATA_MARKER, 1, true) ~= nil,
+      "test " .. key .. " must use isolated tests/.tmp directory"
+    )
+  end
+end
+
 function M.write_storage(data)
+  M.assert_isolated_xdg()
   local path = vim.fn.stdpath("data") .. "/qck.json"
   M.assert_truthy(path:find(TEST_DATA_MARKER, 1, true) ~= nil, "test storage must use isolated XDG_DATA_HOME")
   vim.fn.mkdir(vim.fn.fnamemodify(path, ":h"), "p")
@@ -66,8 +93,18 @@ function M.reset_environment()
 end
 
 function M.load_qck(opts)
-  local mock_snacks = require("mock_snacks")
-  mock_snacks.install()
+  M.assert_isolated_xdg()
+
+  if opts and opts.real_snacks == true then
+    package.loaded.snacks = nil
+    local snacks_path = vim.env.QCK_TEST_SNACKS_RTP
+    if type(snacks_path) == "string" and snacks_path ~= "" then
+      vim.opt.rtp:prepend(snacks_path)
+    end
+  else
+    local mock_snacks = require("mock_snacks")
+    mock_snacks.install()
+  end
 
   local qck = require("qck")
   if opts == nil or opts.setup ~= false then

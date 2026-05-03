@@ -1074,9 +1074,12 @@ function scenarios.agent_terminal_runs_and_reuses_workspace_agent()
       "agent terminal should run the saved command"
     )
 
+    qck.new()
+    helpers.assert_eq(#ui_state.traversal_ids(), 2, "hiding the live agent should keep the agent tab registered")
+
     qck.run_agent()
     helpers.assert_eq(ui_state.resolve_active_tab(), agent_tab_id, "second run_agent() should reuse the live agent tab")
-    helpers.assert_eq(#ui_state.traversal_ids(), 1, "second run_agent() should not spawn another A tab")
+    helpers.assert_eq(#ui_state.traversal_ids(), 2, "second run_agent() should not spawn another A tab")
     helpers.assert_truthy(handle_is_open(agent_handle), "reused agent terminal should remain visible")
 
     mock_snacks.finish_handle(agent_handle)
@@ -1088,6 +1091,44 @@ function scenarios.agent_terminal_runs_and_reuses_workspace_agent()
   if not ok then
     error(err)
   end
+end
+
+function scenarios.agent_terminal_noop_completion_closes_windows()
+  local snacks_rtp = vim.env.QCK_TEST_SNACKS_RTP
+  if type(snacks_rtp) ~= "string" or snacks_rtp == "" or vim.fn.isdirectory(snacks_rtp) ~= 1 then
+    return
+  end
+  if not helpers.is_isolated_xdg() then
+    return
+  end
+  vim.env.QCK_TEST_SNACKS_RTP = snacks_rtp
+
+  local env = helpers.load_qck({ real_snacks = true })
+  local qck, storage, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.ui_state, env.tabbar, env.workspace
+
+  storage.set_agent_cmd(workspace, "true")
+  helpers.assert_truthy(storage.save(), "noop agent command should save before run")
+  qck.run_agent()
+
+  local agent_tab_id = ui_state.resolve_active_tab()
+  local agent_tab = agent_tab_id and ui_state.get_tab(agent_tab_id) or nil
+  local agent_handle = agent_tab and agent_tab.terminal or nil
+  local terminal_win = agent_handle and agent_handle.win or nil
+  local tabbar_win = tabbar.get_winid()
+
+  helpers.assert_truthy(type(terminal_win) == "number", "noop agent terminal should create a terminal window")
+  helpers.assert_truthy(vim.api.nvim_win_is_valid(terminal_win), "noop agent terminal window should start valid")
+  helpers.assert_truthy(type(tabbar_win) == "number", "noop agent terminal should create a tabbar window")
+  helpers.assert_truthy(vim.api.nvim_win_is_valid(tabbar_win), "noop agent tabbar window should start valid")
+
+  vim.wait(1000, function()
+    return not vim.api.nvim_win_is_valid(terminal_win)
+  end)
+
+  helpers.assert_truthy(not vim.api.nvim_win_is_valid(terminal_win), "noop agent completion should close terminal window")
+  helpers.assert_truthy(not vim.api.nvim_win_is_valid(tabbar_win), "noop agent completion should close tabbar window")
+  helpers.assert_eq(ui_state.resolve_active_tab(), nil, "noop agent completion should remove the agent tab")
 end
 
 function scenarios.agent_terminal_orders_between_task_and_regular()
@@ -2540,6 +2581,7 @@ function scenarios.ordered()
     { name = "terminals | updates R labels after task reorder", run = scenarios.task_runner_updates_r_labels_after_reorder },
     { name = "terminals | prevents manual R label reordering", run = scenarios.task_runner_prevents_manual_r_label_reordering },
     { name = "terminals | runs and reuses workspace agent terminal", run = scenarios.agent_terminal_runs_and_reuses_workspace_agent },
+    { name = "terminals | closes noop agent terminal and tabbar on completion", run = scenarios.agent_terminal_noop_completion_closes_windows },
     { name = "terminals | orders mixed agent tabs between task and regular terminals", run = scenarios.agent_terminal_orders_between_task_and_regular },
     { name = "terminals | prunes invalid terminals and adopts live fallbacks", run = scenarios.terminal_invalidation_and_active_fallbacks },
     { name = "storage | clears workspace data for current workspace", run = scenarios.clear_storage },

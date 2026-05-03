@@ -139,6 +139,7 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
     - `run_agent()` spawns and focuses an `A#` agent terminal with the saved command,
     - selecting/running an agent whose workspace already has a live `A#` terminal should focus/reuse that terminal instead of spawning another one,
     - agent terminals should use `auto_close = true`,
+    - completed agent terminals should remove the `A#` tab and close the tabbar while ordinary hide/toggle keeps the live agent reusable,
     - agent terminals should be ordered between task and regular terminals in traversal/tabbar order (`R#`, then `A#`, then `T#`),
     - tabbar `J`/`K` should manually reorder agent `A#` rows within the agent category.
 13. Storage-only task checks:
@@ -221,6 +222,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - Tabbar `J`/`K` manual reordering applies to regular `T#` terminals, not sorted task terminal `R#` rows.
 - Task-run terminals use `auto_close = false`, so completed commands keep the terminal window/tabbar visible and wait on Neovim's default command-exited prompt until the user acts.
 - Agent terminals use `auto_close = true`, so command completion follows Snacks' auto-close behavior.
+- Agent terminal close cleanup is driven by Snacks `win.on_close` with a scheduled buffer-validity guard: hide/toggle keeps the `A#` tab when the buffer survives, while completed commands detach the agent tab and clear the tabbar after Snacks deletes the buffer.
 - Agent terminal reuse is keyed by workspace; calling `run_agent()` again while the workspace has a live `A#` terminal focuses/reuses it instead of spawning another one.
 - Task form duplicate protection is explicit two-step overwrite: first submit on an existing task warns, second submit with the same name confirms overwrite.
 - `tasks/form.lua` keeps runtime UI state in a single local state table (`bufnr`/`winid`/selection/pending overwrite/autocmd ids) instead of scattered module globals.
@@ -267,7 +269,8 @@ Additional tests should be placed under `tests/` and documented in this section.
   - smoke coverage focuses on generic terminal runtime plus task form/storage behavior only,
   - `tests/coverage.lua` executes the same scenarios directly under `luacov` to produce deterministic coverage stats,
   - `.luacov` limits coverage reporting to loaded `lua/qck/**` files, excludes tests/vendor code, and writes outputs under `tests/.coverage/`,
-  - `tests/minitest.lua` and `tests/coverage.lua` force separate `XDG_DATA_HOME` roots under `tests/.tmp/` so storage tests cannot mutate the user’s real `qck.json` or race each other,
+  - `tests/bootstrap.lua` forces test `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME`, and Neovim state directories under `tests/.tmp/` so tests cannot mutate the user's real Neovim config, storage, cache, or state,
+  - `tests/coverage.lua` clears `QCK_TEST_SNACKS_RTP` so coverage stays on the hermetic Snacks mock; real Snacks regression coverage is opt-in through `tests/minitest.lua` with `QCK_TEST_SNACKS_RTP` set,
   - `tests/smoke.lua` is deprecated and exists only as a forwarding shim to the new test runner.
 
 ## Commit & Pull Request Guidelines

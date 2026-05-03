@@ -1,5 +1,4 @@
 local root = vim.fn.getcwd()
-vim.env.XDG_DATA_HOME = root .. "/tests/.tmp/minitest-data"
 vim.o.showmode = false
 
 vim.opt.rtp:prepend(root .. "/tests/vendor/mini.nvim")
@@ -12,6 +11,8 @@ package.path = table.concat({
   root .. "/tests/?.lua",
   package.path,
 }, ";")
+
+require("bootstrap").setup_xdg("minitest")
 
 local minitest = require("mini.test")
 

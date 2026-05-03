@@ -66,6 +66,7 @@ T["terminals"]["uses task order for R labels"] = scenarios.task_runner_uses_task
 T["terminals"]["updates R labels after task reorder"] = scenarios.task_runner_updates_r_labels_after_reorder
 T["terminals"]["prevents manual R label reordering"] = scenarios.task_runner_prevents_manual_r_label_reordering
 T["terminals"]["runs and reuses workspace agent terminal"] = scenarios.agent_terminal_runs_and_reuses_workspace_agent
+T["terminals"]["closes noop agent terminal and tabbar on completion"] = scenarios.agent_terminal_noop_completion_closes_windows
 T["terminals"]["orders mixed agent tabs between task and regular terminals"] = scenarios.agent_terminal_orders_between_task_and_regular
 T["terminals"]["reuses live task terminal after rename"] = scenarios.task_runner_reuses_live_task_terminal_after_rename
 T["terminals"]["keeps renamed live tab after rename collision"] = scenarios.task_runner_rename_collision_keeps_renamed_live_tab

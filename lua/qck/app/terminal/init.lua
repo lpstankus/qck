@@ -220,19 +220,26 @@ end
 ---@param preserve_mode boolean|nil
 ---@param focus_after_attach boolean|nil
 ---@param attach_opts? qck.UiRegisterTabOpts
+---@param opts? { terminal: table|nil, win: table|nil, configure_handle: fun(handle: any)|nil }
 ---@return qck.UiTabRecord|nil
-local function create_and_attach_command(cmd, category_key, auto_close, preserve_mode, focus_after_attach, attach_opts)
+local function create_and_attach_command(cmd, category_key, auto_close, preserve_mode, focus_after_attach, attach_opts, opts)
   return ui.with_suppressed_focus_leave(function()
     local mode_intent = preserve_mode == true and capture_mode_intent() or nil
-    local handle = terminal_service.create_handle(cmd, {
+    local win_opts = vim.tbl_extend("force", layout.build_initial_terminal_config(), {
+      position = "float",
+    }, opts and opts.win or {})
+    local terminal_opts = vim.tbl_extend("force", opts and opts.terminal or {}, {
       interactive = true,
       auto_close = auto_close,
-      win = vim.tbl_extend("force", layout.build_initial_terminal_config(), {
-        position = "float",
-      }),
+      win = win_opts,
     })
+    local handle = terminal_service.create_handle(cmd, terminal_opts)
     if not handle then
       return nil
+    end
+
+    if opts and type(opts.configure_handle) == "function" then
+      opts.configure_handle(handle)
     end
 
     local tab_id, err = ui.attach_and_show(category_key, handle, attach_opts)
@@ -307,10 +314,35 @@ function terminal.create_agent_and_attach(agent)
     return show_existing_agent_tab(existing)
   end
 
-  local tab = create_and_attach_command(agent.cmd, UI_AGENT_CATEGORY.key, true, false, true)
+  local tab = create_and_attach_command(agent.cmd, UI_AGENT_CATEGORY.key, true, false, true, nil, {
+    configure_handle = function(handle)
+      handle.qck_agent_key = key
+      handle.qck_agent_workspace = agent.workspace
+    end,
+    win = {
+      on_close = function(handle)
+        vim.schedule(function()
+          if type(handle.buf_valid) == "function" and handle:buf_valid() then
+            return
+          end
+
+          ui.detach_closed_agent_handle(handle)
+        end)
+      end,
+    },
+  })
   if tab and type(tab.terminal) == "table" then
     tab.terminal.qck_agent_key = key
     tab.terminal.qck_agent_workspace = agent.workspace
+    local handle = tab.terminal
+    vim.schedule(function()
+      if type(handle) == "table"
+        and type(handle.buf_valid) == "function"
+        and not handle:buf_valid()
+      then
+        ui.detach_closed_agent_handle(handle)
+      end
+    end)
   end
   return tab
 end

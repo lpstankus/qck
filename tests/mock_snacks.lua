@@ -21,6 +21,8 @@ local function normalize_win_config(id, win_opts)
   conf.width = math.max(1, math.floor(tonumber(conf.width) or 40))
   conf.height = math.max(1, math.floor(tonumber(conf.height) or 10))
   conf.position = nil
+  conf.on_buf = nil
+  conf.on_close = nil
   conf.noautocmd = true
   return conf
 end
@@ -48,6 +50,7 @@ local function create_handle(id, cmd, opts)
     buf = buf,
     win = open_win(),
     auto_close = not (type(opts) == "table" and opts.auto_close == false),
+    _on_close = win_opts and win_opts.on_close or nil,
     _autocmd_ids = {},
   }
 
@@ -71,6 +74,9 @@ local function create_handle(id, cmd, opts)
 
   function handle:toggle()
     if self:valid() then
+      if type(self._on_close) == "function" then
+        self:_on_close()
+      end
       local win = self.win
       self.win = nil
       vim.api.nvim_win_close(win, true)
@@ -80,6 +86,9 @@ local function create_handle(id, cmd, opts)
   end
 
   function handle:close()
+    if type(self._on_close) == "function" then
+      self:_on_close()
+    end
     if self:valid() then
       local win = self.win
       self.win = nil
@@ -99,6 +108,10 @@ local function create_handle(id, cmd, opts)
       once = false,
     })
     self._autocmd_ids[#self._autocmd_ids + 1] = autocmd_id
+  end
+
+  if type(win_opts) == "table" and type(win_opts.on_buf) == "function" then
+    win_opts.on_buf(handle)
   end
 
   return handle
@@ -141,10 +154,18 @@ function M.finish_handle(handle)
     return
   end
 
+  if type(handle._on_close) == "function" then
+    handle:_on_close()
+  end
   local win = handle.win
   handle.win = nil
   if vim.api.nvim_win_is_valid(win) then
     vim.api.nvim_win_close(win, true)
+  end
+  if handle:buf_valid() then
+    local buf = handle.buf
+    handle.buf = nil
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
   end
 end
 

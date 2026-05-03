@@ -1059,6 +1059,25 @@ function ui.delete_tab(tab_id)
   return delete_tab_internal(tab_id)
 end
 
+---@param handle any
+---@return boolean
+function ui.detach_closed_agent_handle(handle)
+  local tab = state.get_tab_by_terminal(handle)
+  if not tab or tab.terminal ~= handle or tab.category_key ~= UI_AGENT_CATEGORY.key then
+    return false
+  end
+
+  local was_active = resolve_active_tab_id() == tab.id
+  clear_terminal_mappings(handle)
+  detach_tab(tab.id)
+  if was_active then
+    clear_visible_ui()
+  elseif runtime.is_visible() then
+    tabbar.render()
+  end
+  return true
+end
+
 ---@param tab_id qck.UiTabId
 ---@param direction integer
 ---@return boolean, string?
