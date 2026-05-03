@@ -114,7 +114,7 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
 11. Task runner checks:
     - `run_task()` opens a floating selector with only current-workspace saved tasks,
     - calling `run_task()` while the selector is already open should focus/reuse the same window,
-    - task rows are sorted by name and the selected row uses full-row reverse highlight,
+    - task rows are sorted by stored workspace creation order, show compact `1.`, `2.`, ... prefixes, and the selected row uses reverse highlight after the number,
     - `j`/`k` navigate within task rows without wrapping beyond bounds,
     - the selector is normal-mode-only and read-only,
     - `<CR>` on a task row should spawn and focus a `K#` task terminal with the selected command and close the selector,
@@ -126,6 +126,8 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
     - `<Esc>` and `q` close the selector.
 12. Storage-only task checks:
     - storage load/save round-trips normalized workspace task commands,
+    - storage load/save round-trips workspace task creation-order numbers,
+    - storage load backfills missing task order numbers deterministically for older task entries,
     - storage survives a fresh module reload in the same data directory,
     - workspace task data remains isolated per working directory.
 13. UI state checks:
@@ -169,7 +171,7 @@ Additional tests should be placed under `tests/` and documented in this section.
   - `app/`: setup-time wiring plus caller-side terminal creation/handoff flow and the raw Snacks adapter used before UI ownership begins.
 - State validity checks guard terminal-handle method calls with `pcall`, so stale/invalid handle behavior cannot break prune/cycle paths.
 - `app/terminal/service.lua` closes partially opened terminal handles when handle initialization fails, preventing leaked untracked terminal resources.
-- Workspace persistence lives in `tasks/storage.lua` (`stdpath("data") .. "/qck.json"`) and stores only per-workspace saved task commands created through `qck.new_task()`.
+- Workspace persistence lives in `tasks/storage.lua` (`stdpath("data") .. "/qck.json"`) and stores per-workspace saved task commands plus task creation-order numbers created through `qck.new_task()`.
 - `storage.load()` / `storage.save()` return `(ok, err)` and track `storage.last_error`, so callers can report concrete persistence failure details.
 - `storage.save()` creates the parent data directory before writing and preserves empty workspace maps as JSON objects (`{}`), avoiding accidental array-shaped storage.
 - Storage loading is fail-fast on unsupported/invalid schema and does not mutate files automatically.
@@ -192,7 +194,8 @@ Additional tests should be placed under `tests/` and documented in this section.
 - Task support is intentionally limited to `qck.new_task()`, `qck.run_task()`, `tasks/storage.lua`, and `qck.clear_storage()`; `run_task()` executes saved commands in `K#` task terminals, with no task hydration or override runtime.
 - `qck.new_task()` opens `tasks/form.lua` floating UI for creating workspace-scoped tasks; form saves trimmed task commands into workspace storage.
 - The task form has create and edit modes; edit mode is opened from the runner, pre-fills the selected task, and renames by removing the original task key after validation/overwrite confirmation.
-- `qck.run_task()` opens `tasks/runner.lua` floating UI for selecting current-workspace saved tasks; the selector is read-only, normal-mode-only, uses `j`/`k` navigation, `<CR>` task-terminal spawn, and `<Esc>`/`q` close.
+- `qck.run_task()` opens `tasks/runner.lua` floating UI for selecting current-workspace saved tasks in stored creation order; the selector is read-only, normal-mode-only, uses `j`/`k` navigation, `<CR>` task-terminal spawn, and `<Esc>`/`q` close.
+- Task runner rows display compact workspace order prefixes (`1.`, `2.`, ...), while storage keeps the underlying creation-order metadata with each task entry.
 - Task-run terminal reuse is keyed by normalized command value, not task name; two task names with the same command share one live `K#` terminal.
 - Task-run terminals use `auto_close = false`, so completed commands keep the terminal window/tabbar visible and wait on Neovim's default command-exited prompt until the user acts.
 - Task form duplicate protection is explicit two-step overwrite: first submit on an existing task warns, second submit with the same name confirms overwrite.

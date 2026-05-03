@@ -55,26 +55,29 @@ local function close()
 end
 
 local function build_rows()
-  local tasks = storage.get_workspace_tasks(current_workspace())
-  local names = {}
-
-  for name in pairs(tasks) do
-    names[#names + 1] = name
-  end
-  table.sort(names)
-
+  local entries = storage.get_workspace_task_entries(current_workspace())
   local rows = {}
   local max_name_width = 0
-  for _, name in ipairs(names) do
-    max_name_width = math.max(max_name_width, #name)
+  local max_prefix_width = 0
+  for index, entry in ipairs(entries) do
+    max_name_width = math.max(max_name_width, #entry.name)
+    max_prefix_width = math.max(max_prefix_width, #tostring(index) + 1)
   end
 
-  for _, name in ipairs(names) do
-    local cmd = tasks[name]
+  for index, entry in ipairs(entries) do
+    local number_prefix = ("%d."):format(index)
     rows[#rows + 1] = {
-      name = name,
-      cmd = cmd,
-      line = ("%s%s%s%s"):format(name, string.rep(" ", max_name_width - #name), DIVIDER, command_to_string(cmd)),
+      name = entry.name,
+      cmd = entry.cmd,
+      highlight_col = math.max(0, #number_prefix - 1),
+      line = ("%s%s %s%s%s%s"):format(
+        number_prefix,
+        string.rep(" ", max_prefix_width - #number_prefix),
+        entry.name,
+        string.rep(" ", max_name_width - #entry.name),
+        DIVIDER,
+        command_to_string(entry.cmd)
+      ),
     }
   end
 
@@ -125,7 +128,8 @@ local function highlight_current()
 
   clamp_cursor()
   local line = vim.api.nvim_win_get_cursor(state.winid)[1]
-  vim.api.nvim_buf_set_extmark(state.bufnr, ns, line - 1, 0, {
+  local row = state.rows[line]
+  vim.api.nvim_buf_set_extmark(state.bufnr, ns, line - 1, row and row.highlight_col or 0, {
     end_row = line,
     hl_group = "QckTaskRunnerCurrent",
     hl_eol = true,

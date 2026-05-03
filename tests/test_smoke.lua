@@ -21,6 +21,7 @@ T["task runner"]["handles empty workspace"] = scenarios.task_runner_empty_worksp
 
 T["storage"] = new_set()
 T["storage"]["persists workspace task commands across load/save"] = scenarios.storage_roundtrip
+T["storage"]["stores task creation order numbers"] = scenarios.storage_task_ordering
 T["storage"]["persists across module reload"] = scenarios.storage_persists_across_module_reload
 T["storage"]["creates missing data dir on save"] = scenarios.storage_save_creates_missing_data_dir
 T["storage"]["writes empty object maps"] = scenarios.storage_empty_state_writes_object_maps

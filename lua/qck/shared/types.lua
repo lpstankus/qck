@@ -14,6 +14,12 @@
 
 ---@class qck.StorageTaskState
 ---@field cmd qck.Command
+---@field order integer
+
+---@class qck.StorageTaskEntry
+---@field name string
+---@field cmd qck.Command
+---@field order integer
 
 ---@class qck.StorageWorkspaceState
 ---@field tasks table<string, qck.StorageTaskState>

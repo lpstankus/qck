@@ -311,15 +311,19 @@ function scenarios.task_runner_selects_workspace_task()
     helpers.assert_truthy(buf_has_mapping(runner_buf, "n", "i"), "task runner should block insert entry")
 
     local lines = vim.api.nvim_buf_get_lines(runner_buf, 0, -1, false)
-    helpers.assert_truthy(vim.deep_equal(lines, { "lint │ echo lint", "test │ sh -c echo qck-task" }), "task runner should render current workspace tasks sorted by name with divider")
+    helpers.assert_truthy(
+      vim.deep_equal(lines, { "1. lint │ echo lint", "2. test │ sh -c echo qck-task" }),
+      "task runner should render current workspace tasks with order numbers and divider"
+    )
 
     local current_line = vim.api.nvim_win_get_cursor(runner_win)[1]
     helpers.assert_eq(current_line, 1, "task runner should start on first task")
     local marks = vim.api.nvim_buf_get_extmarks(runner_buf, -1, 0, -1, { details = true })
     helpers.assert_eq(#marks, 1, "task runner should highlight the selected line")
     helpers.assert_eq(marks[1][2], 0, "task runner highlight should start on current line")
+    helpers.assert_eq(marks[1][3], 1, "task runner highlight should leave the number unhighlighted")
     helpers.assert_truthy(marks[1][4].hl_group == "QckTaskRunnerCurrent", "task runner should use its current-row highlight")
-    helpers.assert_truthy(marks[1][4].hl_eol == true, "task runner should highlight the whole current row")
+    helpers.assert_truthy(marks[1][4].hl_eol == true, "task runner should highlight the selected row after the number")
 
     feed("j")
     helpers.assert_eq(vim.api.nvim_win_get_cursor(runner_win)[1], 2, "j should move selection down")
@@ -703,6 +707,78 @@ function scenarios.storage_roundtrip()
     storage.get_workspace_tasks(workspace),
     { lint = { "echo", "lint" } },
     "storage should expose normalized workspace task definitions"
+  )
+
+  helpers.assert_truthy(
+    vim.deep_equal(storage.get_workspace_task_entries(workspace), {
+      { name = "lint", cmd = { "echo", "lint" }, order = 1 },
+    }),
+    "storage should expose ordered task entries"
+  )
+end
+
+function scenarios.storage_task_ordering()
+  local env = helpers.load_qck()
+  local qck, storage, task_form, task_runner, workspace =
+    env.qck, env.storage, env.task_form, env.task_runner, env.workspace
+
+  storage.set_task_cmd(workspace, "zeta", "echo zeta")
+  storage.set_task_cmd(workspace, "alpha", "echo alpha")
+  storage.set_task_cmd(workspace, "zeta", "echo zeta edited")
+
+  helpers.assert_truthy(
+    vim.deep_equal(storage.get_workspace_task_entries(workspace), {
+      { name = "zeta", cmd = "echo zeta edited", order = 1 },
+      { name = "alpha", cmd = "echo alpha", order = 2 },
+    }),
+    "storage should keep creation order when updating an existing task"
+  )
+
+  qck.run_task()
+  local runner_win = task_runner.get_winid()
+  local runner_buf = vim.api.nvim_win_get_buf(runner_win)
+  helpers.assert_truthy(
+    vim.deep_equal(vim.api.nvim_buf_get_lines(runner_buf, 0, -1, false), {
+      "1. zeta  │ echo zeta edited",
+      "2. alpha │ echo alpha",
+    }),
+    "task runner should render tasks in creation order instead of alphabetical order"
+  )
+  feed("<Esc>")
+
+  task_form.open_edit("zeta", "echo zeta edited")
+  local form_buf = vim.api.nvim_win_get_buf(task_form.get_winid())
+  helpers.set_form_fields(form_buf, "Name: beta", "Command: echo beta")
+  task_form.submit()
+
+  helpers.assert_truthy(
+    vim.deep_equal(storage.get_workspace_task_entries(workspace), {
+      { name = "beta", cmd = "echo beta", order = 1 },
+      { name = "alpha", cmd = "echo alpha", order = 2 },
+    }),
+    "renaming a task should preserve its stored order"
+  )
+
+  helpers.write_storage({
+    version = "0.1.0",
+    workspaces = {
+      [workspace] = {
+        tasks = {
+          zeta = { cmd = "echo zeta" },
+          alpha = { cmd = "echo alpha" },
+        },
+      },
+    },
+  })
+
+  local ok_load = storage.load()
+  helpers.assert_truthy(ok_load, "storage load should backfill task order for old task entries")
+  helpers.assert_truthy(
+    vim.deep_equal(storage.get_workspace_task_entries(workspace), {
+      { name = "alpha", cmd = "echo alpha", order = 1 },
+      { name = "zeta", cmd = "echo zeta", order = 2 },
+    }),
+    "old task entries should receive deterministic order numbers by task name"
   )
 end
 
@@ -1651,6 +1727,7 @@ function scenarios.ordered()
     { name = "task runner | edit is no-op for empty workspace", run = scenarios.task_runner_edit_empty_workspace_noops },
     { name = "task runner | handles empty workspace", run = scenarios.task_runner_empty_workspace },
     { name = "storage | persists workspace task commands across load/save", run = scenarios.storage_roundtrip },
+    { name = "storage | stores task creation order numbers", run = scenarios.storage_task_ordering },
     { name = "storage | persists across module reload", run = scenarios.storage_persists_across_module_reload },
     { name = "storage | creates missing data dir on save", run = scenarios.storage_save_creates_missing_data_dir },
     { name = "storage | writes empty object maps", run = scenarios.storage_empty_state_writes_object_maps },

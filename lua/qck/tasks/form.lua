@@ -255,24 +255,34 @@ function task_form.submit()
     return
   end
 
-  local previous_cmd = storage.get_task_cmd(workspace, name)
-  local previous_original_cmd = original_name and storage.get_task_cmd(workspace, original_name) or nil
+  local previous_entry = storage.get_task_entry(workspace, name)
+  local previous_original_entry = original_name and storage.get_task_entry(workspace, original_name) or nil
+  local new_entry = {
+    cmd = normalized_cmd,
+    order = (state.mode == "edit" and previous_original_entry and previous_original_entry.order)
+      or (previous_entry and previous_entry.order)
+      or math.huge,
+  }
   if state.mode == "edit" and original_name and original_name ~= name then
     storage.remove_task(workspace, original_name)
   end
-  storage.set_task_cmd(workspace, name, normalized_cmd)
+  if new_entry.order == math.huge then
+    storage.set_task_cmd(workspace, name, normalized_cmd)
+  else
+    storage.set_task_entry(workspace, name, new_entry)
+  end
 
   local ok, err = storage.save()
   if not ok then
-    if previous_cmd ~= nil then
-      storage.set_task_cmd(workspace, name, previous_cmd)
+    if previous_entry ~= nil then
+      storage.set_task_entry(workspace, name, previous_entry)
     else
       storage.remove_task(workspace, name)
     end
 
     if state.mode == "edit" and original_name and original_name ~= name then
-      if previous_original_cmd ~= nil then
-        storage.set_task_cmd(workspace, original_name, previous_original_cmd)
+      if previous_original_entry ~= nil then
+        storage.set_task_entry(workspace, original_name, previous_original_entry)
       else
         storage.remove_task(workspace, original_name)
       end
