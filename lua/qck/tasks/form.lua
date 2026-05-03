@@ -257,6 +257,7 @@ function task_form.submit()
   end
 
   local previous_workspace_entries = storage.get_workspace_task_entries(workspace)
+  local previous_agent_entries = storage.get_workspace_agent_entries(workspace)
   local previous_entry = storage.get_task_entry(workspace, name)
   local previous_original_entry = original_name and storage.get_task_entry(workspace, original_name) or nil
   local new_entry = {
@@ -287,6 +288,9 @@ function task_form.submit()
         cmd = entry.cmd,
         order = entry.order,
       })
+    end
+    for agent_type, entry in pairs(previous_agent_entries) do
+      storage.set_agent_entry(workspace, agent_type, entry)
     end
     notify(("failed to save workspace task `%s`: %s"):format(name, err or "unknown error"), vim.log.levels.ERROR)
     return

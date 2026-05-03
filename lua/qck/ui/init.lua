@@ -21,6 +21,10 @@ local UI_TASK_CATEGORY = {
   key = "task",
   label = "R",
 }
+local UI_AGENT_CATEGORY = {
+  key = "agent",
+  label = "A",
+}
 local UI_TERMINAL_CATEGORY = {
   key = "terminal",
   label = "T",
@@ -802,6 +806,7 @@ end
 ---@return nil
 function ui.setup()
   state.register_category(UI_TASK_CATEGORY)
+  state.register_category(UI_AGENT_CATEGORY)
   state.register_category(UI_TERMINAL_CATEGORY)
 
   if initialized then

@@ -3,7 +3,7 @@
 ## Project Structure & Module Organization
 This repository is a Neovim plugin written in Lua.
 
-- `lua/qck/init.lua`: public plugin API (`setup`, `clear_storage`, `new`, `new_task`, `run_task`, `open`, `close`, `toggle`, `cycle_next`, `cycle_prev`, `switch_focus`).
+- `lua/qck/init.lua`: public plugin API (`setup`, `clear_storage`, `new`, `new_task`, `run_task`, `set_agent`, `run_agent`, `open`, `close`, `toggle`, `cycle_next`, `cycle_prev`, `switch_focus`).
 - `lua/qck/shared/autocmd.lua`: shared plugin autocmd wrapper exposing a single `qck` augroup.
 - `lua/qck/shared/cmd.lua`: shared command normalization/cloning/validation helpers (`string` or string-list commands).
 - `lua/qck/shared/keymaps.lua`: shared mapping parsing/state/application helpers for user-configured buffer mappings.
@@ -20,6 +20,7 @@ This repository is a Neovim plugin written in Lua.
 - `lua/qck/tasks/storage.lua`: workspace-persistent storage for workspace-created task definitions.
 - `lua/qck/tasks/form.lua`: floating task-creation form UI (name/cmd fields, Tab cycling, overwrite confirmation, workspace save).
 - `lua/qck/tasks/runner.lua`: floating task-runner selector UI plus direct numbered task execution for current-workspace saved tasks; normal-mode-only navigation, `<CR>` task-terminal spawn, and `<Esc>` close.
+- `lua/qck/agents/form.lua`: floating command-only agent configuration form for the current workspace.
 - `lua/qck/app/setup.lua`: setup-time wiring for Snacks bootstrapping, UI setup, mapping parsing, UI/tabbar mapping configuration, and storage load.
 - `tests/mock_snacks.lua`: deterministic Snacks terminal mock for headless `mini.test` coverage/integration runs.
 - `tests/helpers.lua`: shared `mini.test` helper utilities for storage seeding, environment reset, and repeated UI/layout assertions.
@@ -70,7 +71,7 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
 2. Coverage collection (`tests/coverage.lua`).
 3. Coverage report generation (`tests/luacov_report.lua`).
 4. Headless load check.
-5. Manual workflow checks: `new`, `open`, `close`, `toggle`, `cycle_next`, `cycle_prev`, `new_task`, `run_task`, `clear_storage`.
+5. Manual workflow checks: `new`, `open`, `close`, `toggle`, `cycle_next`, `cycle_prev`, `new_task`, `run_task`, `set_agent`, `run_agent`, `clear_storage`.
 6. Multi-terminal visibility checks:
     - creating/opening a different terminal should hide the previously visible terminal window,
     - `toggle` should affect only the current terminal visibility,
@@ -129,36 +130,47 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
     - tabbar `J`/`K` should not manually reorder task terminal `R#` rows,
     - `<CR>` on an empty workspace should be a no-op,
     - `<Esc>` and `q` close the selector.
-12. Storage-only task checks:
+12. Agent checks:
+    - `set_agent()` opens a command-only floating form with no task name field,
+    - calling `set_agent()` while the form is already open should focus/reuse the same window,
+    - validation errors (for example empty command) keep the form open,
+    - successful save persists the single workspace agent command only for the current workspace,
+    - `run_agent()` warns/no-ops when no agent is configured,
+    - `run_agent()` spawns and focuses an `A#` agent terminal with the saved command,
+    - selecting/running an agent whose workspace already has a live `A#` terminal should focus/reuse that terminal instead of spawning another one,
+    - agent terminals should use `auto_close = true`,
+    - agent terminals should be ordered between task and regular terminals in traversal/tabbar order (`R#`, then `A#`, then `T#`),
+    - tabbar `J`/`K` should manually reorder agent `A#` rows within the agent category.
+13. Storage-only task checks:
     - storage load/save round-trips normalized workspace task commands,
     - storage load/save round-trips workspace task creation-order numbers,
     - storage load backfills missing task order numbers deterministically for older task entries,
     - storage survives a fresh module reload in the same data directory,
     - workspace task data remains isolated per working directory.
-13. UI state checks:
+14. UI state checks:
     - category registration is ordered and idempotent only for matching metadata,
     - category labels stay unique across categories,
     - registered tabs capture category label/display metadata,
     - per-category ordering drives derived global traversal order,
     - category display ids reuse the lowest missing value after deletion,
     - stale-or-nil active tab fallback adopts the first live tab in traversal order.
-14. UI runtime/layout checks:
+15. UI runtime/layout checks:
     - runtime tracks visible content/tabbar winids and clears stale winids lazily on read,
     - runtime keeps owned-handle and watcher bookkeeping isolated from caller mutation,
     - UI layout math matches the existing shared terminal/tabbar float footprint.
-15. UI tabbar checks:
+16. UI tabbar checks:
      - tabbar row order is derived from `ui.state` traversal order,
      - row labels come from category label plus category display id,
      - active-row highlight follows `ui.state` active-tab selection,
-     - task and regular terminal groups are separated by a box-drawing divider that keyboard and mouse selection skip.
-16. UI init contract checks:
+     - task, agent, and regular terminal groups are separated by a box-drawing divider that keyboard and mouse selection skip.
+17. UI init contract checks:
     - `attach_and_show()` registers a new tab, makes it active, shows it immediately, and hides the previously visible tab,
     - `show()`/`hide()`/`toggle()` preserve active-tab selection while updating visibility,
     - `set_active_tab()` swaps visible content without reordering when UI is open,
     - `move_tab()` rerenders tabbar order and rejects invalid directions,
     - `delete_tab()` adopts the next live tab and hides the UI when the last tab is removed,
     - failed `attach_and_show()` rolls back tab registration, active selection, visibility, owned-handle bookkeeping, and watcher state.
-17. UI watcher ownership checks:
+18. UI watcher ownership checks:
     - global focus-leave and resize watchers are installed through `ui.init`,
     - per-tab watcher bookkeeping covers buffer invalidation plus visible content/tabbar close behavior,
     - hiding or replacing a visible tab clears only visibility watchers while preserving invalidation cleanup,
@@ -176,15 +188,15 @@ Additional tests should be placed under `tests/` and documented in this section.
   - `app/`: setup-time wiring plus caller-side terminal creation/handoff flow and the raw Snacks adapter used before UI ownership begins.
 - State validity checks guard terminal-handle method calls with `pcall`, so stale/invalid handle behavior cannot break prune/cycle paths.
 - `app/terminal/service.lua` closes partially opened terminal handles when handle initialization fails, preventing leaked untracked terminal resources.
-- Workspace persistence lives in `tasks/storage.lua` (`stdpath("data") .. "/qck.json"`) and stores per-workspace saved task commands plus task creation-order numbers created through `qck.new_task()`.
+- Workspace persistence lives in `tasks/storage.lua` (`stdpath("data") .. "/qck.json"`) and stores per-workspace saved task commands plus task creation-order numbers created through `qck.new_task()`, plus one saved agent command per workspace.
 - `storage.load()` / `storage.save()` return `(ok, err)` and track `storage.last_error`, so callers can report concrete persistence failure details.
 - `storage.save()` creates the parent data directory before writing and preserves empty workspace maps as JSON objects (`{}`), avoiding accidental array-shaped storage.
 - Storage loading is fail-fast on unsupported/invalid schema and does not mutate files automatically.
 - `qck.clear_storage()` is the explicit user-triggered storage reset entrypoint for current workspace state.
 - Shared EmmyLua type aliases/classes live in `lua/qck/shared/types.lua`, and module annotations use these types to tighten internal contracts for LuaLS.
 - `lua/qck/init.lua` is limited to the public API surface plus imports and delegates internal setup/terminal creation behavior into `app/` modules.
-- Command normalization/cloning/validation is centralized in `lua/qck/shared/cmd.lua` and reused by `tasks/form.lua` and `tasks/storage.lua`.
-- Shared `QCK:` notifications are centralized in `lua/qck/shared/notify.lua` and reused by `init.lua`, `tasks/form.lua`, and `app/`.
+- Command normalization/cloning/validation is centralized in `lua/qck/shared/cmd.lua` and reused by `tasks/form.lua`, `agents/form.lua`, and `tasks/storage.lua`.
+- Shared `QCK:` notifications are centralized in `lua/qck/shared/notify.lua` and reused by `init.lua`, `tasks/form.lua`, `agents/form.lua`, and `app/`.
 - Mapping-state diff/cleanup helpers are centralized in `lua/qck/shared/keymaps.lua` and reused by both terminal and tabbar mapping application paths.
 - Tab bar presentation renders through `ui/tabbar.lua`, and the close/invalidation watcher lifecycle lives in `ui/init.lua`.
 - Floating window geometry source-of-truth lives in `lua/qck/ui/layout.lua`.
@@ -194,9 +206,10 @@ Additional tests should be placed under `tests/` and documented in this section.
 - When switching terminals, hiding the previous window (`toggle`) is safer than closing it (`close`), because closing may wipe the buffer and terminate the terminal job.
 - `noautocmd` is valid when creating the tab bar float (`nvim_open_win`), but must not be passed to `nvim_win_set_config` for an existing window.
 - `qck.new()` creates a new ad hoc terminal tab and does not accept task or terminal options.
-- Terminal runtime manages ad hoc `T#` terminals and task-runner `R#` terminals through the shared UI category model.
-- UI setup registers the `R` task category before the `T` terminal category so task terminals stay pinned before regular terminals in traversal and tabbar order.
+- Terminal runtime manages ad hoc `T#` terminals, task-runner `R#` terminals, and workspace-agent `A#` terminals through the shared UI category model.
+- UI setup registers categories in `R`, `A`, `T` order so task terminals stay pinned first, agent terminals sit next, and regular terminals remain last in traversal and tabbar order.
 - Task support is intentionally limited to `qck.new_task()`, `qck.run_task()`, `tasks/storage.lua`, and `qck.clear_storage()`; `run_task()` executes saved commands in `R#` task terminals, with no task hydration or override runtime.
+- Agent support is intentionally limited to one saved command per workspace; `qck.set_agent()` opens `agents/form.lua`, and `qck.run_agent()` executes the saved command in an `A#` agent terminal.
 - `qck.new_task()` opens `tasks/form.lua` floating UI for creating workspace-scoped tasks; form saves trimmed task commands into workspace storage.
 - The task form has create and edit modes; edit mode is opened from the runner, pre-fills the selected task, and renames by removing the original task key after validation/overwrite confirmation.
 - `qck.run_task()` opens `tasks/runner.lua` floating UI for selecting current-workspace saved tasks in stored creation order; `qck.run_task(number)` directly runs the task at that 1-based selector position and warns/no-ops for invalid or out-of-range numbers. The selector is read-only, normal-mode-only, uses `j`/`k` navigation, `J`/`K` persisted task reordering, `<CR>` task-terminal spawn, and `<Esc>`/`q` close.
@@ -207,6 +220,8 @@ Additional tests should be placed under `tests/` and documented in this section.
 - Task-run terminal rows render in ascending `R#` label order, independent of spawn order; regular `T#` terminals keep manual tabbar ordering semantics.
 - Tabbar `J`/`K` manual reordering applies to regular `T#` terminals, not sorted task terminal `R#` rows.
 - Task-run terminals use `auto_close = false`, so completed commands keep the terminal window/tabbar visible and wait on Neovim's default command-exited prompt until the user acts.
+- Agent terminals use `auto_close = true`, so command completion follows Snacks' auto-close behavior.
+- Agent terminal reuse is keyed by workspace; calling `run_agent()` again while the workspace has a live `A#` terminal focuses/reuses it instead of spawning another one.
 - Task form duplicate protection is explicit two-step overwrite: first submit on an existing task warns, second submit with the same name confirms overwrite.
 - `tasks/form.lua` keeps runtime UI state in a single local state table (`bufnr`/`winid`/selection/pending overwrite/autocmd ids) instead of scattered module globals.
 - Task form submit sanitization preserves support for legacy inline labels (`Name: ...` / `Command: ...`) by normalizing to current prefixed scaffold rows before validation/save.
@@ -237,7 +252,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - `lua/qck/ui/init.lua` now makes the internal handoff contract executable for this chunk: it can register categories, attach caller-created handles, manage active-tab visibility for UI-owned tabs, expose thin public-behavior wrappers (`create/open/toggle/close/cycle`) for `qck.init`, roll back failed `attach_and_show()` attempts, and route focus switching through UI-owned content/tabbar winids.
 - `ui/init.lua` now owns watcher installation and cleanup for both global focus/resize behavior and per-tab buffer/window lifecycle tracking; focus/resize behavior no longer depends on app-level bridges.
 - UI-owned watcher helpers explicitly separate long-lived global watcher state from per-tab watcher state, and terminal-backed window swaps temporarily suppress focus-leave auto-hide so internal hide/show churn does not collapse the UI.
-- `ui/state.lua` is now the sole owner of terminal-tab identity, ordering, cycling, active-tab fallback, and `R#`/`T#` display ids.
+- `ui/state.lua` is now the sole owner of terminal-tab identity, ordering, cycling, active-tab fallback, and `R#`/`A#`/`T#` display ids.
 - `ui/init.lua` resolves active-tab-only behavior strictly through `ui/state.lua`; no terminal-id compatibility layer remains in runtime flows.
 - deleting the active tab now always follows `ui.state` traversal fallback rules: visible deletes immediately show the adopted next live tab when one exists, while hidden deletes keep the UI hidden and only update active selection.
 - category re-registration stays mutable until that specific category gets its first attached tab; after first use, only metadata-identical re-registration is allowed.

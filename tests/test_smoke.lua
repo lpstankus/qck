@@ -14,6 +14,9 @@ T["task form"]["creates and overwrites workspace task"] = scenarios.task_form_cr
 T["task form"]["edits existing workspace task"] = scenarios.task_form_edit_existing_task
 T["task form"]["normalizes task order after overwrite rename"] = scenarios.task_form_overwrite_rename_normalizes_task_order
 
+T["agent form"] = new_set()
+T["agent form"]["sets workspace agent command"] = scenarios.agent_form_sets_workspace_agent_command
+
 T["task runner"] = new_set()
 T["task runner"]["selects workspace task"] = scenarios.task_runner_selects_workspace_task
 T["task runner"]["runs numbered task directly"] = scenarios.task_runner_runs_numbered_task
@@ -31,6 +34,7 @@ T["storage"]["moves task order numbers"] = scenarios.storage_task_order_moves
 T["storage"]["persists across module reload"] = scenarios.storage_persists_across_module_reload
 T["storage"]["creates missing data dir on save"] = scenarios.storage_save_creates_missing_data_dir
 T["storage"]["writes empty object maps"] = scenarios.storage_empty_state_writes_object_maps
+T["storage"]["persists workspace agent command"] = scenarios.storage_agent_roundtrip
 T["storage"]["clears workspace data for current workspace"] = scenarios.clear_storage
 T["storage"]["fails invalid load and repairs storage through clear_storage"] = scenarios.invalid_storage_repair
 
@@ -61,6 +65,8 @@ T["terminals"]["creates task terminals for distinct commands"] = scenarios.task_
 T["terminals"]["uses task order for R labels"] = scenarios.task_runner_uses_task_order_for_r_labels
 T["terminals"]["updates R labels after task reorder"] = scenarios.task_runner_updates_r_labels_after_reorder
 T["terminals"]["prevents manual R label reordering"] = scenarios.task_runner_prevents_manual_r_label_reordering
+T["terminals"]["runs and reuses workspace agent terminal"] = scenarios.agent_terminal_runs_and_reuses_workspace_agent
+T["terminals"]["orders mixed agent tabs between task and regular terminals"] = scenarios.agent_terminal_orders_between_task_and_regular
 T["terminals"]["reuses live task terminal after rename"] = scenarios.task_runner_reuses_live_task_terminal_after_rename
 T["terminals"]["keeps renamed live tab after rename collision"] = scenarios.task_runner_rename_collision_keeps_renamed_live_tab
 T["terminals"]["prunes invalid terminals and adopts live fallbacks"] = scenarios.terminal_invalidation_and_active_fallbacks

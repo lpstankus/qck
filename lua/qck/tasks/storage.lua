@@ -2,6 +2,7 @@ local storage = {}
 local cmd_util = require("qck.shared.cmd")
 
 local STORAGE_VERSION = "0.1.0"
+local DEFAULT_AGENT_KEY = "default"
 local storage_path = vim.fn.stdpath("data") .. "/qck.json"
 
 storage.ok = false
@@ -40,6 +41,14 @@ local function clone_task(task)
   return {
     cmd = cmd_util.clone(task.cmd),
     order = task.order,
+  }
+end
+
+---@param agent qck.StorageAgentState
+---@return qck.StorageAgentState
+local function clone_agent(agent)
+  return {
+    cmd = cmd_util.clone(agent.cmd),
   }
 end
 
@@ -103,19 +112,20 @@ local function sanitize_data(data)
 
     local allowed_workspace_keys = {
       tasks = true,
+      agents = true,
     }
 
     if not has_only_allowed_keys(ws, allowed_workspace_keys) then
       return nil, ("workspace `%s` contains unsupported fields"):format(workspace)
     end
 
-    if type(ws.tasks) ~= "table" then
+    if ws.tasks ~= nil and type(ws.tasks) ~= "table" then
       return nil, ("workspace `%s`.tasks must be a table"):format(workspace)
     end
 
     local tasks = {}
 
-    for task_type, task_state in pairs(ws.tasks) do
+    for task_type, task_state in pairs(ws.tasks or {}) do
       if type(task_type) ~= "string" then
         return nil, ("workspace `%s` has non-string task type key"):format(workspace)
       end
@@ -157,10 +167,54 @@ local function sanitize_data(data)
       }
     end
 
-    if next(tasks) then
-      normalize_task_order(tasks)
+    local agents = {}
+    if ws.agents ~= nil and type(ws.agents) ~= "table" then
+      return nil, ("workspace `%s`.agents must be a table"):format(workspace)
+    end
+
+    for agent_type, agent_state in pairs(ws.agents or {}) do
+      if type(agent_type) ~= "string" then
+        return nil, ("workspace `%s` has non-string agent type key"):format(workspace)
+      end
+
+      local normalized_agent_type = vim.trim(agent_type)
+      if normalized_agent_type == "" then
+        return nil, ("workspace `%s` has empty agent type key"):format(workspace)
+      end
+
+      if agents[normalized_agent_type] then
+        return nil, ("workspace `%s` has duplicate agent `%s` after normalization"):format(workspace, normalized_agent_type)
+      end
+
+      if type(agent_state) ~= "table" then
+        return nil, ("workspace `%s` agent `%s` must be a table"):format(workspace, agent_type)
+      end
+
+      local allowed_agent_keys = {
+        cmd = true,
+      }
+
+      if not has_only_allowed_keys(agent_state, allowed_agent_keys) then
+        return nil, ("workspace `%s` agent `%s` contains unsupported fields"):format(workspace, agent_type)
+      end
+
+      local cmd = cmd_util.normalize(agent_state.cmd)
+      if not cmd then
+        return nil, ("workspace `%s` agent `%s` has invalid cmd"):format(workspace, agent_type)
+      end
+
+      agents[normalized_agent_type] = {
+        cmd = cmd_util.clone(cmd),
+      }
+    end
+
+    if next(tasks) or next(agents) then
+      if next(tasks) then
+        normalize_task_order(tasks)
+      end
       sanitized.workspaces[workspace] = {
-        tasks = tasks,
+        tasks = next(tasks) and tasks or empty_map(),
+        agents = next(agents) and agents or empty_map(),
       }
     end
   end
@@ -257,11 +311,15 @@ function storage.ensure_workspace(workspace)
   if not storage.workspaces[workspace] then
     storage.workspaces[workspace] = {
       tasks = empty_map(),
+      agents = empty_map(),
     }
   end
 
   if type(storage.workspaces[workspace].tasks) ~= "table" then
     storage.workspaces[workspace].tasks = empty_map()
+  end
+  if type(storage.workspaces[workspace].agents) ~= "table" then
+    storage.workspaces[workspace].agents = empty_map()
   end
 
   return storage.workspaces[workspace]
@@ -519,6 +577,118 @@ function storage.set_task_cmd(workspace, task_type, cmd)
 end
 
 ---@param workspace string
+---@return qck.Command|nil
+function storage.get_agent_cmd(workspace)
+  if not storage.ok or type(storage.workspaces) ~= "table" then
+    return nil
+  end
+
+  if type(workspace) ~= "string" or workspace == "" then
+    return nil
+  end
+
+  local ws = storage.workspaces[workspace]
+  if type(ws) ~= "table" or type(ws.agents) ~= "table" then
+    return nil
+  end
+
+  local agent = ws.agents[DEFAULT_AGENT_KEY]
+  if type(agent) ~= "table" then
+    return nil
+  end
+
+  local cmd = cmd_util.normalize(agent.cmd)
+  if not cmd then
+    return nil
+  end
+
+  return cmd_util.clone(cmd)
+end
+
+---@param workspace string
+---@return qck.StorageAgentState|nil
+function storage.get_agent_entry(workspace)
+  local cmd = storage.get_agent_cmd(workspace)
+  if not cmd then
+    return nil
+  end
+
+  return clone_agent({ cmd = cmd })
+end
+
+---@param workspace string
+---@return table<string, qck.StorageAgentState>
+function storage.get_workspace_agent_entries(workspace)
+  if not storage.ok or type(storage.workspaces) ~= "table" then
+    return {}
+  end
+
+  if type(workspace) ~= "string" or workspace == "" then
+    return {}
+  end
+
+  local ws = storage.workspaces[workspace]
+  if type(ws) ~= "table" or type(ws.agents) ~= "table" then
+    return {}
+  end
+
+  local agents = {}
+  for agent_type, agent_state in pairs(ws.agents) do
+    if type(agent_type) == "string" and type(agent_state) == "table" then
+      local normalized_agent_type = vim.trim(agent_type)
+      local cmd = cmd_util.normalize(agent_state.cmd)
+      if normalized_agent_type ~= "" and cmd then
+        agents[normalized_agent_type] = {
+          cmd = cmd_util.clone(cmd),
+        }
+      end
+    end
+  end
+
+  return agents
+end
+
+---@param workspace string
+---@param agent_type string
+---@param agent qck.StorageAgentState
+---@return nil
+function storage.set_agent_entry(workspace, agent_type, agent)
+  if not storage.ok then
+    return
+  end
+
+  if type(workspace) ~= "string" or workspace == "" then
+    return
+  end
+
+  if type(agent_type) ~= "string" or type(agent) ~= "table" then
+    return
+  end
+
+  local normalized_agent_type = vim.trim(agent_type)
+  if normalized_agent_type == "" then
+    return
+  end
+
+  local normalized_cmd = cmd_util.normalize(agent.cmd)
+  if not normalized_cmd then
+    return
+  end
+
+  local ws = storage.ensure_workspace(workspace)
+  ws.agents[normalized_agent_type] = {
+    cmd = cmd_util.clone(normalized_cmd),
+  }
+end
+
+---@param workspace string
+---@param cmd qck.Command
+---@return nil
+function storage.set_agent_cmd(workspace, cmd)
+  storage.set_agent_entry(workspace, DEFAULT_AGENT_KEY, { cmd = cmd })
+end
+
+---@param workspace string
 ---@param task_type string
 ---@param delta integer
 ---@return boolean, string|nil
@@ -617,7 +787,7 @@ function storage.remove_task(workspace, task_type)
   end
 
   ws.tasks[normalized_task_type] = nil
-  if next(ws.tasks) == nil then
+  if next(ws.tasks) == nil and (type(ws.agents) ~= "table" or next(ws.agents) == nil) then
     storage.workspaces[workspace] = nil
   end
 end

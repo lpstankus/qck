@@ -8,10 +8,15 @@ local notify = require("qck.shared.notify").notify
 local terminal = {}
 
 local UI_TERMINAL_CATEGORY_KEY = "terminal"
+local UI_AGENT_CATEGORY_KEY = "agent"
 local UI_TASK_CATEGORY_KEY = "task"
 local UI_TASK_CATEGORY = {
   key = UI_TASK_CATEGORY_KEY,
   label = "R",
+}
+local UI_AGENT_CATEGORY = {
+  key = UI_AGENT_CATEGORY_KEY,
+  label = "A",
 }
 
 ---@param mode string|nil
@@ -98,6 +103,12 @@ local function task_identity_key(workspace, name)
   return workspace .. "\n" .. name
 end
 
+---@param workspace string
+---@return string
+local function agent_identity_key(workspace)
+  return workspace
+end
+
 ---@param key string
 ---@return qck.UiTabRecord|nil
 local function find_task_tab_by_key(key)
@@ -108,6 +119,25 @@ local function find_task_tab_by_key(key)
       and tab.category_key == UI_TASK_CATEGORY_KEY
       and type(handle) == "table"
       and handle.qck_task_key == key
+      and is_valid_handle(handle)
+    then
+      return tab
+    end
+  end
+
+  return nil
+end
+
+---@param key string
+---@return qck.UiTabRecord|nil
+local function find_agent_tab_by_key(key)
+  for _, tab_id in ipairs(ui_state.traversal_ids()) do
+    local tab = ui_state.get_tab(tab_id)
+    local handle = tab and tab.terminal or nil
+    if tab
+      and tab.category_key == UI_AGENT_CATEGORY_KEY
+      and type(handle) == "table"
+      and handle.qck_agent_key == key
       and is_valid_handle(handle)
     then
       return tab
@@ -147,6 +177,28 @@ local function show_existing_task_tab(tab)
     local ok, err = ui.set_active_tab(tab.id)
     if not ok then
       notify(err or "failed to select task terminal", vim.log.levels.ERROR)
+      return nil
+    end
+
+    if not ui.is_visible() then
+      ui.show()
+    end
+
+    local selected = ui_state.get_tab(tab.id)
+    if selected then
+      focus_terminal(selected.terminal)
+    end
+    return selected
+  end)
+end
+
+---@param tab qck.UiTabRecord
+---@return qck.UiTabRecord|nil
+local function show_existing_agent_tab(tab)
+  return ui.with_suppressed_focus_leave(function()
+    local ok, err = ui.set_active_tab(tab.id)
+    if not ok then
+      notify(err or "failed to select agent terminal", vim.log.levels.ERROR)
       return nil
     end
 
@@ -231,6 +283,34 @@ function terminal.create_task_and_attach(task)
     tab.terminal.qck_task_key = key
     tab.terminal.qck_task_workspace = task.workspace
     tab.terminal.qck_task_name = task.name
+  end
+  return tab
+end
+
+---@param agent table
+---@return qck.UiTabRecord|nil
+function terminal.create_agent_and_attach(agent)
+  if type(agent) ~= "table" or type(agent.workspace) ~= "string" then
+    notify("invalid agent terminal request", vim.log.levels.ERROR)
+    return nil
+  end
+
+  local ok, err = ui.register_category(UI_AGENT_CATEGORY)
+  if not ok then
+    notify(err or "failed to register agent terminal category", vim.log.levels.ERROR)
+    return nil
+  end
+
+  local key = agent_identity_key(agent.workspace)
+  local existing = find_agent_tab_by_key(key)
+  if existing then
+    return show_existing_agent_tab(existing)
+  end
+
+  local tab = create_and_attach_command(agent.cmd, UI_AGENT_CATEGORY.key, true, false, true)
+  if tab and type(tab.terminal) == "table" then
+    tab.terminal.qck_agent_key = key
+    tab.terminal.qck_agent_workspace = agent.workspace
   end
   return tab
 end
