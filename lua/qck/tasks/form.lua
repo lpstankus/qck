@@ -256,6 +256,7 @@ function task_form.submit()
     return
   end
 
+  local previous_workspace_entries = storage.get_workspace_task_entries(workspace)
   local previous_entry = storage.get_task_entry(workspace, name)
   local previous_original_entry = original_name and storage.get_task_entry(workspace, original_name) or nil
   local new_entry = {
@@ -273,20 +274,19 @@ function task_form.submit()
     storage.set_task_entry(workspace, name, new_entry)
   end
 
+  local destructive_rename = state.mode == "edit" and original_name and original_name ~= name and overwrite
+  if destructive_rename then
+    storage.normalize_workspace_task_order(workspace)
+  end
+
   local ok, err = storage.save()
   if not ok then
-    if previous_entry ~= nil then
-      storage.set_task_entry(workspace, name, previous_entry)
-    else
-      storage.remove_task(workspace, name)
-    end
-
-    if state.mode == "edit" and original_name and original_name ~= name then
-      if previous_original_entry ~= nil then
-        storage.set_task_entry(workspace, original_name, previous_original_entry)
-      else
-        storage.remove_task(workspace, original_name)
-      end
+    storage.clear_workspace(workspace)
+    for _, entry in ipairs(previous_workspace_entries) do
+      storage.set_task_entry(workspace, entry.name, {
+        cmd = entry.cmd,
+        order = entry.order,
+      })
     end
     notify(("failed to save workspace task `%s`: %s"):format(name, err or "unknown error"), vim.log.levels.ERROR)
     return

@@ -416,6 +416,25 @@ function storage.get_workspace_task_entries(workspace)
   return entries
 end
 
+---@param workspace string
+---@return nil
+function storage.normalize_workspace_task_order(workspace)
+  if not storage.ok or type(storage.workspaces) ~= "table" then
+    return
+  end
+
+  if type(workspace) ~= "string" or workspace == "" then
+    return
+  end
+
+  local ws = storage.workspaces[workspace]
+  if type(ws) ~= "table" or type(ws.tasks) ~= "table" then
+    return
+  end
+
+  normalize_task_order(ws.tasks)
+end
+
 ---@param tasks table<string, qck.StorageTaskState>
 ---@return integer
 local function next_task_order(tasks)

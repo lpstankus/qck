@@ -994,6 +994,33 @@ function scenarios.task_runner_rename_collision_keeps_renamed_live_tab()
   helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K1" }), "rename collision should render only one K1 row")
 end
 
+function scenarios.task_form_overwrite_rename_normalizes_task_order()
+  local env = helpers.load_qck()
+  local qck, storage, task_form, tabbar, workspace = env.qck, env.storage, env.task_form, env.tabbar, env.workspace
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  storage.set_task_cmd(workspace, "test", "echo test")
+  storage.set_task_cmd(workspace, "build", "echo build")
+
+  task_form.open_edit("lint", "echo lint")
+  local form_buf = vim.api.nvim_win_get_buf(task_form.get_winid())
+  helpers.set_form_fields(form_buf, "Name: test", "Command: echo renamed")
+  task_form.submit()
+  helpers.assert_truthy(task_form.get_winid() ~= nil, "overwrite rename should require confirmation")
+  task_form.submit()
+
+  helpers.assert_truthy(
+    vim.deep_equal(storage.get_workspace_task_entries(workspace), {
+      { name = "test", cmd = "echo renamed", order = 1 },
+      { name = "build", cmd = "echo build", order = 2 },
+    }),
+    "overwrite rename should compact remaining task orders before save"
+  )
+
+  qck.run_task(2)
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K2" }), "second task should launch as K2")
+end
+
 function scenarios.task_runner_edits_selected_task()
   local env = helpers.load_qck()
   local qck, storage, task_form, task_runner, workspace =
@@ -2214,6 +2241,7 @@ function scenarios.ordered()
   return {
     { name = "task form | creates and overwrites workspace task", run = scenarios.task_form_create_and_overwrite },
     { name = "task form | edits existing workspace task", run = scenarios.task_form_edit_existing_task },
+    { name = "task form | normalizes task order after overwrite rename", run = scenarios.task_form_overwrite_rename_normalizes_task_order },
     { name = "task runner | selects workspace task", run = scenarios.task_runner_selects_workspace_task },
     { name = "task runner | runs numbered task directly", run = scenarios.task_runner_runs_numbered_task },
     { name = "task runner | rejects invalid task numbers", run = scenarios.task_runner_rejects_invalid_task_numbers },

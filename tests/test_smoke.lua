@@ -12,6 +12,7 @@ local T = new_set({
 T["task form"] = new_set()
 T["task form"]["creates and overwrites workspace task"] = scenarios.task_form_create_and_overwrite
 T["task form"]["edits existing workspace task"] = scenarios.task_form_edit_existing_task
+T["task form"]["normalizes task order after overwrite rename"] = scenarios.task_form_overwrite_rename_normalizes_task_order
 
 T["task runner"] = new_set()
 T["task runner"]["selects workspace task"] = scenarios.task_runner_selects_workspace_task
