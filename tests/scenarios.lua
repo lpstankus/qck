@@ -729,7 +729,7 @@ function scenarios.task_runner_uses_task_order_for_k_labels()
   helpers.assert_truthy(lint_tab_id ~= nil and lint_tab_id ~= test_tab_id, "same-command tasks should create distinct task tabs")
   helpers.assert_eq(lint_tab and lint_tab.category_display_id, 1, "row 1 task should use K1")
   helpers.assert_eq(#mock_snacks.get_handles(), 2, "same-command tasks should not reuse by command")
-  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K2", "K1" }), "task labels should come from task order, not spawn order")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K1", "K2" }), "K labels should render sorted by task order, not spawn order")
 end
 
 function scenarios.task_runner_updates_k_labels_after_reorder()
@@ -766,7 +766,43 @@ function scenarios.task_runner_updates_k_labels_after_reorder()
   helpers.assert_eq(ui_state.get_tab(test_tab_id).category_display_id, 1, "live test tab should relabel to its new task order")
   helpers.assert_eq(ui_state.get_tab(lint_tab_id).terminal, lint_handle, "lint terminal handle should be preserved across relabel")
   helpers.assert_eq(ui_state.get_tab(test_tab_id).terminal, test_handle, "test terminal handle should be preserved across relabel")
-  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K2", "K1" }), "visible tabbar should rerender updated task labels")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K1", "K2" }), "visible tabbar should rerender updated task labels in K label order")
+end
+
+function scenarios.task_runner_prevents_manual_k_label_reordering()
+  local env = helpers.load_qck()
+  local qck, storage, ui, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.ui, env.ui_state, env.tabbar, env.workspace
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  storage.set_task_cmd(workspace, "test", "echo test")
+
+  qck.run_task()
+  feed("<CR>")
+  local first_task_tab_id = ui_state.resolve_active_tab()
+
+  qck.run_task()
+  feed("j")
+  feed("<CR>")
+  local second_task_tab_id = ui_state.resolve_active_tab()
+
+  local tabbar_win = tabbar.get_winid()
+  helpers.assert_truthy(type(tabbar_win) == "number", "K reorder test should show the tabbar")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "K1", "K2" }), "K labels should start sorted")
+  helpers.assert_eq(select(1, ui.move_tab(first_task_tab_id, 1)), false, "ui.move_tab() should reject manual K row movement")
+  helpers.assert_eq(select(1, ui.move_tab(second_task_tab_id, -1)), false, "ui.move_tab() should reject manual K row movement in both directions")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "K1", "K2" }), "ui.move_tab() rejection should preserve sorted K labels")
+
+  qck.switch_focus()
+  helpers.assert_eq(vim.api.nvim_get_current_win(), tabbar_win, "switch_focus() should focus tabbar before K reorder attempts")
+
+  vim.api.nvim_win_set_cursor(tabbar_win, { 1, 0 })
+  feed("J")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "K1", "K2" }), "tabbar J should not manually reorder sorted K labels")
+
+  vim.api.nvim_win_set_cursor(tabbar_win, { 2, 0 })
+  feed("K")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "K1", "K2" }), "tabbar K should not manually reorder sorted K labels")
 end
 
 function scenarios.task_runner_edits_selected_task()
@@ -1309,6 +1345,54 @@ function scenarios.ui_tabbar_renders_from_ui_state()
   local marks = vim.api.nvim_buf_get_extmarks(buf, -1, 0, -1, { details = true })
   helpers.assert_eq(#marks, 1, "ui tabbar should keep one active-row highlight mark")
   helpers.assert_eq(marks[1][2], 1, "ui tabbar should highlight the active ui-state row")
+
+  ui_tabbar.hide()
+  ui_state.reset()
+  ui_runtime.reset()
+end
+
+function scenarios.ui_tabbar_keeps_manually_reordered_t_labels()
+  local ui_state = require("qck.ui.state")
+  local ui_runtime = require("qck.ui.runtime")
+  local ui_tabbar = require("qck.ui.tabbar")
+
+  ui_state.reset()
+  ui_runtime.reset()
+
+  helpers.assert_truthy(
+    ui_state.register_category({ key = "terminal", label = "T" }),
+    "ui tabbar T-order test should register the terminal category"
+  )
+
+  local terminal_a = {}
+  local terminal_b = {}
+  local terminal_c = {}
+  local first_tab_id = select(1, ui_state.register_tab("terminal", terminal_a))
+  local second_tab_id = select(1, ui_state.register_tab("terminal", terminal_b))
+  local third_tab_id = select(1, ui_state.register_tab("terminal", terminal_c))
+
+  helpers.assert_truthy(first_tab_id ~= nil and second_tab_id ~= nil and third_tab_id ~= nil, "ui tabbar T-order test should register three tabs")
+  helpers.assert_truthy(ui_state.move_tab(third_tab_id, -1), "ui state should move T3 before T2")
+  helpers.assert_truthy(ui_state.set_active_tab(first_tab_id), "ui tabbar T-order test should set the active tab")
+
+  local buf = vim.api.nvim_create_buf(false, true)
+  local win = vim.api.nvim_open_win(buf, false, {
+    relative = "editor",
+    row = 0,
+    col = 0,
+    width = 8,
+    height = 4,
+    style = "minimal",
+  })
+  ui_runtime.set_tabbar_bufnr(buf)
+  ui_runtime.set_tabbar_winid(win)
+
+  ui_tabbar.render()
+
+  helpers.assert_truthy(
+    vim.deep_equal(tabbar_labels(win), { "T1", "T3", "T2" }),
+    "ui tabbar should keep T labels in manual order instead of sorting by label number"
+  )
 
   ui_tabbar.hide()
   ui_state.reset()
@@ -1955,6 +2039,7 @@ function scenarios.ordered()
     { name = "ui state | registers categories and traverses tabs", run = scenarios.ui_state_registration_and_traversal },
     { name = "ui runtime | tracks windows, handles, and layout scaffolding", run = scenarios.ui_runtime_and_layout_scaffolding },
     { name = "ui tabbar | renders from ui-owned traversal and active state", run = scenarios.ui_tabbar_renders_from_ui_state },
+    { name = "ui tabbar | keeps manually reordered T labels", run = scenarios.ui_tabbar_keeps_manually_reordered_t_labels },
     { name = "ui init | manages internal ui orchestration and rollback", run = scenarios.ui_init_orchestration_contract },
     { name = "terminals | manages generic terminals with shared layout", run = scenarios.terminals_and_layout },
     { name = "terminals | preserves lifecycle watcher behavior and focus routing", run = scenarios.terminal_lifecycle_watchers_and_focus },
@@ -1967,6 +2052,7 @@ function scenarios.ordered()
     { name = "terminals | creates task terminals for distinct commands", run = scenarios.task_runner_spawns_distinct_task_terminals_for_distinct_commands },
     { name = "terminals | uses task order for K labels", run = scenarios.task_runner_uses_task_order_for_k_labels },
     { name = "terminals | updates K labels after task reorder", run = scenarios.task_runner_updates_k_labels_after_reorder },
+    { name = "terminals | prevents manual K label reordering", run = scenarios.task_runner_prevents_manual_k_label_reordering },
     { name = "terminals | prunes invalid terminals and adopts live fallbacks", run = scenarios.terminal_invalidation_and_active_fallbacks },
     { name = "storage | clears workspace data for current workspace", run = scenarios.clear_storage },
     { name = "storage | fails invalid load and repairs storage through clear_storage", run = scenarios.invalid_storage_repair },

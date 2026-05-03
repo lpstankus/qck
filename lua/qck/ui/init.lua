@@ -782,7 +782,11 @@ local function move_ui_owned_tab(tab_id, direction)
     return false, "tab is not registered"
   end
 
-  state.move_tab(tab_id, direction)
+  local ok, err = state.move_tab(tab_id, direction)
+  if not ok then
+    return false, err
+  end
+
   if runtime.is_visible() then
     tabbar.render()
   end

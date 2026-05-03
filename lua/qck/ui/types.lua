@@ -14,6 +14,7 @@
 ---@field label qck.UiCategoryLabel
 ---@field order integer
 ---@field tab_ids qck.UiTabId[]
+---@field sort_by_display_id? boolean
 
 ---@class qck.UiTabRecord
 ---@field id qck.UiTabId

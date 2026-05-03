@@ -87,6 +87,23 @@ local function is_valid_display_id(display_id)
   return type(display_id) == "number" and display_id > 0 and display_id % 1 == 0
 end
 
+---@param category qck.UiCategoryRecord
+---@return nil
+local function sort_category_tabs_by_display_id(category)
+  table.sort(category.tab_ids, function(left_id, right_id)
+    local left = tabs[left_id]
+    local right = tabs[right_id]
+    local left_display_id = left and left.category_display_id or math.huge
+    local right_display_id = right and right.category_display_id or math.huge
+
+    if left_display_id == right_display_id then
+      return left_id < right_id
+    end
+
+    return left_display_id < right_display_id
+  end)
+end
+
 ---@return integer[]
 local function build_traversal_ids()
   local ordered = {}
@@ -310,6 +327,10 @@ function state.register_tab(category_key, terminal, opts)
 
   tabs[tab_id] = tab
   category.tab_ids[#category.tab_ids + 1] = tab_id
+  if display_id ~= nil then
+    category.sort_by_display_id = true
+    sort_category_tabs_by_display_id(category)
+  end
   terminal_to_tab[terminal] = tab_id
   state.resolve_active_tab()
   return tab_id
@@ -329,6 +350,11 @@ function state.set_tab_display_id(tab_id, display_id)
   end
 
   tab.category_display_id = display_id
+  local category = categories[tab.category_key]
+  if category then
+    category.sort_by_display_id = true
+    sort_category_tabs_by_display_id(category)
+  end
   return true
 end
 
@@ -386,6 +412,10 @@ function state.move_tab(tab_id, direction)
   local category = categories[tab.category_key]
   if not category then
     return false, "tab category is not registered"
+  end
+
+  if category.sort_by_display_id then
+    return false, "category is sorted by display id"
   end
 
   local index = nil

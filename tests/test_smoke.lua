@@ -38,6 +38,7 @@ T["ui runtime"]["tracks windows, handles, and layout scaffolding"] = scenarios.u
 
 T["ui tabbar"] = new_set()
 T["ui tabbar"]["renders from ui-owned traversal and active state"] = scenarios.ui_tabbar_renders_from_ui_state
+T["ui tabbar"]["keeps manually reordered T labels"] = scenarios.ui_tabbar_keeps_manually_reordered_t_labels
 
 T["ui init"] = new_set()
 T["ui init"]["manages internal ui orchestration and rollback"] = scenarios.ui_init_orchestration_contract
@@ -55,6 +56,7 @@ T["terminals"]["reopens hidden matching task terminal"] = scenarios.task_runner_
 T["terminals"]["creates task terminals for distinct commands"] = scenarios.task_runner_spawns_distinct_task_terminals_for_distinct_commands
 T["terminals"]["uses task order for K labels"] = scenarios.task_runner_uses_task_order_for_k_labels
 T["terminals"]["updates K labels after task reorder"] = scenarios.task_runner_updates_k_labels_after_reorder
+T["terminals"]["prevents manual K label reordering"] = scenarios.task_runner_prevents_manual_k_label_reordering
 T["terminals"]["prunes invalid terminals and adopts live fallbacks"] = scenarios.terminal_invalidation_and_active_fallbacks
 
 return T
