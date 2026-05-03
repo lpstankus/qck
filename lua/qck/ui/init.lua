@@ -907,8 +907,9 @@ end
 
 ---@param category_key qck.UiCategoryKey
 ---@param handle any
+---@param opts? qck.UiRegisterTabOpts
 ---@return qck.UiTabId|nil, string?
-function ui.attach_and_show(category_key, handle)
+function ui.attach_and_show(category_key, handle, opts)
   prune_invalid_tabs()
 
   local previous_active = state.resolve_active_tab()
@@ -922,7 +923,7 @@ function ui.attach_and_show(category_key, handle)
     end
   end
 
-  local tab_id, err = state.register_tab(category_key, handle)
+  local tab_id, err = state.register_tab(category_key, handle, opts)
   if not tab_id then
     return nil, err
   end

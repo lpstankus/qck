@@ -358,10 +358,10 @@ function scenarios.task_runner_selects_workspace_task()
     helpers.assert_truthy(active_tab_id ~= nil, "<CR> should create an active task tab")
     helpers.assert_eq(active_tab and active_tab.category_key, "task", "task runner should attach selected tasks to the task category")
     helpers.assert_eq(active_tab and active_tab.category_label, "K", "task runner should label task terminals as K")
-    helpers.assert_eq(active_tab and active_tab.category_display_id, 1, "first task terminal should be K1")
+    helpers.assert_eq(active_tab and active_tab.category_display_id, 2, "row 2 task terminal should be K2")
     helpers.assert_truthy(handle_is_open(handle), "<CR> should attach a visible task terminal")
     helpers.assert_eq(vim.api.nvim_get_current_win(), ui_runtime.get_content_winid(), "task terminal should be focused after selection")
-    helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K1" }), "tabbar should render the task terminal label")
+    helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K2" }), "tabbar should render the task terminal label")
 
     local terminal_lines = vim.api.nvim_buf_get_lines(handle.buf, 0, -1, false)
     helpers.assert_truthy(vim.deep_equal(terminal_lines, { "cmd: sh -c echo qck-task" }), "task terminal should run the selected task command")
@@ -702,6 +702,73 @@ function scenarios.task_runner_spawns_distinct_task_terminals_for_distinct_comma
   helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K1", "K2" }), "distinct task commands should render separate task rows")
 end
 
+function scenarios.task_runner_uses_task_order_for_k_labels()
+  local env = helpers.load_qck()
+  local qck, storage, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.ui_state, env.tabbar, env.workspace
+  local mock_snacks = require("mock_snacks")
+
+  storage.set_task_cmd(workspace, "lint", "echo shared")
+  storage.set_task_cmd(workspace, "test", "echo shared")
+
+  qck.run_task()
+  feed("j")
+  feed("<CR>")
+  local test_tab_id = ui_state.resolve_active_tab()
+  local test_tab = test_tab_id and ui_state.get_tab(test_tab_id) or nil
+  helpers.assert_truthy(test_tab_id ~= nil and handle_is_open(test_tab and test_tab.terminal), "selecting row 2 should spawn a task terminal")
+  helpers.assert_eq(test_tab and test_tab.category_display_id, 2, "row 2 task should use K2 even when it is the first spawned task")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K2" }), "tabbar should render the task order label")
+
+  qck.run_task()
+  feed("k")
+  feed("<CR>")
+  local lint_tab_id = ui_state.resolve_active_tab()
+  local lint_tab = lint_tab_id and ui_state.get_tab(lint_tab_id) or nil
+
+  helpers.assert_truthy(lint_tab_id ~= nil and lint_tab_id ~= test_tab_id, "same-command tasks should create distinct task tabs")
+  helpers.assert_eq(lint_tab and lint_tab.category_display_id, 1, "row 1 task should use K1")
+  helpers.assert_eq(#mock_snacks.get_handles(), 2, "same-command tasks should not reuse by command")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K2", "K1" }), "task labels should come from task order, not spawn order")
+end
+
+function scenarios.task_runner_updates_k_labels_after_reorder()
+  local env = helpers.load_qck()
+  local qck, storage, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.ui_state, env.tabbar, env.workspace
+  local mock_snacks = require("mock_snacks")
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  storage.set_task_cmd(workspace, "test", "echo test")
+
+  qck.run_task()
+  feed("<CR>")
+  local lint_tab_id = ui_state.resolve_active_tab()
+  local lint_tab = lint_tab_id and ui_state.get_tab(lint_tab_id) or nil
+  local lint_handle = lint_tab and lint_tab.terminal or nil
+
+  qck.run_task()
+  feed("j")
+  feed("<CR>")
+  local test_tab_id = ui_state.resolve_active_tab()
+  local test_tab = test_tab_id and ui_state.get_tab(test_tab_id) or nil
+  local test_handle = test_tab and test_tab.terminal or nil
+
+  helpers.assert_truthy(lint_tab_id ~= nil and test_tab_id ~= nil and lint_tab_id ~= test_tab_id, "test setup should create two task tabs")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K1", "K2" }), "task labels should start in storage order")
+
+  qck.run_task()
+  feed("j")
+  feed("K")
+
+  helpers.assert_eq(#mock_snacks.get_handles(), 2, "reordering tasks should not create or close task terminals")
+  helpers.assert_eq(ui_state.get_tab(lint_tab_id).category_display_id, 2, "live lint tab should relabel to its new task order")
+  helpers.assert_eq(ui_state.get_tab(test_tab_id).category_display_id, 1, "live test tab should relabel to its new task order")
+  helpers.assert_eq(ui_state.get_tab(lint_tab_id).terminal, lint_handle, "lint terminal handle should be preserved across relabel")
+  helpers.assert_eq(ui_state.get_tab(test_tab_id).terminal, test_handle, "test terminal handle should be preserved across relabel")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K2", "K1" }), "visible tabbar should rerender updated task labels")
+end
+
 function scenarios.task_runner_edits_selected_task()
   local env = helpers.load_qck()
   local qck, storage, task_form, task_runner, workspace =
@@ -1007,6 +1074,7 @@ function scenarios.ui_state_registration_and_traversal()
   local terminal_a = {}
   local terminal_b = {}
   local task_a = {}
+  local task_b = {}
   local terminal_c = {}
 
   local first_terminal_id = select(1, state.register_tab("terminal", terminal_a))
@@ -1026,6 +1094,19 @@ function scenarios.ui_state_registration_and_traversal()
   helpers.assert_eq(first_terminal.category_display_id, 1, "first terminal should use the first category display id")
   helpers.assert_eq(second_terminal.category_display_id, 2, "second terminal should increment the category display id")
   helpers.assert_eq(first_task.category_display_id, 1, "display ids should be scoped per category")
+  local second_task_id = select(1, state.register_tab("task", task_b, { display_id = 7 }))
+  helpers.assert_eq(state.get_tab(second_task_id).category_display_id, 7, "ui state should accept explicit display ids")
+  helpers.assert_eq(
+    select(1, state.set_tab_display_id(second_task_id, 4)),
+    true,
+    "ui state should update live tab display ids"
+  )
+  helpers.assert_eq(state.get_tab(second_task_id).category_display_id, 4, "ui state should expose updated display ids")
+  helpers.assert_eq(
+    select(1, state.set_tab_display_id(second_task_id, 0)),
+    false,
+    "ui state should reject invalid display ids"
+  )
   helpers.assert_truthy(
     state.get_tab_by_terminal(terminal_a).id == first_terminal_id,
     "ui state should index tabs by their registered terminal handle"
@@ -1046,7 +1127,7 @@ function scenarios.ui_state_registration_and_traversal()
     "ui state should keep per-category ordering"
   )
   helpers.assert_truthy(
-    vim.deep_equal(state.traversal_ids(), { first_terminal_id, second_terminal_id, first_task_id }),
+    vim.deep_equal(state.traversal_ids(), { first_terminal_id, second_terminal_id, first_task_id, second_task_id }),
     "ui state should derive global traversal from category order and per-category order"
   )
 
@@ -1057,7 +1138,7 @@ function scenarios.ui_state_registration_and_traversal()
     "ui state should update category-local order after movement"
   )
   helpers.assert_truthy(
-    vim.deep_equal(state.traversal_ids(), { second_terminal_id, first_terminal_id, first_task_id }),
+    vim.deep_equal(state.traversal_ids(), { second_terminal_id, first_terminal_id, first_task_id, second_task_id }),
     "ui state traversal should follow category-local movement"
   )
   helpers.assert_eq(state.move_tab(second_terminal_id, -1), false, "ui state should no-op at a category boundary")
@@ -1077,7 +1158,7 @@ function scenarios.ui_state_registration_and_traversal()
   )
 
   local reused_terminal_id = select(1, state.register_tab("terminal", terminal_c))
-  helpers.assert_eq(reused_terminal_id, 4, "ui state should not reuse deleted tab ids")
+  helpers.assert_eq(reused_terminal_id, 5, "ui state should not reuse deleted tab ids")
   helpers.assert_eq(
     state.get_tab(reused_terminal_id).category_display_id,
     1,
@@ -1088,11 +1169,12 @@ function scenarios.ui_state_registration_and_traversal()
     "ui state should append new tabs within their category order"
   )
   helpers.assert_truthy(
-    vim.deep_equal(state.traversal_ids(), { second_terminal_id, reused_terminal_id, first_task_id }),
+    vim.deep_equal(state.traversal_ids(), { second_terminal_id, reused_terminal_id, first_task_id, second_task_id }),
     "ui state should preserve global traversal after display-id reuse"
   )
   helpers.assert_truthy(state.set_active_tab(first_task_id), "ui state should allow selecting the last traversal tab")
   helpers.assert_truthy(state.delete_tab(first_task_id), "ui state should delete the selected trailing traversal tab")
+  helpers.assert_truthy(state.delete_tab(second_task_id), "ui state should delete explicit display-id tabs")
   helpers.assert_eq(
     state.resolve_active_tab(),
     reused_terminal_id,
@@ -1883,6 +1965,8 @@ function scenarios.ordered()
     { name = "terminals | reuses existing task terminal", run = scenarios.task_runner_reuses_existing_task_terminal },
     { name = "terminals | reopens hidden matching task terminal", run = scenarios.task_runner_reopens_hidden_matching_task_terminal },
     { name = "terminals | creates task terminals for distinct commands", run = scenarios.task_runner_spawns_distinct_task_terminals_for_distinct_commands },
+    { name = "terminals | uses task order for K labels", run = scenarios.task_runner_uses_task_order_for_k_labels },
+    { name = "terminals | updates K labels after task reorder", run = scenarios.task_runner_updates_k_labels_after_reorder },
     { name = "terminals | prunes invalid terminals and adopts live fallbacks", run = scenarios.terminal_invalidation_and_active_fallbacks },
     { name = "storage | clears workspace data for current workspace", run = scenarios.clear_storage },
     { name = "storage | fails invalid load and repairs storage through clear_storage", run = scenarios.invalid_storage_repair },

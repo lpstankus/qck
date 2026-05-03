@@ -70,6 +70,7 @@ local function build_rows()
     rows[#rows + 1] = {
       name = entry.name,
       cmd = entry.cmd,
+      order = entry.order,
       highlight_col = math.max(0, #number_prefix - 1),
       line = ("%s%s %s%s%s%s"):format(
         number_prefix,
@@ -172,6 +173,7 @@ local function move_task(delta)
     return
   end
 
+  terminal.refresh_task_display_ids(current_workspace())
   state.rows = build_rows()
   render()
   vim.api.nvim_win_set_cursor(state.winid, { new_line, 0 })
@@ -190,7 +192,12 @@ local function select_current()
     return
   end
 
-  if terminal.create_task_and_attach(row.cmd) then
+  if terminal.create_task_and_attach({
+    workspace = current_workspace(),
+    name = row.name,
+    cmd = row.cmd,
+    order = row.order,
+  }) then
     close()
   end
 end

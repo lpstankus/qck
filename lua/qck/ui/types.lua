@@ -22,6 +22,9 @@
 ---@field category_display_id qck.UiDisplayId
 ---@field terminal any
 
+---@class qck.UiRegisterTabOpts
+---@field display_id? qck.UiDisplayId
+
 ---@class qck.UiLayoutConfigPair
 ---@field terminal vim.api.keyset.win_config
 ---@field tabbar vim.api.keyset.win_config

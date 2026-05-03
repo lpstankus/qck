@@ -1,6 +1,7 @@
 local layout = require("qck.ui.layout")
 local ui = require("qck.ui")
 local ui_state = require("qck.ui.state")
+local storage = require("qck.tasks.storage")
 local terminal_service = require("qck.app.terminal.service")
 local notify = require("qck.shared.notify").notify
 
@@ -90,14 +91,11 @@ local function is_valid_handle(handle)
   return ok and valid == true
 end
 
----@param cmd qck.Command
+---@param workspace string
+---@param name string
 ---@return string
-local function task_command_key(cmd)
-  if type(cmd) == "string" then
-    return "s:" .. cmd
-  end
-
-  return "l:" .. vim.json.encode(cmd)
+local function task_identity_key(workspace, name)
+  return workspace .. "\n" .. name
 end
 
 ---@param key string
@@ -109,7 +107,7 @@ local function find_task_tab_by_key(key)
     if tab
       and tab.category_key == UI_TASK_CATEGORY_KEY
       and type(handle) == "table"
-      and handle.qck_task_command_key == key
+      and handle.qck_task_key == key
       and is_valid_handle(handle)
     then
       return tab
@@ -146,8 +144,9 @@ end
 ---@param auto_close boolean
 ---@param preserve_mode boolean|nil
 ---@param focus_after_attach boolean|nil
+---@param attach_opts? qck.UiRegisterTabOpts
 ---@return qck.UiTabRecord|nil
-local function create_and_attach_command(cmd, category_key, auto_close, preserve_mode, focus_after_attach)
+local function create_and_attach_command(cmd, category_key, auto_close, preserve_mode, focus_after_attach, attach_opts)
   return ui.with_suppressed_focus_leave(function()
     local mode_intent = preserve_mode == true and capture_mode_intent() or nil
     local handle = terminal_service.create_handle(cmd, {
@@ -161,7 +160,7 @@ local function create_and_attach_command(cmd, category_key, auto_close, preserve
       return nil
     end
 
-    local tab_id, err = ui.attach_and_show(category_key, handle)
+    local tab_id, err = ui.attach_and_show(category_key, handle, attach_opts)
     if not tab_id then
       terminal_service.close_handle(handle)
       notify(err or "failed to attach terminal to ui", vim.log.levels.ERROR)
@@ -182,26 +181,65 @@ function terminal.create_and_attach(preserve_mode)
   return create_and_attach_command(nil, UI_TERMINAL_CATEGORY_KEY, true, preserve_mode, false)
 end
 
----@param cmd qck.Command
+---@param task table
 ---@return qck.UiTabRecord|nil
-function terminal.create_task_and_attach(cmd)
+function terminal.create_task_and_attach(task)
+  if type(task) ~= "table" or type(task.workspace) ~= "string" or type(task.name) ~= "string" then
+    notify("invalid task terminal request", vim.log.levels.ERROR)
+    return nil
+  end
+
   local ok, err = ui.register_category(UI_TASK_CATEGORY)
   if not ok then
     notify(err or "failed to register task terminal category", vim.log.levels.ERROR)
     return nil
   end
 
-  local key = task_command_key(cmd)
+  local key = task_identity_key(task.workspace, task.name)
   local existing = find_task_tab_by_key(key)
   if existing then
     return show_existing_task_tab(existing)
   end
 
-  local tab = create_and_attach_command(cmd, UI_TASK_CATEGORY.key, false, false, true)
+  local tab = create_and_attach_command(task.cmd, UI_TASK_CATEGORY.key, false, false, true, {
+    display_id = task.order,
+  })
   if tab and type(tab.terminal) == "table" then
-    tab.terminal.qck_task_command_key = key
+    tab.terminal.qck_task_key = key
+    tab.terminal.qck_task_workspace = task.workspace
+    tab.terminal.qck_task_name = task.name
   end
   return tab
+end
+
+---@param workspace string
+---@return nil
+function terminal.refresh_task_display_ids(workspace)
+  if type(workspace) ~= "string" or workspace == "" then
+    return
+  end
+
+  local updated = false
+  for _, tab_id in ipairs(ui_state.traversal_ids()) do
+    local tab = ui_state.get_tab(tab_id)
+    local handle = tab and tab.terminal or nil
+    if tab
+      and tab.category_key == UI_TASK_CATEGORY_KEY
+      and type(handle) == "table"
+      and handle.qck_task_workspace == workspace
+      and type(handle.qck_task_name) == "string"
+    then
+      local entry = storage.get_task_entry(workspace, handle.qck_task_name)
+      if entry and tab.category_display_id ~= entry.order then
+        local ok_update = select(1, ui_state.set_tab_display_id(tab_id, entry.order))
+        updated = ok_update or updated
+      end
+    end
+  end
+
+  if updated then
+    require("qck.ui.tabbar").render()
+  end
 end
 
 ---@return nil

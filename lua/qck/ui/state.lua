@@ -81,6 +81,12 @@ local function next_free_display_id(category)
   return next_id
 end
 
+---@param display_id any
+---@return boolean
+local function is_valid_display_id(display_id)
+  return type(display_id) == "number" and display_id > 0 and display_id % 1 == 0
+end
+
 ---@return integer[]
 local function build_traversal_ids()
   local ordered = {}
@@ -270,8 +276,9 @@ end
 
 ---@param category_key qck.UiCategoryKey
 ---@param terminal any
+---@param opts? qck.UiRegisterTabOpts
 ---@return qck.UiTabId|nil, string?
-function state.register_tab(category_key, terminal)
+function state.register_tab(category_key, terminal, opts)
   local category = get_category_record(category_key)
   if not category then
     return nil, "category is not registered"
@@ -285,6 +292,11 @@ function state.register_tab(category_key, terminal)
     return nil, "terminal is already registered"
   end
 
+  local display_id = opts and opts.display_id or nil
+  if display_id ~= nil and not is_valid_display_id(display_id) then
+    return nil, "display id must be a positive integer"
+  end
+
   local tab_id = next_tab_id
   next_tab_id = next_tab_id + 1
 
@@ -292,7 +304,7 @@ function state.register_tab(category_key, terminal)
     id = tab_id,
     category_key = category.key,
     category_label = category.label,
-    category_display_id = next_free_display_id(category),
+    category_display_id = display_id or next_free_display_id(category),
     terminal = terminal,
   }
 
@@ -301,6 +313,23 @@ function state.register_tab(category_key, terminal)
   terminal_to_tab[terminal] = tab_id
   state.resolve_active_tab()
   return tab_id
+end
+
+---@param tab_id qck.UiTabId
+---@param display_id qck.UiDisplayId
+---@return boolean, string?
+function state.set_tab_display_id(tab_id, display_id)
+  if not is_valid_display_id(display_id) then
+    return false, "display id must be a positive integer"
+  end
+
+  local tab = tabs[tab_id]
+  if not tab then
+    return false, "tab is not registered"
+  end
+
+  tab.category_display_id = display_id
+  return true
 end
 
 ---@param tab_id qck.UiTabId

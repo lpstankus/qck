@@ -53,6 +53,8 @@ T["terminals"]["skips tabbar kind divider"] = scenarios.tabbar_skips_kind_divide
 T["terminals"]["reuses existing task terminal"] = scenarios.task_runner_reuses_existing_task_terminal
 T["terminals"]["reopens hidden matching task terminal"] = scenarios.task_runner_reopens_hidden_matching_task_terminal
 T["terminals"]["creates task terminals for distinct commands"] = scenarios.task_runner_spawns_distinct_task_terminals_for_distinct_commands
+T["terminals"]["uses task order for K labels"] = scenarios.task_runner_uses_task_order_for_k_labels
+T["terminals"]["updates K labels after task reorder"] = scenarios.task_runner_updates_k_labels_after_reorder
 T["terminals"]["prunes invalid terminals and adopts live fallbacks"] = scenarios.terminal_invalidation_and_active_fallbacks
 
 return T
