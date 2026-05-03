@@ -116,6 +116,7 @@ Minimal automated coverage is available under `tests/`. Validate changes with:
     - calling `run_task()` while the selector is already open should focus/reuse the same window,
     - task rows are sorted by stored workspace creation order, show compact `1.`, `2.`, ... prefixes, and the selected row uses reverse highlight after the number,
     - `j`/`k` navigate within task rows without wrapping beyond bounds,
+    - `J`/`K` swap the selected task down/up, keep the moved task selected, and persist the new workspace order,
     - the selector is normal-mode-only and read-only,
     - `<CR>` on a task row should spawn and focus a `K#` task terminal with the selected command and close the selector,
     - `e` on a task row should close the selector and open the task form in edit mode for that task,
@@ -194,7 +195,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - Task support is intentionally limited to `qck.new_task()`, `qck.run_task()`, `tasks/storage.lua`, and `qck.clear_storage()`; `run_task()` executes saved commands in `K#` task terminals, with no task hydration or override runtime.
 - `qck.new_task()` opens `tasks/form.lua` floating UI for creating workspace-scoped tasks; form saves trimmed task commands into workspace storage.
 - The task form has create and edit modes; edit mode is opened from the runner, pre-fills the selected task, and renames by removing the original task key after validation/overwrite confirmation.
-- `qck.run_task()` opens `tasks/runner.lua` floating UI for selecting current-workspace saved tasks in stored creation order; the selector is read-only, normal-mode-only, uses `j`/`k` navigation, `<CR>` task-terminal spawn, and `<Esc>`/`q` close.
+- `qck.run_task()` opens `tasks/runner.lua` floating UI for selecting current-workspace saved tasks in stored creation order; the selector is read-only, normal-mode-only, uses `j`/`k` navigation, `J`/`K` persisted task reordering, `<CR>` task-terminal spawn, and `<Esc>`/`q` close.
 - Task runner rows display compact workspace order prefixes (`1.`, `2.`, ...), while storage keeps the underlying creation-order metadata with each task entry.
 - Task-run terminal reuse is keyed by normalized command value, not task name; two task names with the same command share one live `K#` terminal.
 - Task-run terminals use `auto_close = false`, so completed commands keep the terminal window/tabbar visible and wait on Neovim's default command-exited prompt until the user acts.

@@ -501,6 +501,78 @@ end
 
 ---@param workspace string
 ---@param task_type string
+---@param delta integer
+---@return boolean, string|nil
+function storage.move_task_order(workspace, task_type, delta)
+  if not storage.ok then
+    return false, "storage is not loaded"
+  end
+
+  if type(workspace) ~= "string" or workspace == "" then
+    return false, "invalid workspace"
+  end
+
+  if type(task_type) ~= "string" then
+    return false, "invalid task"
+  end
+
+  local normalized_task_type = vim.trim(task_type)
+  if normalized_task_type == "" then
+    return false, "invalid task"
+  end
+
+  if delta ~= -1 and delta ~= 1 then
+    return false, "invalid direction"
+  end
+
+  local ws = storage.workspaces[workspace]
+  if type(ws) ~= "table" or type(ws.tasks) ~= "table" then
+    return false, "workspace has no tasks"
+  end
+
+  local entries = storage.get_workspace_task_entries(workspace)
+  local source_index = nil
+  for index, entry in ipairs(entries) do
+    if entry.name == normalized_task_type then
+      source_index = index
+      break
+    end
+  end
+
+  if not source_index then
+    return false, "task not found"
+  end
+
+  local target_index = source_index + delta
+  if target_index < 1 or target_index > #entries then
+    return false, "task is already at boundary"
+  end
+
+  local source = entries[source_index]
+  local target = entries[target_index]
+  local source_task = ws.tasks[source.name]
+  local target_task = ws.tasks[target.name]
+  if type(source_task) ~= "table" or type(target_task) ~= "table" then
+    return false, "task not found"
+  end
+
+  local source_order = source_task.order
+  local target_order = target_task.order
+  source_task.order = target_order
+  target_task.order = source_order
+
+  local ok_save, save_err = storage.save()
+  if not ok_save then
+    source_task.order = source_order
+    target_task.order = target_order
+    return false, save_err
+  end
+
+  return true, nil
+end
+
+---@param workspace string
+---@param task_type string
 ---@return nil
 function storage.remove_task(workspace, task_type)
   if not storage.ok then

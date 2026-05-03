@@ -304,6 +304,8 @@ function scenarios.task_runner_selects_workspace_task()
     helpers.assert_truthy(vim.bo[runner_buf].modifiable == false, "task runner buffer should not be modifiable")
     helpers.assert_truthy(buf_has_mapping(runner_buf, "n", "j"), "task runner should map j")
     helpers.assert_truthy(buf_has_mapping(runner_buf, "n", "k"), "task runner should map k")
+    helpers.assert_truthy(buf_has_mapping(runner_buf, "n", "J"), "task runner should map J")
+    helpers.assert_truthy(buf_has_mapping(runner_buf, "n", "K"), "task runner should map K")
     helpers.assert_truthy(buf_has_mapping(runner_buf, "n", "<CR>"), "task runner should map <CR>")
     helpers.assert_truthy(buf_has_mapping(runner_buf, "n", "<Esc>"), "task runner should map <Esc>")
     helpers.assert_truthy(buf_has_mapping(runner_buf, "n", "q"), "task runner should map q")
@@ -369,6 +371,98 @@ function scenarios.task_runner_selects_workspace_task()
   if not ok then
     error(err)
   end
+end
+
+function scenarios.task_runner_reorders_workspace_tasks()
+  local env = helpers.load_qck()
+  local qck, storage, task_runner, workspace =
+    env.qck, env.storage, env.task_runner, env.workspace
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  storage.set_task_cmd(workspace, "test", "echo test")
+  storage.set_task_cmd(workspace, "build", "echo build")
+
+  qck.run_task()
+  local runner_win = task_runner.get_winid()
+  local runner_buf = vim.api.nvim_win_get_buf(runner_win)
+
+  helpers.assert_truthy(
+    vim.deep_equal(vim.api.nvim_buf_get_lines(runner_buf, 0, -1, false), {
+      "1. lint  │ echo lint",
+      "2. test  │ echo test",
+      "3. build │ echo build",
+    }),
+    "task runner should start in stored task order"
+  )
+
+  feed("J")
+  helpers.assert_truthy(
+    vim.deep_equal(vim.api.nvim_buf_get_lines(runner_buf, 0, -1, false), {
+      "1. test  │ echo test",
+      "2. lint  │ echo lint",
+      "3. build │ echo build",
+    }),
+    "J should swap the selected task with the next task"
+  )
+  helpers.assert_eq(vim.api.nvim_win_get_cursor(runner_win)[1], 2, "J should keep the moved task selected")
+
+  feed("K")
+  helpers.assert_truthy(
+    vim.deep_equal(vim.api.nvim_buf_get_lines(runner_buf, 0, -1, false), {
+      "1. lint  │ echo lint",
+      "2. test  │ echo test",
+      "3. build │ echo build",
+    }),
+    "K should swap the selected task with the previous task"
+  )
+  helpers.assert_eq(vim.api.nvim_win_get_cursor(runner_win)[1], 1, "K should keep the moved task selected")
+
+  feed("K")
+  helpers.assert_truthy(
+    vim.deep_equal(vim.api.nvim_buf_get_lines(runner_buf, 0, -1, false), {
+      "1. lint  │ echo lint",
+      "2. test  │ echo test",
+      "3. build │ echo build",
+    }),
+    "K on the first task should be a no-op"
+  )
+  helpers.assert_eq(vim.api.nvim_win_get_cursor(runner_win)[1], 1, "K no-op should keep cursor on the first task")
+
+  feed("j")
+  feed("j")
+  feed("J")
+  helpers.assert_truthy(
+    vim.deep_equal(vim.api.nvim_buf_get_lines(runner_buf, 0, -1, false), {
+      "1. lint  │ echo lint",
+      "2. test  │ echo test",
+      "3. build │ echo build",
+    }),
+    "J on the last task should be a no-op"
+  )
+  helpers.assert_eq(vim.api.nvim_win_get_cursor(runner_win)[1], 3, "J no-op should keep cursor on the last task")
+
+  feed("K")
+  helpers.assert_truthy(
+    vim.deep_equal(storage.get_workspace_task_entries(workspace), {
+      { name = "lint", cmd = "echo lint", order = 1 },
+      { name = "build", cmd = "echo build", order = 2 },
+      { name = "test", cmd = "echo test", order = 3 },
+    }),
+    "task runner reorder should persist the stored task order"
+  )
+
+  feed("<Esc>")
+  qck.run_task()
+  runner_win = task_runner.get_winid()
+  runner_buf = vim.api.nvim_win_get_buf(runner_win)
+  helpers.assert_truthy(
+    vim.deep_equal(vim.api.nvim_buf_get_lines(runner_buf, 0, -1, false), {
+      "1. lint  │ echo lint",
+      "2. build │ echo build",
+      "3. test  │ echo test",
+    }),
+    "reopened task runner should preserve reordered storage order"
+  )
 end
 
 function scenarios.task_terminal_finish_keeps_task_tab_open()
@@ -779,6 +873,49 @@ function scenarios.storage_task_ordering()
       { name = "zeta", cmd = "echo zeta", order = 2 },
     }),
     "old task entries should receive deterministic order numbers by task name"
+  )
+end
+
+function scenarios.storage_task_order_moves()
+  local env = helpers.load_qck()
+  local storage, workspace = env.storage, env.workspace
+  local other_workspace = workspace .. "-other"
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  storage.set_task_cmd(workspace, "test", "echo test")
+  storage.set_task_cmd(workspace, "build", "echo build")
+  storage.set_task_cmd(other_workspace, "other", "echo other")
+
+  helpers.assert_eq(storage.move_task_order(workspace, "missing", 1), false, "moving a missing task should fail")
+  helpers.assert_eq(storage.move_task_order(workspace, "lint", -1), false, "moving the first task up should fail")
+
+  local ok_down, err_down = storage.move_task_order(workspace, "lint", 1)
+  helpers.assert_truthy(ok_down, "moving a task down should succeed: " .. tostring(err_down))
+  helpers.assert_truthy(
+    vim.deep_equal(storage.get_workspace_task_entries(workspace), {
+      { name = "test", cmd = "echo test", order = 1 },
+      { name = "lint", cmd = "echo lint", order = 2 },
+      { name = "build", cmd = "echo build", order = 3 },
+    }),
+    "moving a task down should swap adjacent order numbers and preserve commands"
+  )
+
+  local ok_up, err_up = storage.move_task_order(workspace, "lint", -1)
+  helpers.assert_truthy(ok_up, "moving a task up should succeed: " .. tostring(err_up))
+  helpers.assert_truthy(
+    vim.deep_equal(storage.get_workspace_task_entries(workspace), {
+      { name = "lint", cmd = "echo lint", order = 1 },
+      { name = "test", cmd = "echo test", order = 2 },
+      { name = "build", cmd = "echo build", order = 3 },
+    }),
+    "moving a task up should swap adjacent order numbers and preserve commands"
+  )
+
+  helpers.assert_truthy(
+    vim.deep_equal(storage.get_workspace_task_entries(other_workspace), {
+      { name = "other", cmd = "echo other", order = 1 },
+    }),
+    "moving a task should not affect another workspace"
   )
 end
 
@@ -1723,11 +1860,13 @@ function scenarios.ordered()
     { name = "task form | creates and overwrites workspace task", run = scenarios.task_form_create_and_overwrite },
     { name = "task form | edits existing workspace task", run = scenarios.task_form_edit_existing_task },
     { name = "task runner | selects workspace task", run = scenarios.task_runner_selects_workspace_task },
+    { name = "task runner | reorders workspace tasks", run = scenarios.task_runner_reorders_workspace_tasks },
     { name = "task runner | edits selected task", run = scenarios.task_runner_edits_selected_task },
     { name = "task runner | edit is no-op for empty workspace", run = scenarios.task_runner_edit_empty_workspace_noops },
     { name = "task runner | handles empty workspace", run = scenarios.task_runner_empty_workspace },
     { name = "storage | persists workspace task commands across load/save", run = scenarios.storage_roundtrip },
     { name = "storage | stores task creation order numbers", run = scenarios.storage_task_ordering },
+    { name = "storage | moves task order numbers", run = scenarios.storage_task_order_moves },
     { name = "storage | persists across module reload", run = scenarios.storage_persists_across_module_reload },
     { name = "storage | creates missing data dir on save", run = scenarios.storage_save_creates_missing_data_dir },
     { name = "storage | writes empty object maps", run = scenarios.storage_empty_state_writes_object_maps },

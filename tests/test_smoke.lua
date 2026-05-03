@@ -15,6 +15,7 @@ T["task form"]["edits existing workspace task"] = scenarios.task_form_edit_exist
 
 T["task runner"] = new_set()
 T["task runner"]["selects workspace task"] = scenarios.task_runner_selects_workspace_task
+T["task runner"]["reorders workspace tasks"] = scenarios.task_runner_reorders_workspace_tasks
 T["task runner"]["edits selected task"] = scenarios.task_runner_edits_selected_task
 T["task runner"]["edit is no-op for empty workspace"] = scenarios.task_runner_edit_empty_workspace_noops
 T["task runner"]["handles empty workspace"] = scenarios.task_runner_empty_workspace
@@ -22,6 +23,7 @@ T["task runner"]["handles empty workspace"] = scenarios.task_runner_empty_worksp
 T["storage"] = new_set()
 T["storage"]["persists workspace task commands across load/save"] = scenarios.storage_roundtrip
 T["storage"]["stores task creation order numbers"] = scenarios.storage_task_ordering
+T["storage"]["moves task order numbers"] = scenarios.storage_task_order_moves
 T["storage"]["persists across module reload"] = scenarios.storage_persists_across_module_reload
 T["storage"]["creates missing data dir on save"] = scenarios.storage_save_creates_missing_data_dir
 T["storage"]["writes empty object maps"] = scenarios.storage_empty_state_writes_object_maps

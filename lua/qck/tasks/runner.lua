@@ -1,5 +1,6 @@
 local runner = {}
 local autocmd = require("qck.shared.autocmd")
+local notify = require("qck.shared.notify")
 local task_form = require("qck.tasks.form")
 local terminal = require("qck.app.terminal")
 local storage = require("qck.tasks.storage")
@@ -147,6 +148,36 @@ local function move_selection(delta)
   highlight_current()
 end
 
+local function move_task(delta)
+  if not is_valid_win(state.winid) or #state.rows == 0 then
+    return
+  end
+
+  clamp_cursor()
+  local line = vim.api.nvim_win_get_cursor(state.winid)[1]
+  local row = state.rows[line]
+  if not row then
+    return
+  end
+
+  local new_line = line + delta
+  if new_line < 1 or new_line > #state.rows then
+    return
+  end
+
+  local ok, err = storage.move_task_order(current_workspace(), row.name, delta)
+  if not ok then
+    notify(("failed to reorder task `%s`: %s"):format(row.name, err or "unknown error"), vim.log.levels.WARN)
+    highlight_current()
+    return
+  end
+
+  state.rows = build_rows()
+  render()
+  vim.api.nvim_win_set_cursor(state.winid, { new_line, 0 })
+  highlight_current()
+end
+
 local function select_current()
   if not is_valid_win(state.winid) or #state.rows == 0 then
     return
@@ -236,6 +267,8 @@ local function apply_keymaps()
   local opts = { buffer = state.bufnr, noremap = true, silent = true }
   vim.keymap.set("n", "j", function() move_selection(1) end, opts)
   vim.keymap.set("n", "k", function() move_selection(-1) end, opts)
+  vim.keymap.set("n", "J", function() move_task(1) end, opts)
+  vim.keymap.set("n", "K", function() move_task(-1) end, opts)
   vim.keymap.set("n", "<CR>", select_current, opts)
   vim.keymap.set("n", "e", edit_current, opts)
   vim.keymap.set("n", "<Esc>", close, opts)
