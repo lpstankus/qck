@@ -17,6 +17,10 @@ local user_terminal_mappings = {}
 local terminal_mapping_lhs = {}
 local previous_terminal_mapping_lhs = {}
 local terminal_mapping_modes = { "n", "t" }
+local UI_TASK_CATEGORY = {
+  key = "task",
+  label = "K",
+}
 local UI_TERMINAL_CATEGORY = {
   key = "terminal",
   label = "T",
@@ -778,7 +782,11 @@ local function move_ui_owned_tab(tab_id, direction)
     return false, "tab is not registered"
   end
 
-  state.move_tab(tab_id, direction)
+  local ok, err = state.move_tab(tab_id, direction)
+  if not ok then
+    return false, err
+  end
+
   if runtime.is_visible() then
     tabbar.render()
   end
@@ -793,6 +801,7 @@ end
 
 ---@return nil
 function ui.setup()
+  state.register_category(UI_TASK_CATEGORY)
   state.register_category(UI_TERMINAL_CATEGORY)
 
   if initialized then
@@ -902,8 +911,9 @@ end
 
 ---@param category_key qck.UiCategoryKey
 ---@param handle any
+---@param opts? qck.UiRegisterTabOpts
 ---@return qck.UiTabId|nil, string?
-function ui.attach_and_show(category_key, handle)
+function ui.attach_and_show(category_key, handle, opts)
   prune_invalid_tabs()
 
   local previous_active = state.resolve_active_tab()
@@ -917,7 +927,7 @@ function ui.attach_and_show(category_key, handle)
     end
   end
 
-  local tab_id, err = state.register_tab(category_key, handle)
+  local tab_id, err = state.register_tab(category_key, handle, opts)
   if not tab_id then
     return nil, err
   end

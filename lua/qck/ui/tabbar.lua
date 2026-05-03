@@ -18,9 +18,12 @@ local user_mappings = {}
 local mapping_lhs = {}
 local previous_mapping_lhs = {}
 local center_text
+local DIVIDER_CHAR = "─"
 ---@class qck.UiTabbarRow
 ---@field tab_id qck.UiTabId|nil
 ---@field visual_label string
+---@field category_key qck.UiCategoryKey|nil
+---@field is_divider boolean|nil
 
 ---@return qck.ui|nil
 local function get_ui()
@@ -183,6 +186,12 @@ local function get_line_cursor_col(line)
   return 0
 end
 
+---@param row qck.UiTabbarRow|nil
+---@return boolean
+local function is_selectable_row(row)
+  return type(row) == "table" and type(row.tab_id) == "number"
+end
+
 ---@param delta integer
 local function move_selection(delta)
   local winid = runtime.get_tabbar_winid()
@@ -206,10 +215,11 @@ local function move_selection(delta)
       next_line = 1
     end
 
-    break
+    if is_selectable_row(render_rows[next_line]) then
+      vim.api.nvim_win_set_cursor(winid, { next_line, get_line_cursor_col(next_line) })
+      return
+    end
   end
-
-  vim.api.nvim_win_set_cursor(winid, { next_line, get_line_cursor_col(next_line) })
 end
 
 ---@param delta integer
@@ -335,14 +345,25 @@ end
 ---@return qck.UiTabbarRow[]
 local function build_render_rows()
   local rows = {}
+  local previous_category = nil
 
   for _, tab_id in ipairs(ui_state.traversal_ids()) do
     local tab = ui_state.get_tab(tab_id)
     if tab then
+      if previous_category and previous_category ~= tab.category_key then
+        rows[#rows + 1] = {
+          tab_id = nil,
+          visual_label = "",
+          category_key = nil,
+          is_divider = true,
+        }
+      end
       rows[#rows + 1] = {
         tab_id = tab.id,
         visual_label = ("%s%d"):format(tab.category_label, tab.category_display_id),
+        category_key = tab.category_key,
       }
+      previous_category = tab.category_key
     end
   end
 
@@ -358,7 +379,7 @@ local function build_tabbar_lines(rows, width)
   local current_idx = nil
 
   for i, row in ipairs(rows) do
-    lines[i] = center_text(row.visual_label, width)
+    lines[i] = row.is_divider and string.rep(DIVIDER_CHAR, width) or center_text(row.visual_label, width)
     if row.tab_id == active_tab_id then
       current_idx = i
     end
@@ -397,6 +418,9 @@ local function restore_cursor_position(previous_line, line_count, current_idx)
 
   local target_line = previous_line
   if target_line < 1 or target_line > line_count then
+    target_line = current_idx or 1
+  end
+  if not is_selectable_row(render_rows[target_line]) then
     target_line = current_idx or 1
   end
 

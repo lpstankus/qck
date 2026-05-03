@@ -1,4 +1,5 @@
 local root = vim.fn.getcwd()
+vim.env.XDG_DATA_HOME = root .. "/tests/.tmp/coverage-data"
 local coverage_dir = root .. "/tests/.coverage"
 
 vim.fn.mkdir(coverage_dir, "p")

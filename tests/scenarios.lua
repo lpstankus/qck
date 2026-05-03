@@ -23,6 +23,21 @@ local function tabbar_labels(tabbar_win)
   return trim_lines(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
 end
 
+local function tabbar_divider_label(tabbar_win)
+  return string.rep("─", vim.api.nvim_win_get_width(tabbar_win))
+end
+
+local function task_tabs(ui_state)
+  local tabs = {}
+  for _, tab_id in ipairs(ui_state.traversal_ids()) do
+    local tab = ui_state.get_tab(tab_id)
+    if tab and tab.category_key == "task" then
+      tabs[#tabs + 1] = tab
+    end
+  end
+  return tabs
+end
+
 ---@param handle table|nil
 ---@return boolean
 local function handle_is_open(handle)
@@ -54,6 +69,27 @@ local function assert_terminal_mode(mode, msg)
   helpers.assert_truthy(type(mode) == "string" and mode:find("t", 1, true) ~= nil, msg)
 end
 
+local function window_title(winid)
+  local title = vim.api.nvim_win_get_config(winid).title
+  if type(title) == "string" then
+    return title
+  end
+
+  if type(title) == "table" then
+    local parts = {}
+    for _, chunk in ipairs(title) do
+      if type(chunk) == "string" then
+        parts[#parts + 1] = chunk
+      elseif type(chunk) == "table" and type(chunk[1]) == "string" then
+        parts[#parts + 1] = chunk[1]
+      end
+    end
+    return table.concat(parts, "")
+  end
+
+  return ""
+end
+
 ---@param handle table
 local function attach_terminal_job(handle)
   helpers.assert_truthy(handle and type(handle.win) == "number", "terminal test handle should have a window")
@@ -81,66 +117,977 @@ function scenarios.task_form_create_and_overwrite()
   local env = helpers.load_qck()
   local qck, storage, task_form, workspace =
     env.qck, env.storage, env.task_form, env.workspace
+  local original_notify = vim.notify
 
-  qck.new_task()
+  vim.notify = function() end
+
+  local ok, err = pcall(function()
+
+    qck.new_task()
+    local form_win = task_form.get_winid()
+    helpers.assert_truthy(type(form_win) == "number", "new_task() should open task form window")
+
+    qck.new_task()
+    helpers.assert_eq(task_form.get_winid(), form_win, "new_task() should focus existing task form window")
+
+    local form_buf = vim.api.nvim_win_get_buf(form_win)
+    helpers.assert_eq(vim.bo[form_buf].filetype, "qck-task-form", "task form should set filetype")
+    helpers.assert_form_scaffold(form_buf)
+
+    helpers.set_form_fields(form_buf, "Name: lint", "Command: echo lint")
+    task_form.submit()
+    helpers.assert_eq(task_form.get_winid(), nil, "task form should close after successful create")
+    helpers.assert_eq(storage.get_task_cmd(workspace, "lint"), "echo lint", "created task command should persist")
+
+    qck.new_task()
+    form_win = task_form.get_winid()
+    helpers.assert_truthy(type(form_win) == "number", "second new_task() should open task form")
+
+    form_buf = vim.api.nvim_win_get_buf(form_win)
+    helpers.set_form_fields(form_buf, "Name: lint", "Command: echo lint 2")
+    task_form.submit()
+    helpers.assert_truthy(task_form.get_winid() ~= nil, "first duplicate save should require confirmation")
+    helpers.assert_eq(
+      storage.get_task_cmd(workspace, "lint"),
+      "echo lint",
+      "first duplicate save should not overwrite existing task"
+    )
+
+    form_buf = vim.api.nvim_win_get_buf(task_form.get_winid())
+    helpers.set_form_fields(form_buf, "Name: ", "Command: echo lint 2")
+    task_form.submit()
+    helpers.assert_truthy(task_form.get_winid() ~= nil, "empty name validation should keep task form open")
+
+    helpers.set_form_fields(form_buf, "Name: lint", "Command: echo lint 2")
+    task_form.submit()
+    helpers.assert_truthy(
+      task_form.get_winid() ~= nil,
+      "changing form contents after duplicate warning should require overwrite confirmation again"
+    )
+    helpers.assert_eq(
+      storage.get_task_cmd(workspace, "lint"),
+      "echo lint",
+      "duplicate overwrite confirmation should not persist before second submit"
+    )
+
+    task_form.submit()
+    helpers.assert_eq(task_form.get_winid(), nil, "second duplicate save should close task form")
+    helpers.assert_eq(
+      storage.get_task_cmd(workspace, "lint"),
+      "echo lint 2",
+      "second duplicate save should overwrite existing task"
+    )
+    helpers.assert_eq(
+      storage.get_task_cmd(workspace .. "-other", "lint"),
+      nil,
+      "task form should only persist to the current workspace"
+    )
+  end)
+
+  vim.notify = original_notify
+  if not ok then
+    error(err)
+  end
+end
+
+function scenarios.task_form_edit_existing_task()
+  local env = helpers.load_qck()
+  local storage, task_form, workspace =
+    env.storage, env.task_form, env.workspace
+  local original_notify = vim.notify
+
+  vim.notify = function() end
+
+  local ok, err = pcall(function()
+    storage.set_task_cmd(workspace, "lint", "echo lint")
+    storage.set_task_cmd(workspace, "test", "echo test")
+
+    task_form.open()
+    local create_win = task_form.get_winid()
+    helpers.assert_truthy(type(create_win) == "number", "create form should open before edit replacement coverage")
+
+    task_form.open_edit("lint", "echo lint")
+    local form_win = task_form.get_winid()
+    helpers.assert_truthy(type(form_win) == "number", "open_edit() should open task form")
+    helpers.assert_truthy(form_win ~= create_win, "open_edit() should replace an existing create form")
+    helpers.assert_eq(window_title(form_win), "QCK Edit Task", "edit form should use edit title")
+
+    local form_buf = vim.api.nvim_win_get_buf(form_win)
+    helpers.assert_form_scaffold(form_buf, "Please edit the name and command of the task")
+    local lines = vim.api.nvim_buf_get_lines(form_buf, 0, -1, false)
+    helpers.assert_eq(lines[3], "Name    | lint", "edit form should prefill task name")
+    helpers.assert_eq(lines[4], "Command | echo lint", "edit form should prefill task command")
+
+    helpers.set_form_fields(form_buf, "Name: lint", "Command: echo lint --fix")
+    task_form.submit()
+    helpers.assert_eq(task_form.get_winid(), nil, "command-only edit should close form")
+    helpers.assert_eq(storage.get_task_cmd(workspace, "lint"), "echo lint --fix", "command-only edit should update original task")
+
+    task_form.open_edit("lint", "echo lint --fix")
+    form_buf = vim.api.nvim_win_get_buf(task_form.get_winid())
+    helpers.set_form_fields(form_buf, "Name: check", "Command: echo check")
+    task_form.submit()
+    helpers.assert_eq(task_form.get_winid(), nil, "rename edit should close form")
+    helpers.assert_eq(storage.get_task_cmd(workspace, "lint"), nil, "rename edit should remove original task name")
+    helpers.assert_eq(storage.get_task_cmd(workspace, "check"), "echo check", "rename edit should save new task name")
+
+    task_form.open_edit("check", "echo check")
+    form_buf = vim.api.nvim_win_get_buf(task_form.get_winid())
+    helpers.set_form_fields(form_buf, "Name: test", "Command: echo overwritten")
+    task_form.submit()
+    helpers.assert_truthy(task_form.get_winid() ~= nil, "rename collision should require overwrite confirmation")
+    helpers.assert_eq(storage.get_task_cmd(workspace, "check"), "echo check", "rename collision should keep original before confirmation")
+    helpers.assert_eq(storage.get_task_cmd(workspace, "test"), "echo test", "rename collision should keep target before confirmation")
+
+    helpers.set_form_fields(form_buf, "Name: test", "Command: echo changed again")
+    task_form.submit()
+    helpers.assert_truthy(
+      task_form.get_winid() ~= nil,
+      "changing command after rename collision warning should require overwrite confirmation again"
+    )
+    helpers.assert_eq(storage.get_task_cmd(workspace, "check"), "echo check", "changed rename collision should keep original before confirmation")
+    helpers.assert_eq(storage.get_task_cmd(workspace, "test"), "echo test", "changed rename collision should keep target before confirmation")
+
+    task_form.submit()
+    helpers.assert_eq(task_form.get_winid(), nil, "confirmed rename collision should close form")
+    helpers.assert_eq(storage.get_task_cmd(workspace, "check"), nil, "confirmed rename collision should remove original")
+    helpers.assert_eq(storage.get_task_cmd(workspace, "test"), "echo changed again", "confirmed rename collision should overwrite target with changed command")
+
+    storage.set_task_cmd(workspace, "old", "echo old")
+    storage.set_task_cmd(workspace, "target", "echo target")
+    task_form.open_edit("old", "echo old")
+    form_buf = vim.api.nvim_win_get_buf(task_form.get_winid())
+    helpers.set_form_fields(form_buf, "Name: target", "Command: echo failed")
+    task_form.submit()
+    local original_save = storage.save
+    storage.save = function()
+      return false, "forced failure"
+    end
+    task_form.submit()
+    storage.save = original_save
+    helpers.assert_truthy(task_form.get_winid() ~= nil, "failed edit save should keep form open")
+    helpers.assert_eq(storage.get_task_cmd(workspace, "old"), "echo old", "failed rename save should restore original task")
+    helpers.assert_eq(storage.get_task_cmd(workspace, "target"), "echo target", "failed rename save should restore target task")
+    task_form.close()
+
+    storage.set_task_cmd(workspace, "build", { "sh", "-c", "echo build" })
+    task_form.open_edit("build", { "sh", "-c", "echo build" })
+    task_form.submit()
+    helpers.assert_truthy(
+      vim.deep_equal(storage.get_task_cmd(workspace, "build"), { "sh", "-c", "echo build" }),
+      "unchanged structured edit command should preserve command list form"
+    )
+  end)
+
+  vim.notify = original_notify
+  if not ok then
+    error(err)
+  end
+end
+
+function scenarios.task_runner_selects_workspace_task()
+  local env = helpers.load_qck()
+  local qck, storage, task_runner, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.task_runner, env.ui_state, env.tabbar, env.workspace
+  local ui_runtime = require("qck.ui.runtime")
+  local other_workspace = workspace .. "-other"
+  local notifications = {}
+  local original_notify = vim.notify
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  storage.set_task_cmd(workspace, "test", { "sh", "-c", "echo qck-task" })
+  storage.set_task_cmd(other_workspace, "build", "echo build")
+
+  vim.notify = function(msg, level)
+    notifications[#notifications + 1] = { msg = msg, level = level }
+  end
+
+  local ok, err = pcall(function()
+    qck.run_task()
+    local runner_win = task_runner.get_winid()
+    helpers.assert_truthy(type(runner_win) == "number", "run_task() should open task runner window")
+
+    qck.run_task()
+    helpers.assert_eq(task_runner.get_winid(), runner_win, "run_task() should focus existing task runner window")
+
+    local runner_buf = vim.api.nvim_win_get_buf(runner_win)
+    helpers.assert_eq(vim.bo[runner_buf].filetype, "qck-task-runner", "task runner should set filetype")
+    helpers.assert_truthy(vim.bo[runner_buf].modifiable == false, "task runner buffer should not be modifiable")
+    helpers.assert_truthy(buf_has_mapping(runner_buf, "n", "j"), "task runner should map j")
+    helpers.assert_truthy(buf_has_mapping(runner_buf, "n", "k"), "task runner should map k")
+    helpers.assert_truthy(buf_has_mapping(runner_buf, "n", "J"), "task runner should map J")
+    helpers.assert_truthy(buf_has_mapping(runner_buf, "n", "K"), "task runner should map K")
+    helpers.assert_truthy(buf_has_mapping(runner_buf, "n", "<CR>"), "task runner should map <CR>")
+    helpers.assert_truthy(buf_has_mapping(runner_buf, "n", "<Esc>"), "task runner should map <Esc>")
+    helpers.assert_truthy(buf_has_mapping(runner_buf, "n", "q"), "task runner should map q")
+    helpers.assert_truthy(buf_has_mapping(runner_buf, "n", "e"), "task runner should map e")
+    helpers.assert_truthy(buf_has_mapping(runner_buf, "n", "i"), "task runner should block insert entry")
+
+    local lines = vim.api.nvim_buf_get_lines(runner_buf, 0, -1, false)
+    helpers.assert_truthy(
+      vim.deep_equal(lines, { "1. lint │ echo lint", "2. test │ sh -c echo qck-task" }),
+      "task runner should render current workspace tasks with order numbers and divider"
+    )
+
+    local current_line = vim.api.nvim_win_get_cursor(runner_win)[1]
+    helpers.assert_eq(current_line, 1, "task runner should start on first task")
+    local marks = vim.api.nvim_buf_get_extmarks(runner_buf, -1, 0, -1, { details = true })
+    helpers.assert_eq(#marks, 1, "task runner should highlight the selected line")
+    helpers.assert_eq(marks[1][2], 0, "task runner highlight should start on current line")
+    helpers.assert_eq(marks[1][3], 1, "task runner highlight should leave the number unhighlighted")
+    helpers.assert_truthy(marks[1][4].hl_group == "QckTaskRunnerCurrent", "task runner should use its current-row highlight")
+    helpers.assert_truthy(marks[1][4].hl_eol == true, "task runner should highlight the selected row after the number")
+
+    feed("j")
+    helpers.assert_eq(vim.api.nvim_win_get_cursor(runner_win)[1], 2, "j should move selection down")
+    feed("j")
+    helpers.assert_eq(vim.api.nvim_win_get_cursor(runner_win)[1], 2, "j should stop at the last task")
+    feed("k")
+    helpers.assert_eq(vim.api.nvim_win_get_cursor(runner_win)[1], 1, "k should move selection up")
+    feed("k")
+    helpers.assert_eq(vim.api.nvim_win_get_cursor(runner_win)[1], 1, "k should stop at the first task")
+
+    feed("i")
+    helpers.assert_truthy(vim.api.nvim_get_mode().mode:sub(1, 1) ~= "i", "task runner should not allow insert mode")
+    helpers.assert_truthy(vim.deep_equal(vim.api.nvim_buf_get_lines(runner_buf, 0, -1, false), lines), "blocked insert should not mutate runner rows")
+
+    feed("q")
+    helpers.assert_eq(task_runner.get_winid(), nil, "q should close the task runner")
+
+    qck.run_task()
+    runner_win = task_runner.get_winid()
+    helpers.assert_truthy(type(runner_win) == "number", "run_task() should reopen task runner after q closes it")
+
+    feed("j")
+    feed("<CR>")
+    helpers.assert_eq(#notifications, 0, "<CR> should not emit validation-only task notifications")
+    helpers.assert_eq(task_runner.get_winid(), nil, "<CR> should close the task runner after spawning a task terminal")
+
+    local active_tab_id = ui_state.resolve_active_tab()
+    local active_tab = active_tab_id and ui_state.get_tab(active_tab_id) or nil
+    local handle = active_tab and active_tab.terminal or nil
+    helpers.assert_truthy(active_tab_id ~= nil, "<CR> should create an active task tab")
+    helpers.assert_eq(active_tab and active_tab.category_key, "task", "task runner should attach selected tasks to the task category")
+    helpers.assert_eq(active_tab and active_tab.category_label, "K", "task runner should label task terminals as K")
+    helpers.assert_eq(active_tab and active_tab.category_display_id, 2, "row 2 task terminal should be K2")
+    helpers.assert_truthy(handle_is_open(handle), "<CR> should attach a visible task terminal")
+    helpers.assert_eq(vim.api.nvim_get_current_win(), ui_runtime.get_content_winid(), "task terminal should be focused after selection")
+    helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K2" }), "tabbar should render the task terminal label")
+
+    local terminal_lines = vim.api.nvim_buf_get_lines(handle.buf, 0, -1, false)
+    helpers.assert_truthy(vim.deep_equal(terminal_lines, { "cmd: sh -c echo qck-task" }), "task terminal should run the selected task command")
+  end)
+
+  vim.notify = original_notify
+  if not ok then
+    error(err)
+  end
+end
+
+function scenarios.task_runner_runs_numbered_task()
+  local env = helpers.load_qck()
+  local qck, storage, task_runner, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.task_runner, env.ui_state, env.tabbar, env.workspace
+  local ui_runtime = require("qck.ui.runtime")
+  local notifications = {}
+  local original_notify = vim.notify
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  storage.set_task_cmd(workspace, "test", { "sh", "-c", "echo qck-task" })
+
+  vim.notify = function(msg, level)
+    notifications[#notifications + 1] = { msg = msg, level = level }
+  end
+
+  local ok, err = pcall(function()
+    qck.run_task(2)
+
+    helpers.assert_eq(task_runner.get_winid(), nil, "run_task(number) should not open the task selector")
+    helpers.assert_eq(#notifications, 0, "valid direct task run should not warn")
+
+    local active_tab_id = ui_state.resolve_active_tab()
+    local active_tab = active_tab_id and ui_state.get_tab(active_tab_id) or nil
+    local handle = active_tab and active_tab.terminal or nil
+    helpers.assert_truthy(active_tab_id ~= nil, "run_task(number) should create an active task tab")
+    helpers.assert_eq(active_tab and active_tab.category_key, "task", "run_task(number) should attach selected tasks to the task category")
+    helpers.assert_eq(active_tab and active_tab.category_display_id, 2, "run_task(2) should create a K2 task terminal")
+    helpers.assert_truthy(handle_is_open(handle), "run_task(number) should attach a visible task terminal")
+    helpers.assert_eq(vim.api.nvim_get_current_win(), ui_runtime.get_content_winid(), "task terminal should be focused after direct run")
+    helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K2" }), "tabbar should render the direct-run task label")
+
+    local terminal_lines = vim.api.nvim_buf_get_lines(handle.buf, 0, -1, false)
+    helpers.assert_truthy(vim.deep_equal(terminal_lines, { "cmd: sh -c echo qck-task" }), "direct run should execute the selected task command")
+
+    qck.run_task()
+    local runner_win = task_runner.get_winid()
+    helpers.assert_truthy(type(runner_win) == "number", "test setup should open the task selector")
+    qck.run_task(1)
+    helpers.assert_eq(task_runner.get_winid(), nil, "run_task(number) should close an open selector after a successful run")
+  end)
+
+  vim.notify = original_notify
+  if not ok then
+    error(err)
+  end
+end
+
+function scenarios.task_runner_rejects_invalid_task_numbers()
+  local env = helpers.load_qck()
+  local qck, storage, task_runner, ui_state, workspace =
+    env.qck, env.storage, env.task_runner, env.ui_state, env.workspace
+  local notifications = {}
+  local original_notify = vim.notify
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+
+  vim.notify = function(msg, level)
+    notifications[#notifications + 1] = { msg = msg, level = level }
+  end
+
+  local ok, err = pcall(function()
+    qck.run_task(99)
+    qck.run_task(0)
+    qck.run_task(1.5)
+    qck.run_task("1")
+
+    helpers.assert_eq(task_runner.get_winid(), nil, "invalid run_task(number) calls should not open the task selector")
+    helpers.assert_eq(ui_state.resolve_active_tab(), nil, "invalid run_task(number) calls should not create task terminals")
+    helpers.assert_eq(#notifications, 4, "invalid run_task(number) calls should warn once per invalid request")
+    for _, item in ipairs(notifications) do
+      helpers.assert_eq(item.level, vim.log.levels.WARN, "invalid run_task(number) warnings should use warn level")
+    end
+  end)
+
+  vim.notify = original_notify
+  if not ok then
+    error(err)
+  end
+end
+
+function scenarios.task_runner_reuses_numbered_task_terminal()
+  local env = helpers.load_qck()
+  local qck, storage, task_runner, ui_state, workspace =
+    env.qck, env.storage, env.task_runner, env.ui_state, env.workspace
+  local mock_snacks = require("mock_snacks")
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+
+  qck.run_task(1)
+  local first_tab_id = ui_state.resolve_active_tab()
+  local first_tab = first_tab_id and ui_state.get_tab(first_tab_id) or nil
+  local first_handle = first_tab and first_tab.terminal or nil
+
+  qck.run_task(1)
+  local second_tab_id = ui_state.resolve_active_tab()
+  local second_tab = second_tab_id and ui_state.get_tab(second_tab_id) or nil
+  local second_handle = second_tab and second_tab.terminal or nil
+
+  helpers.assert_eq(task_runner.get_winid(), nil, "reusing a numbered task should not open the task selector")
+  helpers.assert_eq(#mock_snacks.get_handles(), 1, "numbered task run should reuse an existing live task terminal")
+  helpers.assert_eq(second_tab_id, first_tab_id, "numbered task run should keep the reused task tab active")
+  helpers.assert_eq(second_handle, first_handle, "numbered task run should focus the existing task handle")
+  helpers.assert_truthy(handle_is_open(second_handle), "reused numbered task handle should remain open")
+end
+
+function scenarios.task_runner_reorders_workspace_tasks()
+  local env = helpers.load_qck()
+  local qck, storage, task_runner, workspace =
+    env.qck, env.storage, env.task_runner, env.workspace
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  storage.set_task_cmd(workspace, "test", "echo test")
+  storage.set_task_cmd(workspace, "build", "echo build")
+
+  qck.run_task()
+  local runner_win = task_runner.get_winid()
+  local runner_buf = vim.api.nvim_win_get_buf(runner_win)
+
+  helpers.assert_truthy(
+    vim.deep_equal(vim.api.nvim_buf_get_lines(runner_buf, 0, -1, false), {
+      "1. lint  │ echo lint",
+      "2. test  │ echo test",
+      "3. build │ echo build",
+    }),
+    "task runner should start in stored task order"
+  )
+
+  feed("J")
+  helpers.assert_truthy(
+    vim.deep_equal(vim.api.nvim_buf_get_lines(runner_buf, 0, -1, false), {
+      "1. test  │ echo test",
+      "2. lint  │ echo lint",
+      "3. build │ echo build",
+    }),
+    "J should swap the selected task with the next task"
+  )
+  helpers.assert_eq(vim.api.nvim_win_get_cursor(runner_win)[1], 2, "J should keep the moved task selected")
+
+  feed("K")
+  helpers.assert_truthy(
+    vim.deep_equal(vim.api.nvim_buf_get_lines(runner_buf, 0, -1, false), {
+      "1. lint  │ echo lint",
+      "2. test  │ echo test",
+      "3. build │ echo build",
+    }),
+    "K should swap the selected task with the previous task"
+  )
+  helpers.assert_eq(vim.api.nvim_win_get_cursor(runner_win)[1], 1, "K should keep the moved task selected")
+
+  feed("K")
+  helpers.assert_truthy(
+    vim.deep_equal(vim.api.nvim_buf_get_lines(runner_buf, 0, -1, false), {
+      "1. lint  │ echo lint",
+      "2. test  │ echo test",
+      "3. build │ echo build",
+    }),
+    "K on the first task should be a no-op"
+  )
+  helpers.assert_eq(vim.api.nvim_win_get_cursor(runner_win)[1], 1, "K no-op should keep cursor on the first task")
+
+  feed("j")
+  feed("j")
+  feed("J")
+  helpers.assert_truthy(
+    vim.deep_equal(vim.api.nvim_buf_get_lines(runner_buf, 0, -1, false), {
+      "1. lint  │ echo lint",
+      "2. test  │ echo test",
+      "3. build │ echo build",
+    }),
+    "J on the last task should be a no-op"
+  )
+  helpers.assert_eq(vim.api.nvim_win_get_cursor(runner_win)[1], 3, "J no-op should keep cursor on the last task")
+
+  feed("K")
+  helpers.assert_truthy(
+    vim.deep_equal(storage.get_workspace_task_entries(workspace), {
+      { name = "lint", cmd = "echo lint", order = 1 },
+      { name = "build", cmd = "echo build", order = 2 },
+      { name = "test", cmd = "echo test", order = 3 },
+    }),
+    "task runner reorder should persist the stored task order"
+  )
+
+  feed("<Esc>")
+  qck.run_task()
+  runner_win = task_runner.get_winid()
+  runner_buf = vim.api.nvim_win_get_buf(runner_win)
+  helpers.assert_truthy(
+    vim.deep_equal(vim.api.nvim_buf_get_lines(runner_buf, 0, -1, false), {
+      "1. lint  │ echo lint",
+      "2. build │ echo build",
+      "3. test  │ echo test",
+    }),
+    "reopened task runner should preserve reordered storage order"
+  )
+end
+
+function scenarios.task_terminal_finish_keeps_task_tab_open()
+  local env = helpers.load_qck()
+  local qck, storage, task_runner, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.task_runner, env.ui_state, env.tabbar, env.workspace
+  local mock_snacks = require("mock_snacks")
+
+  storage.set_task_cmd(workspace, "lint", { "sh", "-c", "echo qck-task" })
+
+  qck.run_task()
+  feed("<CR>")
+
+  local task_tab_id = ui_state.resolve_active_tab()
+  local task_tab = task_tab_id and ui_state.get_tab(task_tab_id) or nil
+  local task_handle = task_tab and task_tab.terminal or nil
+  helpers.assert_truthy(task_tab_id ~= nil and handle_is_open(task_handle), "task runner should create a visible task terminal")
+  helpers.assert_eq(task_tab and task_tab.category_label, "K", "task terminal should use K labels")
+  helpers.assert_eq(task_handle.auto_close, false, "task terminal should opt out of command-finish auto-close")
+
+  mock_snacks.finish_handle(task_handle)
+  vim.wait(20, function() return false end)
+
+  helpers.assert_truthy(handle_is_open(task_handle), "finished task terminal should stay open for user acknowledgement")
+  helpers.assert_truthy(ui_state.get_tab(task_tab_id) ~= nil, "finished task terminal should remain in ui state")
+  helpers.assert_eq(ui_state.resolve_active_tab(), task_tab_id, "finished task terminal should remain active")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K1" }), "tabbar should keep the finished task terminal row")
+  helpers.assert_eq(task_runner.get_winid(), nil, "task runner should stay closed after task spawn")
+end
+
+function scenarios.task_terminal_finish_preserves_mixed_tabbar()
+  local env = helpers.load_qck()
+  local qck, storage, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.ui_state, env.tabbar, env.workspace
+  local mock_snacks = require("mock_snacks")
+
+  qck.open()
+  local base_tab_id = ui_state.resolve_active_tab()
+  local base_tab = base_tab_id and ui_state.get_tab(base_tab_id) or nil
+  local base_handle = base_tab and base_tab.terminal or nil
+  helpers.assert_truthy(base_tab_id ~= nil and handle_is_open(base_handle), "base terminal should start visible")
+  helpers.assert_eq(base_tab and base_tab.category_label, "T", "regular terminal should keep T labels")
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  qck.run_task()
+  feed("<CR>")
+
+  local task_tab_id = ui_state.resolve_active_tab()
+  local task_tab = task_tab_id and ui_state.get_tab(task_tab_id) or nil
+  local task_handle = task_tab and task_tab.terminal or nil
+  helpers.assert_truthy(task_tab_id ~= nil and task_tab_id ~= base_tab_id, "task terminal should create a new tab")
+  helpers.assert_eq(task_tab and task_tab.category_label, "K", "task terminal should use K labels in mixed traversal")
+  helpers.assert_truthy(handle_is_open(task_handle), "task terminal should be visible before finish")
+  helpers.assert_truthy(not handle_is_open(base_handle), "base terminal should be hidden while task terminal is active")
+  local tabbar_win = tabbar.get_winid()
+  local divider = tabbar_divider_label(tabbar_win)
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "K1", divider, "T1" }), "tabbar should render a divider between task and regular terminals")
+
+  mock_snacks.finish_handle(task_handle)
+  vim.wait(20, function() return false end)
+
+  helpers.assert_truthy(handle_is_open(task_handle), "finished task terminal should remain visible")
+  helpers.assert_truthy(not handle_is_open(base_handle), "base terminal should stay hidden while finished task remains active")
+  helpers.assert_eq(ui_state.resolve_active_tab(), task_tab_id, "finished active task should stay active")
+  tabbar_win = tabbar.get_winid()
+  divider = tabbar_divider_label(tabbar_win)
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "K1", divider, "T1" }), "tabbar should keep divider between task and regular terminals after task finish")
+end
+
+function scenarios.task_terminals_are_pinned_before_regular_terminals()
+  local env = helpers.load_qck()
+  local qck, storage, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.ui_state, env.tabbar, env.workspace
+
+  helpers.assert_truthy(
+    vim.deep_equal(ui_state.category_keys(), { "task", "terminal" }),
+    "plugin setup should register task category before regular terminal category"
+  )
+
+  qck.open()
+  local terminal_tab_id = ui_state.resolve_active_tab()
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  qck.run_task()
+  feed("<CR>")
+
+  local task_tab_id = ui_state.resolve_active_tab()
+  helpers.assert_truthy(task_tab_id ~= nil and task_tab_id ~= terminal_tab_id, "task runner should create a separate task tab")
+  helpers.assert_truthy(
+    vim.deep_equal(ui_state.traversal_ids(), { task_tab_id, terminal_tab_id }),
+    "ui traversal should pin task terminals before regular terminals"
+  )
+  local tabbar_win = tabbar.get_winid()
+  helpers.assert_truthy(
+    vim.deep_equal(tabbar_labels(tabbar_win), { "K1", tabbar_divider_label(tabbar_win), "T1" }),
+    "tabbar should render a divider between pinned task and regular terminals"
+  )
+end
+
+function scenarios.tabbar_skips_kind_divider()
+  local env = helpers.load_qck()
+  local qck, storage, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.ui_state, env.tabbar, env.workspace
+
+  qck.open()
+  local terminal_tab_id = ui_state.resolve_active_tab()
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  qck.run_task()
+  feed("<CR>")
+  local task_tab_id = ui_state.resolve_active_tab()
+  local tabbar_win = tabbar.get_winid()
+
+  helpers.assert_truthy(type(tabbar_win) == "number", "mixed tabbar scenario should show tabbar")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "K1", tabbar_divider_label(tabbar_win), "T1" }), "tabbar should render a divider row")
+
+  qck.switch_focus()
+  helpers.assert_eq(vim.api.nvim_get_current_win(), tabbar_win, "switch_focus() should focus tabbar for divider navigation")
+  helpers.assert_eq(vim.api.nvim_win_get_cursor(tabbar_win)[1], 1, "tabbar cursor should start on active K row")
+
+  feed("j")
+  helpers.assert_eq(vim.api.nvim_win_get_cursor(tabbar_win)[1], 3, "j should skip divider and land on T row")
+  feed("k")
+  helpers.assert_eq(vim.api.nvim_win_get_cursor(tabbar_win)[1], 1, "k should skip divider and land on K row")
+  feed("k")
+  helpers.assert_eq(vim.api.nvim_win_get_cursor(tabbar_win)[1], 3, "wrapped k should skip divider")
+
+  vim.api.nvim_win_set_cursor(tabbar_win, { 2, 0 })
+  local active_before = ui_state.resolve_active_tab()
+  local focused_before = vim.api.nvim_get_current_win()
+  feed("<CR>")
+  helpers.assert_eq(ui_state.resolve_active_tab(), active_before, "tabbar <CR> on divider should not change active tab")
+  helpers.assert_eq(vim.api.nvim_get_current_win(), focused_before, "tabbar <CR> on divider should not change focus")
+
+  local content_before = require("qck.ui.runtime").get_content_winid()
+  local mode_before = vim.api.nvim_get_mode().mode
+  local clicked = tabbar.handle_left_click({
+    winid = tabbar_win,
+    line = 2,
+    screenrow = vim.fn.screenpos(tabbar_win, 2, 1).row,
+  })
+  helpers.assert_eq(clicked, false, "mouse click on divider should be ignored")
+  helpers.assert_eq(ui_state.resolve_active_tab(), active_before, "mouse click on divider should not change active tab")
+  helpers.assert_eq(require("qck.ui.runtime").get_content_winid(), content_before, "mouse click on divider should not change visible content")
+  helpers.assert_eq(vim.api.nvim_get_current_win(), focused_before, "mouse click on divider should not change focus")
+  helpers.assert_eq(vim.api.nvim_get_mode().mode, mode_before, "mouse click on divider should not change mode")
+
+  helpers.assert_truthy(task_tab_id ~= nil and terminal_tab_id ~= nil, "mixed divider scenario should create both tab kinds")
+end
+
+function scenarios.task_runner_reuses_existing_task_terminal()
+  local env = helpers.load_qck()
+  local qck, storage, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.ui_state, env.tabbar, env.workspace
+  local mock_snacks = require("mock_snacks")
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+
+  qck.run_task()
+  feed("<CR>")
+  local first_task_tab_id = ui_state.resolve_active_tab()
+  local first_task_tab = first_task_tab_id and ui_state.get_tab(first_task_tab_id) or nil
+  local first_task_handle = first_task_tab and first_task_tab.terminal or nil
+  helpers.assert_truthy(first_task_tab_id ~= nil and handle_is_open(first_task_handle), "first task selection should spawn K1")
+  helpers.assert_eq(#mock_snacks.get_handles(), 1, "first task selection should create one terminal handle")
+
+  qck.run_task()
+  feed("<CR>")
+  local reused_task_tab_id = ui_state.resolve_active_tab()
+  local reused_task_tab = reused_task_tab_id and ui_state.get_tab(reused_task_tab_id) or nil
+  local reused_task_handle = reused_task_tab and reused_task_tab.terminal or nil
+
+  helpers.assert_eq(reused_task_tab_id, first_task_tab_id, "selecting the same command should reuse the existing task tab")
+  helpers.assert_eq(reused_task_handle, first_task_handle, "selecting the same command should reuse the existing task handle")
+  helpers.assert_eq(#mock_snacks.get_handles(), 1, "selecting the same command should not create another terminal handle")
+  helpers.assert_truthy(handle_is_open(first_task_handle), "reused task terminal should stay visible")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K1" }), "reused task terminal should keep one tabbar row")
+end
+
+function scenarios.task_runner_reopens_hidden_matching_task_terminal()
+  local env = helpers.load_qck()
+  local qck, storage, ui, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.ui, env.ui_state, env.tabbar, env.workspace
+  local mock_snacks = require("mock_snacks")
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+
+  qck.open()
+  local terminal_tab_id = ui_state.resolve_active_tab()
+  local terminal_tab = terminal_tab_id and ui_state.get_tab(terminal_tab_id) or nil
+  local terminal_handle = terminal_tab and terminal_tab.terminal or nil
+  helpers.assert_truthy(terminal_tab_id ~= nil and handle_is_open(terminal_handle), "open() should create a regular terminal")
+
+  qck.run_task()
+  feed("<CR>")
+  local task_tab_id = ui_state.resolve_active_tab()
+  local task_tab = task_tab_id and ui_state.get_tab(task_tab_id) or nil
+  local task_handle = task_tab and task_tab.terminal or nil
+  helpers.assert_truthy(task_tab_id ~= nil and task_tab_id ~= terminal_tab_id, "task selection should spawn K1")
+  helpers.assert_truthy(handle_is_open(task_handle), "task terminal should be visible before hiding it")
+  helpers.assert_truthy(not handle_is_open(terminal_handle), "regular terminal should be hidden while task terminal is active")
+
+  helpers.assert_truthy(select(1, ui.set_active_tab(terminal_tab_id)), "test setup should switch back to the regular terminal")
+  helpers.assert_truthy(handle_is_open(terminal_handle), "regular terminal should be visible before reuse")
+  helpers.assert_truthy(not handle_is_open(task_handle), "task terminal should be hidden while regular terminal is active")
+
+  qck.run_task()
+  feed("<CR>")
+
+  helpers.assert_eq(ui_state.resolve_active_tab(), task_tab_id, "selecting a hidden matching task should reselect that task tab")
+  helpers.assert_eq(#mock_snacks.get_handles(), 2, "reusing hidden task should not create another terminal handle")
+  helpers.assert_truthy(handle_is_open(task_handle), "reused hidden task should be shown again")
+  helpers.assert_truthy(not handle_is_open(terminal_handle), "regular terminal should be hidden after task reuse")
+  local tabbar_win = tabbar.get_winid()
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "K1", tabbar_divider_label(tabbar_win), "T1" }), "tabbar should keep divider between pinned task and terminal rows")
+end
+
+function scenarios.task_runner_spawns_distinct_task_terminals_for_distinct_commands()
+  local env = helpers.load_qck()
+  local qck, storage, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.ui_state, env.tabbar, env.workspace
+  local mock_snacks = require("mock_snacks")
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  storage.set_task_cmd(workspace, "test", { "sh", "-c", "echo qck-task" })
+
+  qck.run_task()
+  feed("<CR>")
+  local lint_tab_id = ui_state.resolve_active_tab()
+
+  qck.run_task()
+  feed("j")
+  feed("<CR>")
+  local test_tab_id = ui_state.resolve_active_tab()
+
+  helpers.assert_truthy(lint_tab_id ~= nil and test_tab_id ~= nil and test_tab_id ~= lint_tab_id, "different commands should create different task tabs")
+  helpers.assert_eq(#mock_snacks.get_handles(), 2, "different commands should create separate terminal handles")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K1", "K2" }), "distinct task commands should render separate task rows")
+end
+
+function scenarios.task_runner_uses_task_order_for_k_labels()
+  local env = helpers.load_qck()
+  local qck, storage, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.ui_state, env.tabbar, env.workspace
+  local mock_snacks = require("mock_snacks")
+
+  storage.set_task_cmd(workspace, "lint", "echo shared")
+  storage.set_task_cmd(workspace, "test", "echo shared")
+
+  qck.run_task()
+  feed("j")
+  feed("<CR>")
+  local test_tab_id = ui_state.resolve_active_tab()
+  local test_tab = test_tab_id and ui_state.get_tab(test_tab_id) or nil
+  helpers.assert_truthy(test_tab_id ~= nil and handle_is_open(test_tab and test_tab.terminal), "selecting row 2 should spawn a task terminal")
+  helpers.assert_eq(test_tab and test_tab.category_display_id, 2, "row 2 task should use K2 even when it is the first spawned task")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K2" }), "tabbar should render the task order label")
+
+  qck.run_task()
+  feed("k")
+  feed("<CR>")
+  local lint_tab_id = ui_state.resolve_active_tab()
+  local lint_tab = lint_tab_id and ui_state.get_tab(lint_tab_id) or nil
+
+  helpers.assert_truthy(lint_tab_id ~= nil and lint_tab_id ~= test_tab_id, "same-command tasks should create distinct task tabs")
+  helpers.assert_eq(lint_tab and lint_tab.category_display_id, 1, "row 1 task should use K1")
+  helpers.assert_eq(#mock_snacks.get_handles(), 2, "same-command tasks should not reuse by command")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K1", "K2" }), "K labels should render sorted by task order, not spawn order")
+end
+
+function scenarios.task_runner_updates_k_labels_after_reorder()
+  local env = helpers.load_qck()
+  local qck, storage, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.ui_state, env.tabbar, env.workspace
+  local mock_snacks = require("mock_snacks")
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  storage.set_task_cmd(workspace, "test", "echo test")
+
+  qck.run_task()
+  feed("<CR>")
+  local lint_tab_id = ui_state.resolve_active_tab()
+  local lint_tab = lint_tab_id and ui_state.get_tab(lint_tab_id) or nil
+  local lint_handle = lint_tab and lint_tab.terminal or nil
+
+  qck.run_task()
+  feed("j")
+  feed("<CR>")
+  local test_tab_id = ui_state.resolve_active_tab()
+  local test_tab = test_tab_id and ui_state.get_tab(test_tab_id) or nil
+  local test_handle = test_tab and test_tab.terminal or nil
+
+  helpers.assert_truthy(lint_tab_id ~= nil and test_tab_id ~= nil and lint_tab_id ~= test_tab_id, "test setup should create two task tabs")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K1", "K2" }), "task labels should start in storage order")
+
+  qck.run_task()
+  feed("j")
+  feed("K")
+
+  helpers.assert_eq(#mock_snacks.get_handles(), 2, "reordering tasks should not create or close task terminals")
+  helpers.assert_eq(ui_state.get_tab(lint_tab_id).category_display_id, 2, "live lint tab should relabel to its new task order")
+  helpers.assert_eq(ui_state.get_tab(test_tab_id).category_display_id, 1, "live test tab should relabel to its new task order")
+  helpers.assert_eq(ui_state.get_tab(lint_tab_id).terminal, lint_handle, "lint terminal handle should be preserved across relabel")
+  helpers.assert_eq(ui_state.get_tab(test_tab_id).terminal, test_handle, "test terminal handle should be preserved across relabel")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K1", "K2" }), "visible tabbar should rerender updated task labels in K label order")
+end
+
+function scenarios.task_runner_prevents_manual_k_label_reordering()
+  local env = helpers.load_qck()
+  local qck, storage, ui, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.ui, env.ui_state, env.tabbar, env.workspace
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  storage.set_task_cmd(workspace, "test", "echo test")
+
+  qck.run_task()
+  feed("<CR>")
+  local first_task_tab_id = ui_state.resolve_active_tab()
+
+  qck.run_task()
+  feed("j")
+  feed("<CR>")
+  local second_task_tab_id = ui_state.resolve_active_tab()
+
+  local tabbar_win = tabbar.get_winid()
+  helpers.assert_truthy(type(tabbar_win) == "number", "K reorder test should show the tabbar")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "K1", "K2" }), "K labels should start sorted")
+  helpers.assert_eq(select(1, ui.move_tab(first_task_tab_id, 1)), false, "ui.move_tab() should reject manual K row movement")
+  helpers.assert_eq(select(1, ui.move_tab(second_task_tab_id, -1)), false, "ui.move_tab() should reject manual K row movement in both directions")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "K1", "K2" }), "ui.move_tab() rejection should preserve sorted K labels")
+
+  qck.switch_focus()
+  helpers.assert_eq(vim.api.nvim_get_current_win(), tabbar_win, "switch_focus() should focus tabbar before K reorder attempts")
+
+  vim.api.nvim_win_set_cursor(tabbar_win, { 1, 0 })
+  feed("J")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "K1", "K2" }), "tabbar J should not manually reorder sorted K labels")
+
+  vim.api.nvim_win_set_cursor(tabbar_win, { 2, 0 })
+  feed("K")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "K1", "K2" }), "tabbar K should not manually reorder sorted K labels")
+end
+
+function scenarios.task_runner_reuses_live_task_terminal_after_rename()
+  local env = helpers.load_qck()
+  local qck, storage, task_form, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.task_form, env.ui_state, env.tabbar, env.workspace
+  local mock_snacks = require("mock_snacks")
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+
+  qck.run_task(1)
+  local original_tab_id = ui_state.resolve_active_tab()
+  local original_tab = original_tab_id and ui_state.get_tab(original_tab_id) or nil
+  local original_handle = original_tab and original_tab.terminal or nil
+
+  helpers.assert_truthy(original_handle ~= nil, "rename reuse setup should create a live task terminal")
+  helpers.assert_eq(original_handle.qck_task_name, "lint", "rename reuse setup should start with original task identity")
+
+  task_form.open_edit("lint", "echo lint")
+  local form_buf = vim.api.nvim_win_get_buf(task_form.get_winid())
+  helpers.set_form_fields(form_buf, "Name: test", "Command: echo lint")
+  task_form.submit()
+
+  qck.run_task(1)
+
+  local tabs = task_tabs(ui_state)
+  helpers.assert_eq(#mock_snacks.get_handles(), 1, "running renamed task should not create another terminal handle")
+  helpers.assert_eq(#tabs, 1, "running renamed task should keep a single live task tab")
+  helpers.assert_eq(tabs[1].id, original_tab_id, "running renamed task should reuse the original task tab")
+  helpers.assert_eq(tabs[1].terminal, original_handle, "running renamed task should reuse the original terminal handle")
+  helpers.assert_eq(original_handle.qck_task_name, "test", "renamed live task handle should update task name")
+  helpers.assert_eq(original_handle.qck_task_key, workspace .. "\n" .. "test", "renamed live task handle should update task key")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K1" }), "renamed live task should keep a single K1 row")
+end
+
+function scenarios.task_runner_rename_collision_keeps_renamed_live_tab()
+  local env = helpers.load_qck()
+  local qck, storage, task_form, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.task_form, env.ui_state, env.tabbar, env.workspace
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  storage.set_task_cmd(workspace, "test", "echo test")
+
+  qck.run_task(1)
+  local lint_tab_id = ui_state.resolve_active_tab()
+  local lint_tab = lint_tab_id and ui_state.get_tab(lint_tab_id) or nil
+  local lint_handle = lint_tab and lint_tab.terminal or nil
+
+  qck.run_task(2)
+  local test_tab_id = ui_state.resolve_active_tab()
+  local test_tab = test_tab_id and ui_state.get_tab(test_tab_id) or nil
+  local test_handle = test_tab and test_tab.terminal or nil
+
+  helpers.assert_truthy(lint_handle ~= nil and test_handle ~= nil, "rename collision setup should create both task terminals")
+  helpers.assert_truthy(lint_tab_id ~= test_tab_id, "rename collision setup should create distinct tabs")
+
+  task_form.open_edit("lint", "echo lint")
+  local form_buf = vim.api.nvim_win_get_buf(task_form.get_winid())
+  helpers.set_form_fields(form_buf, "Name: test", "Command: echo renamed")
+  task_form.submit()
+  helpers.assert_truthy(task_form.get_winid() ~= nil, "rename collision should require overwrite confirmation")
+  task_form.submit()
+
+  qck.run_task(1)
+
+  local tabs = task_tabs(ui_state)
+  helpers.assert_eq(#tabs, 1, "rename collision should keep only the renamed task tab")
+  helpers.assert_eq(tabs[1].id, lint_tab_id, "rename collision should preserve the tab being renamed")
+  helpers.assert_eq(tabs[1].terminal, lint_handle, "rename collision should preserve the renamed task handle")
+  helpers.assert_eq(lint_handle.qck_task_name, "test", "renamed collision survivor should own the target name")
+  helpers.assert_eq(lint_handle.qck_task_key, workspace .. "\n" .. "test", "renamed collision survivor should own the target key")
+  helpers.assert_truthy(not handle_is_open(test_handle), "rename collision should close the stale target task handle")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K1" }), "rename collision should render only one K1 row")
+end
+
+function scenarios.task_form_overwrite_rename_normalizes_task_order()
+  local env = helpers.load_qck()
+  local qck, storage, task_form, tabbar, workspace = env.qck, env.storage, env.task_form, env.tabbar, env.workspace
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  storage.set_task_cmd(workspace, "test", "echo test")
+  storage.set_task_cmd(workspace, "build", "echo build")
+
+  task_form.open_edit("lint", "echo lint")
+  local form_buf = vim.api.nvim_win_get_buf(task_form.get_winid())
+  helpers.set_form_fields(form_buf, "Name: test", "Command: echo renamed")
+  task_form.submit()
+  helpers.assert_truthy(task_form.get_winid() ~= nil, "overwrite rename should require confirmation")
+  task_form.submit()
+
+  helpers.assert_truthy(
+    vim.deep_equal(storage.get_workspace_task_entries(workspace), {
+      { name = "test", cmd = "echo renamed", order = 1 },
+      { name = "build", cmd = "echo build", order = 2 },
+    }),
+    "overwrite rename should compact remaining task orders before save"
+  )
+
+  qck.run_task(2)
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K2" }), "second task should launch as K2")
+end
+
+function scenarios.task_runner_edits_selected_task()
+  local env = helpers.load_qck()
+  local qck, storage, task_form, task_runner, workspace =
+    env.qck, env.storage, env.task_form, env.task_runner, env.workspace
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  storage.set_task_cmd(workspace, "test", "echo test")
+
+  qck.run_task()
+  feed("j")
+  feed("e")
+
+  helpers.assert_eq(task_runner.get_winid(), nil, "e should close the task runner")
   local form_win = task_form.get_winid()
-  helpers.assert_truthy(type(form_win) == "number", "new_task() should open task form window")
-
-  qck.new_task()
-  helpers.assert_eq(task_form.get_winid(), form_win, "new_task() should focus existing task form window")
+  helpers.assert_truthy(type(form_win) == "number", "e should open the task edit form")
+  helpers.assert_eq(window_title(form_win), "QCK Edit Task", "runner edit should use edit form title")
 
   local form_buf = vim.api.nvim_win_get_buf(form_win)
-  helpers.assert_eq(vim.bo[form_buf].filetype, "qck-task-form", "task form should set filetype")
-  helpers.assert_form_scaffold(form_buf)
+  helpers.assert_form_scaffold(form_buf, "Please edit the name and command of the task")
+  local lines = vim.api.nvim_buf_get_lines(form_buf, 0, -1, false)
+  helpers.assert_eq(lines[3], "Name    | test", "runner edit should prefill selected task name")
+  helpers.assert_eq(lines[4], "Command | echo test", "runner edit should prefill selected task command")
+end
 
-  helpers.set_form_fields(form_buf, "Name: lint", "Command: echo lint")
-  task_form.submit()
-  helpers.assert_eq(task_form.get_winid(), nil, "task form should close after successful create")
-  helpers.assert_eq(storage.get_task_cmd(workspace, "lint"), "echo lint", "created task command should persist")
+function scenarios.task_runner_edit_empty_workspace_noops()
+  local env = helpers.load_qck()
+  local qck, task_form, task_runner = env.qck, env.task_form, env.task_runner
 
-  qck.new_task()
-  form_win = task_form.get_winid()
-  helpers.assert_truthy(type(form_win) == "number", "second new_task() should open task form")
+  qck.run_task()
+  local runner_win = task_runner.get_winid()
+  helpers.assert_truthy(type(runner_win) == "number", "run_task() should open task runner for empty workspace")
 
-  form_buf = vim.api.nvim_win_get_buf(form_win)
-  helpers.set_form_fields(form_buf, "Name: lint", "Command: echo lint 2")
-  task_form.submit()
-  helpers.assert_truthy(task_form.get_winid() ~= nil, "first duplicate save should require confirmation")
-  helpers.assert_eq(
-    storage.get_task_cmd(workspace, "lint"),
-    "echo lint",
-    "first duplicate save should not overwrite existing task"
-  )
+  feed("e")
+  helpers.assert_eq(task_runner.get_winid(), runner_win, "e should keep empty task runner open")
+  helpers.assert_eq(task_form.get_winid(), nil, "e should not open edit form for empty workspace")
+end
 
-  form_buf = vim.api.nvim_win_get_buf(task_form.get_winid())
-  helpers.set_form_fields(form_buf, "Name: ", "Command: echo lint 2")
-  task_form.submit()
-  helpers.assert_truthy(task_form.get_winid() ~= nil, "empty name validation should keep task form open")
+function scenarios.task_runner_empty_workspace()
+  local env = helpers.load_qck()
+  local qck, task_runner = env.qck, env.task_runner
+  local notifications = {}
+  local original_notify = vim.notify
 
-  helpers.set_form_fields(form_buf, "Name: lint", "Command: echo lint 2")
-  task_form.submit()
-  helpers.assert_truthy(
-    task_form.get_winid() ~= nil,
-    "changing form contents after duplicate warning should require overwrite confirmation again"
-  )
-  helpers.assert_eq(
-    storage.get_task_cmd(workspace, "lint"),
-    "echo lint",
-    "duplicate overwrite confirmation should not persist before second submit"
-  )
+  vim.notify = function(msg, level)
+    notifications[#notifications + 1] = { msg = msg, level = level }
+  end
 
-  task_form.submit()
-  helpers.assert_eq(task_form.get_winid(), nil, "second duplicate save should close task form")
-  helpers.assert_eq(
-    storage.get_task_cmd(workspace, "lint"),
-    "echo lint 2",
-    "second duplicate save should overwrite existing task"
-  )
-  helpers.assert_eq(
-    storage.get_task_cmd(workspace .. "-other", "lint"),
-    nil,
-    "task form should only persist to the current workspace"
-  )
+  local ok, err = pcall(function()
+    qck.run_task()
+    local runner_win = task_runner.get_winid()
+    helpers.assert_truthy(type(runner_win) == "number", "run_task() should open empty task runner window")
+
+    local runner_buf = vim.api.nvim_win_get_buf(runner_win)
+    local lines = vim.api.nvim_buf_get_lines(runner_buf, 0, -1, false)
+    helpers.assert_truthy(vim.deep_equal(lines, { "No tasks for current workspace" }), "empty task runner should render empty state")
+
+    feed("<CR>")
+    helpers.assert_eq(#notifications, 0, "<CR> should be a no-op without runnable tasks")
+
+    feed("<Esc>")
+    helpers.assert_eq(task_runner.get_winid(), nil, "<Esc> should close empty task runner")
+  end)
+
+  vim.notify = original_notify
+  if not ok then
+    error(err)
+  end
 end
 
 function scenarios.storage_roundtrip()
@@ -174,6 +1121,184 @@ function scenarios.storage_roundtrip()
     { lint = { "echo", "lint" } },
     "storage should expose normalized workspace task definitions"
   )
+
+  helpers.assert_truthy(
+    vim.deep_equal(storage.get_workspace_task_entries(workspace), {
+      { name = "lint", cmd = { "echo", "lint" }, order = 1 },
+    }),
+    "storage should expose ordered task entries"
+  )
+end
+
+function scenarios.storage_task_ordering()
+  local env = helpers.load_qck()
+  local qck, storage, task_form, task_runner, workspace =
+    env.qck, env.storage, env.task_form, env.task_runner, env.workspace
+
+  storage.set_task_cmd(workspace, "zeta", "echo zeta")
+  storage.set_task_cmd(workspace, "alpha", "echo alpha")
+  storage.set_task_cmd(workspace, "zeta", "echo zeta edited")
+
+  helpers.assert_truthy(
+    vim.deep_equal(storage.get_workspace_task_entries(workspace), {
+      { name = "zeta", cmd = "echo zeta edited", order = 1 },
+      { name = "alpha", cmd = "echo alpha", order = 2 },
+    }),
+    "storage should keep creation order when updating an existing task"
+  )
+
+  qck.run_task()
+  local runner_win = task_runner.get_winid()
+  local runner_buf = vim.api.nvim_win_get_buf(runner_win)
+  helpers.assert_truthy(
+    vim.deep_equal(vim.api.nvim_buf_get_lines(runner_buf, 0, -1, false), {
+      "1. zeta  │ echo zeta edited",
+      "2. alpha │ echo alpha",
+    }),
+    "task runner should render tasks in creation order instead of alphabetical order"
+  )
+  feed("<Esc>")
+
+  task_form.open_edit("zeta", "echo zeta edited")
+  local form_buf = vim.api.nvim_win_get_buf(task_form.get_winid())
+  helpers.set_form_fields(form_buf, "Name: beta", "Command: echo beta")
+  task_form.submit()
+
+  helpers.assert_truthy(
+    vim.deep_equal(storage.get_workspace_task_entries(workspace), {
+      { name = "beta", cmd = "echo beta", order = 1 },
+      { name = "alpha", cmd = "echo alpha", order = 2 },
+    }),
+    "renaming a task should preserve its stored order"
+  )
+
+  helpers.write_storage({
+    version = "0.1.0",
+    workspaces = {
+      [workspace] = {
+        tasks = {
+          zeta = { cmd = "echo zeta" },
+          alpha = { cmd = "echo alpha" },
+        },
+      },
+    },
+  })
+
+  local ok_load = storage.load()
+  helpers.assert_truthy(ok_load, "storage load should backfill task order for old task entries")
+  helpers.assert_truthy(
+    vim.deep_equal(storage.get_workspace_task_entries(workspace), {
+      { name = "alpha", cmd = "echo alpha", order = 1 },
+      { name = "zeta", cmd = "echo zeta", order = 2 },
+    }),
+    "old task entries should receive deterministic order numbers by task name"
+  )
+end
+
+function scenarios.storage_task_order_moves()
+  local env = helpers.load_qck()
+  local storage, workspace = env.storage, env.workspace
+  local other_workspace = workspace .. "-other"
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  storage.set_task_cmd(workspace, "test", "echo test")
+  storage.set_task_cmd(workspace, "build", "echo build")
+  storage.set_task_cmd(other_workspace, "other", "echo other")
+
+  helpers.assert_eq(storage.move_task_order(workspace, "missing", 1), false, "moving a missing task should fail")
+  helpers.assert_eq(storage.move_task_order(workspace, "lint", -1), false, "moving the first task up should fail")
+
+  local ok_down, err_down = storage.move_task_order(workspace, "lint", 1)
+  helpers.assert_truthy(ok_down, "moving a task down should succeed: " .. tostring(err_down))
+  helpers.assert_truthy(
+    vim.deep_equal(storage.get_workspace_task_entries(workspace), {
+      { name = "test", cmd = "echo test", order = 1 },
+      { name = "lint", cmd = "echo lint", order = 2 },
+      { name = "build", cmd = "echo build", order = 3 },
+    }),
+    "moving a task down should swap adjacent order numbers and preserve commands"
+  )
+
+  local ok_up, err_up = storage.move_task_order(workspace, "lint", -1)
+  helpers.assert_truthy(ok_up, "moving a task up should succeed: " .. tostring(err_up))
+  helpers.assert_truthy(
+    vim.deep_equal(storage.get_workspace_task_entries(workspace), {
+      { name = "lint", cmd = "echo lint", order = 1 },
+      { name = "test", cmd = "echo test", order = 2 },
+      { name = "build", cmd = "echo build", order = 3 },
+    }),
+    "moving a task up should swap adjacent order numbers and preserve commands"
+  )
+
+  helpers.assert_truthy(
+    vim.deep_equal(storage.get_workspace_task_entries(other_workspace), {
+      { name = "other", cmd = "echo other", order = 1 },
+    }),
+    "moving a task should not affect another workspace"
+  )
+end
+
+function scenarios.storage_persists_across_module_reload()
+  local env = helpers.load_qck()
+  local storage = env.storage
+  local workspace = env.workspace
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  local ok_save = storage.save()
+  helpers.assert_truthy(ok_save, "storage save should persist task before module reload")
+
+  local loaded_names = {}
+  for name in pairs(package.loaded) do
+    if name == "qck" or name:match("^qck%.") then
+      loaded_names[#loaded_names + 1] = name
+    end
+  end
+  for _, name in ipairs(loaded_names) do
+    package.loaded[name] = nil
+  end
+
+  local reloaded_storage = require("qck.tasks.storage")
+  local ok_load = reloaded_storage.load()
+  helpers.assert_truthy(ok_load, "storage load should succeed after module reload")
+  helpers.assert_eq(reloaded_storage.get_task_cmd(workspace, "lint"), "echo lint", "storage should preserve tasks across module reload")
+end
+
+function scenarios.storage_save_creates_missing_data_dir()
+  local env = helpers.load_qck()
+  local storage = env.storage
+  local workspace = env.workspace
+  local data_dir = vim.fn.stdpath("data")
+  local storage_path = data_dir .. "/qck.json"
+
+  vim.fn.delete(data_dir, "rf")
+  storage.ok = true
+  storage.workspaces = vim.empty_dict()
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+
+  local ok_save, save_err = storage.save()
+  helpers.assert_truthy(ok_save, "storage save should create missing data directory: " .. tostring(save_err))
+  helpers.assert_eq(vim.fn.filereadable(storage_path), 1, "storage save should create qck.json")
+
+  storage.workspaces = {}
+  local ok_load = storage.load()
+  helpers.assert_truthy(ok_load, "storage load should read file created after missing data dir")
+  helpers.assert_eq(storage.get_task_cmd(workspace, "lint"), "echo lint", "storage should preserve task after creating missing data dir")
+end
+
+function scenarios.storage_empty_state_writes_object_maps()
+  local env = helpers.load_qck()
+  local qck, storage, workspace = env.qck, env.storage, env.workspace
+  local storage_path = vim.fn.stdpath("data") .. "/qck.json"
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  helpers.assert_truthy(storage.save(), "storage should save seeded task")
+
+  qck.clear_storage()
+  local encoded = table.concat(vim.fn.readfile(storage_path), "\n")
+  local decoded = vim.json.decode(encoded)
+
+  helpers.assert_truthy(type(decoded.workspaces) == "table", "storage workspaces should decode to a table")
+  helpers.assert_truthy(encoded:find('"workspaces":{}', 1, true) ~= nil, "empty storage workspaces should be encoded as a JSON object")
 end
 
 function scenarios.ui_state_registration_and_traversal()
@@ -201,6 +1326,7 @@ function scenarios.ui_state_registration_and_traversal()
   local terminal_a = {}
   local terminal_b = {}
   local task_a = {}
+  local task_b = {}
   local terminal_c = {}
 
   local first_terminal_id = select(1, state.register_tab("terminal", terminal_a))
@@ -220,6 +1346,19 @@ function scenarios.ui_state_registration_and_traversal()
   helpers.assert_eq(first_terminal.category_display_id, 1, "first terminal should use the first category display id")
   helpers.assert_eq(second_terminal.category_display_id, 2, "second terminal should increment the category display id")
   helpers.assert_eq(first_task.category_display_id, 1, "display ids should be scoped per category")
+  local second_task_id = select(1, state.register_tab("task", task_b, { display_id = 7 }))
+  helpers.assert_eq(state.get_tab(second_task_id).category_display_id, 7, "ui state should accept explicit display ids")
+  helpers.assert_eq(
+    select(1, state.set_tab_display_id(second_task_id, 4)),
+    true,
+    "ui state should update live tab display ids"
+  )
+  helpers.assert_eq(state.get_tab(second_task_id).category_display_id, 4, "ui state should expose updated display ids")
+  helpers.assert_eq(
+    select(1, state.set_tab_display_id(second_task_id, 0)),
+    false,
+    "ui state should reject invalid display ids"
+  )
   helpers.assert_truthy(
     state.get_tab_by_terminal(terminal_a).id == first_terminal_id,
     "ui state should index tabs by their registered terminal handle"
@@ -240,7 +1379,7 @@ function scenarios.ui_state_registration_and_traversal()
     "ui state should keep per-category ordering"
   )
   helpers.assert_truthy(
-    vim.deep_equal(state.traversal_ids(), { first_terminal_id, second_terminal_id, first_task_id }),
+    vim.deep_equal(state.traversal_ids(), { first_terminal_id, second_terminal_id, first_task_id, second_task_id }),
     "ui state should derive global traversal from category order and per-category order"
   )
 
@@ -251,7 +1390,7 @@ function scenarios.ui_state_registration_and_traversal()
     "ui state should update category-local order after movement"
   )
   helpers.assert_truthy(
-    vim.deep_equal(state.traversal_ids(), { second_terminal_id, first_terminal_id, first_task_id }),
+    vim.deep_equal(state.traversal_ids(), { second_terminal_id, first_terminal_id, first_task_id, second_task_id }),
     "ui state traversal should follow category-local movement"
   )
   helpers.assert_eq(state.move_tab(second_terminal_id, -1), false, "ui state should no-op at a category boundary")
@@ -271,7 +1410,7 @@ function scenarios.ui_state_registration_and_traversal()
   )
 
   local reused_terminal_id = select(1, state.register_tab("terminal", terminal_c))
-  helpers.assert_eq(reused_terminal_id, 4, "ui state should not reuse deleted tab ids")
+  helpers.assert_eq(reused_terminal_id, 5, "ui state should not reuse deleted tab ids")
   helpers.assert_eq(
     state.get_tab(reused_terminal_id).category_display_id,
     1,
@@ -282,11 +1421,12 @@ function scenarios.ui_state_registration_and_traversal()
     "ui state should append new tabs within their category order"
   )
   helpers.assert_truthy(
-    vim.deep_equal(state.traversal_ids(), { second_terminal_id, reused_terminal_id, first_task_id }),
+    vim.deep_equal(state.traversal_ids(), { second_terminal_id, reused_terminal_id, first_task_id, second_task_id }),
     "ui state should preserve global traversal after display-id reuse"
   )
   helpers.assert_truthy(state.set_active_tab(first_task_id), "ui state should allow selecting the last traversal tab")
   helpers.assert_truthy(state.delete_tab(first_task_id), "ui state should delete the selected trailing traversal tab")
+  helpers.assert_truthy(state.delete_tab(second_task_id), "ui state should delete explicit display-id tabs")
   helpers.assert_eq(
     state.resolve_active_tab(),
     reused_terminal_id,
@@ -421,6 +1561,54 @@ function scenarios.ui_tabbar_renders_from_ui_state()
   local marks = vim.api.nvim_buf_get_extmarks(buf, -1, 0, -1, { details = true })
   helpers.assert_eq(#marks, 1, "ui tabbar should keep one active-row highlight mark")
   helpers.assert_eq(marks[1][2], 1, "ui tabbar should highlight the active ui-state row")
+
+  ui_tabbar.hide()
+  ui_state.reset()
+  ui_runtime.reset()
+end
+
+function scenarios.ui_tabbar_keeps_manually_reordered_t_labels()
+  local ui_state = require("qck.ui.state")
+  local ui_runtime = require("qck.ui.runtime")
+  local ui_tabbar = require("qck.ui.tabbar")
+
+  ui_state.reset()
+  ui_runtime.reset()
+
+  helpers.assert_truthy(
+    ui_state.register_category({ key = "terminal", label = "T" }),
+    "ui tabbar T-order test should register the terminal category"
+  )
+
+  local terminal_a = {}
+  local terminal_b = {}
+  local terminal_c = {}
+  local first_tab_id = select(1, ui_state.register_tab("terminal", terminal_a))
+  local second_tab_id = select(1, ui_state.register_tab("terminal", terminal_b))
+  local third_tab_id = select(1, ui_state.register_tab("terminal", terminal_c))
+
+  helpers.assert_truthy(first_tab_id ~= nil and second_tab_id ~= nil and third_tab_id ~= nil, "ui tabbar T-order test should register three tabs")
+  helpers.assert_truthy(ui_state.move_tab(third_tab_id, -1), "ui state should move T3 before T2")
+  helpers.assert_truthy(ui_state.set_active_tab(first_tab_id), "ui tabbar T-order test should set the active tab")
+
+  local buf = vim.api.nvim_create_buf(false, true)
+  local win = vim.api.nvim_open_win(buf, false, {
+    relative = "editor",
+    row = 0,
+    col = 0,
+    width = 8,
+    height = 4,
+    style = "minimal",
+  })
+  ui_runtime.set_tabbar_bufnr(buf)
+  ui_runtime.set_tabbar_winid(win)
+
+  ui_tabbar.render()
+
+  helpers.assert_truthy(
+    vim.deep_equal(tabbar_labels(win), { "T1", "T3", "T2" }),
+    "ui tabbar should keep T labels in manual order instead of sorting by label number"
+  )
 
   ui_tabbar.hide()
   ui_state.reset()
@@ -1052,13 +2240,39 @@ end
 function scenarios.ordered()
   return {
     { name = "task form | creates and overwrites workspace task", run = scenarios.task_form_create_and_overwrite },
+    { name = "task form | edits existing workspace task", run = scenarios.task_form_edit_existing_task },
+    { name = "task form | normalizes task order after overwrite rename", run = scenarios.task_form_overwrite_rename_normalizes_task_order },
+    { name = "task runner | selects workspace task", run = scenarios.task_runner_selects_workspace_task },
+    { name = "task runner | runs numbered task directly", run = scenarios.task_runner_runs_numbered_task },
+    { name = "task runner | rejects invalid task numbers", run = scenarios.task_runner_rejects_invalid_task_numbers },
+    { name = "task runner | reuses numbered task terminal", run = scenarios.task_runner_reuses_numbered_task_terminal },
+    { name = "task runner | reorders workspace tasks", run = scenarios.task_runner_reorders_workspace_tasks },
+    { name = "task runner | edits selected task", run = scenarios.task_runner_edits_selected_task },
+    { name = "task runner | edit is no-op for empty workspace", run = scenarios.task_runner_edit_empty_workspace_noops },
+    { name = "task runner | handles empty workspace", run = scenarios.task_runner_empty_workspace },
     { name = "storage | persists workspace task commands across load/save", run = scenarios.storage_roundtrip },
+    { name = "storage | stores task creation order numbers", run = scenarios.storage_task_ordering },
+    { name = "storage | moves task order numbers", run = scenarios.storage_task_order_moves },
+    { name = "storage | persists across module reload", run = scenarios.storage_persists_across_module_reload },
+    { name = "storage | creates missing data dir on save", run = scenarios.storage_save_creates_missing_data_dir },
+    { name = "storage | writes empty object maps", run = scenarios.storage_empty_state_writes_object_maps },
     { name = "ui state | registers categories and traverses tabs", run = scenarios.ui_state_registration_and_traversal },
     { name = "ui runtime | tracks windows, handles, and layout scaffolding", run = scenarios.ui_runtime_and_layout_scaffolding },
     { name = "ui tabbar | renders from ui-owned traversal and active state", run = scenarios.ui_tabbar_renders_from_ui_state },
+    { name = "ui tabbar | keeps manually reordered T labels", run = scenarios.ui_tabbar_keeps_manually_reordered_t_labels },
     { name = "ui init | manages internal ui orchestration and rollback", run = scenarios.ui_init_orchestration_contract },
     { name = "terminals | manages generic terminals with shared layout", run = scenarios.terminals_and_layout },
     { name = "terminals | preserves lifecycle watcher behavior and focus routing", run = scenarios.terminal_lifecycle_watchers_and_focus },
+    { name = "terminals | keeps finished task terminal open", run = scenarios.task_terminal_finish_keeps_task_tab_open },
+    { name = "terminals | preserves mixed terminal tabbar after task finish", run = scenarios.task_terminal_finish_preserves_mixed_tabbar },
+    { name = "terminals | pins task terminals before regular terminals", run = scenarios.task_terminals_are_pinned_before_regular_terminals },
+    { name = "terminals | skips tabbar kind divider", run = scenarios.tabbar_skips_kind_divider },
+    { name = "terminals | reuses existing task terminal", run = scenarios.task_runner_reuses_existing_task_terminal },
+    { name = "terminals | reopens hidden matching task terminal", run = scenarios.task_runner_reopens_hidden_matching_task_terminal },
+    { name = "terminals | creates task terminals for distinct commands", run = scenarios.task_runner_spawns_distinct_task_terminals_for_distinct_commands },
+    { name = "terminals | uses task order for K labels", run = scenarios.task_runner_uses_task_order_for_k_labels },
+    { name = "terminals | updates K labels after task reorder", run = scenarios.task_runner_updates_k_labels_after_reorder },
+    { name = "terminals | prevents manual K label reordering", run = scenarios.task_runner_prevents_manual_k_label_reordering },
     { name = "terminals | prunes invalid terminals and adopts live fallbacks", run = scenarios.terminal_invalidation_and_active_fallbacks },
     { name = "storage | clears workspace data for current workspace", run = scenarios.clear_storage },
     { name = "storage | fails invalid load and repairs storage through clear_storage", run = scenarios.invalid_storage_repair },

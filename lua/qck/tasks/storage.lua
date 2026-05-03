@@ -6,8 +6,13 @@ local storage_path = vim.fn.stdpath("data") .. "/qck.json"
 
 storage.ok = false
 storage.version = STORAGE_VERSION
-storage.workspaces = {}
+storage.workspaces = vim.empty_dict()
 storage.last_error = nil
+
+---@return table
+local function empty_map()
+  return vim.empty_dict()
+end
 
 ---@param tbl table
 ---@param allowed table<string, boolean>
@@ -25,8 +30,40 @@ end
 local function blank_state()
   return {
     version = STORAGE_VERSION,
-    workspaces = {},
+    workspaces = empty_map(),
   }
+end
+
+---@param task qck.StorageTaskState
+---@return qck.StorageTaskState
+local function clone_task(task)
+  return {
+    cmd = cmd_util.clone(task.cmd),
+    order = task.order,
+  }
+end
+
+---@param tasks table<string, qck.StorageTaskState>
+---@return nil
+local function normalize_task_order(tasks)
+  local entries = {}
+  for name, task in pairs(tasks) do
+    entries[#entries + 1] = {
+      name = name,
+      order = type(task.order) == "number" and task.order or math.huge,
+    }
+  end
+
+  table.sort(entries, function(left, right)
+    if left.order == right.order then
+      return left.name < right.name
+    end
+    return left.order < right.order
+  end)
+
+  for index, entry in ipairs(entries) do
+    tasks[entry.name].order = index
+  end
 end
 
 ---@param data any
@@ -98,10 +135,15 @@ local function sanitize_data(data)
 
       local allowed_task_keys = {
         cmd = true,
+        order = true,
       }
 
       if not has_only_allowed_keys(task_state, allowed_task_keys) then
         return nil, ("workspace `%s` task `%s` contains unsupported fields"):format(workspace, task_type)
+      end
+
+      if task_state.order ~= nil and (type(task_state.order) ~= "number" or task_state.order < 1 or task_state.order % 1 ~= 0) then
+        return nil, ("workspace `%s` task `%s` has invalid order"):format(workspace, task_type)
       end
 
       local cmd = cmd_util.normalize(task_state.cmd)
@@ -111,10 +153,12 @@ local function sanitize_data(data)
 
       tasks[normalized_task_type] = {
         cmd = cmd_util.clone(cmd),
+        order = task_state.order,
       }
     end
 
     if next(tasks) then
+      normalize_task_order(tasks)
       sanitized.workspaces[workspace] = {
         tasks = tasks,
       }
@@ -128,6 +172,7 @@ end
 ---@return nil
 local function write_data(data)
   local encoded = vim.json.encode(data)
+  vim.fn.mkdir(vim.fn.fnamemodify(storage_path, ":h"), "p")
   vim.fn.writefile({ encoded }, storage_path)
 end
 
@@ -155,14 +200,14 @@ function storage.load()
   local ok_read, data_or_err, read_err = pcall(read_data)
   if not ok_read then
     storage.ok = false
-    storage.workspaces = {}
+    storage.workspaces = empty_map()
     storage.last_error = ("failed to read storage file: %s"):format(tostring(data_or_err))
     return false, storage.last_error
   end
 
   if read_err then
     storage.ok = false
-    storage.workspaces = {}
+    storage.workspaces = empty_map()
     storage.last_error = read_err
     return false, storage.last_error
   end
@@ -170,7 +215,7 @@ function storage.load()
   local sanitized, sanitize_err = sanitize_data(data_or_err)
   if not sanitized then
     storage.ok = false
-    storage.workspaces = {}
+    storage.workspaces = empty_map()
     storage.last_error = sanitize_err or "failed to validate storage data"
     return false, storage.last_error
   end
@@ -206,17 +251,17 @@ end
 ---@return qck.StorageWorkspaceState
 function storage.ensure_workspace(workspace)
   if type(storage.workspaces) ~= "table" then
-    storage.workspaces = {}
+    storage.workspaces = empty_map()
   end
 
   if not storage.workspaces[workspace] then
     storage.workspaces[workspace] = {
-      tasks = {},
+      tasks = empty_map(),
     }
   end
 
   if type(storage.workspaces[workspace].tasks) ~= "table" then
-    storage.workspaces[workspace].tasks = {}
+    storage.workspaces[workspace].tasks = empty_map()
   end
 
   return storage.workspaces[workspace]
@@ -262,6 +307,45 @@ function storage.get_task_cmd(workspace, task_type)
 end
 
 ---@param workspace string
+---@param task_type string
+---@return qck.StorageTaskState|nil
+function storage.get_task_entry(workspace, task_type)
+  if not storage.ok or type(storage.workspaces) ~= "table" then
+    return nil
+  end
+
+  if type(workspace) ~= "string" or workspace == "" then
+    return nil
+  end
+
+  if type(task_type) ~= "string" then
+    return nil
+  end
+
+  local normalized_task_type = vim.trim(task_type)
+  if normalized_task_type == "" then
+    return nil
+  end
+
+  local ws = storage.workspaces[workspace]
+  if type(ws) ~= "table" or type(ws.tasks) ~= "table" then
+    return nil
+  end
+
+  local task = ws.tasks[normalized_task_type]
+  if type(task) ~= "table" then
+    return nil
+  end
+
+  local cmd = cmd_util.normalize(task.cmd)
+  if not cmd or type(task.order) ~= "number" then
+    return nil
+  end
+
+  return clone_task({ cmd = cmd, order = task.order })
+end
+
+---@param workspace string
 ---@return table<string, qck.Command>
 function storage.get_workspace_tasks(workspace)
   if not storage.ok or type(storage.workspaces) ~= "table" then
@@ -292,6 +376,117 @@ function storage.get_workspace_tasks(workspace)
 end
 
 ---@param workspace string
+---@return qck.StorageTaskEntry[]
+function storage.get_workspace_task_entries(workspace)
+  if not storage.ok or type(storage.workspaces) ~= "table" then
+    return {}
+  end
+
+  if type(workspace) ~= "string" or workspace == "" then
+    return {}
+  end
+
+  local ws = storage.workspaces[workspace]
+  if type(ws) ~= "table" or type(ws.tasks) ~= "table" then
+    return {}
+  end
+
+  local entries = {}
+  for task_type, task_state in pairs(ws.tasks) do
+    if type(task_type) == "string" and type(task_state) == "table" then
+      local normalized_task_type = vim.trim(task_type)
+      local cmd = cmd_util.normalize(task_state.cmd)
+      if normalized_task_type ~= "" and cmd and type(task_state.order) == "number" then
+        entries[#entries + 1] = {
+          name = normalized_task_type,
+          cmd = cmd_util.clone(cmd),
+          order = task_state.order,
+        }
+      end
+    end
+  end
+
+  table.sort(entries, function(left, right)
+    if left.order == right.order then
+      return left.name < right.name
+    end
+    return left.order < right.order
+  end)
+
+  return entries
+end
+
+---@param workspace string
+---@return nil
+function storage.normalize_workspace_task_order(workspace)
+  if not storage.ok or type(storage.workspaces) ~= "table" then
+    return
+  end
+
+  if type(workspace) ~= "string" or workspace == "" then
+    return
+  end
+
+  local ws = storage.workspaces[workspace]
+  if type(ws) ~= "table" or type(ws.tasks) ~= "table" then
+    return
+  end
+
+  normalize_task_order(ws.tasks)
+end
+
+---@param tasks table<string, qck.StorageTaskState>
+---@return integer
+local function next_task_order(tasks)
+  local max_order = 0
+  for _, task in pairs(tasks) do
+    if type(task) == "table" and type(task.order) == "number" then
+      max_order = math.max(max_order, task.order)
+    end
+  end
+  return max_order + 1
+end
+
+---@param workspace string
+---@param task_type string
+---@param task qck.StorageTaskState
+---@return nil
+function storage.set_task_entry(workspace, task_type, task)
+  if not storage.ok then
+    return
+  end
+
+  if type(workspace) ~= "string" or workspace == "" then
+    return
+  end
+
+  if type(task_type) ~= "string" or type(task) ~= "table" then
+    return
+  end
+
+  local normalized_task_type = vim.trim(task_type)
+  if normalized_task_type == "" then
+    return
+  end
+
+  local cmd = cmd_util.normalize(task.cmd)
+  if not cmd then
+    return
+  end
+
+  local order = task.order
+  if type(order) ~= "number" or order < 1 or order % 1 ~= 0 then
+    return
+  end
+
+  local ws = storage.ensure_workspace(workspace)
+  ws.tasks[normalized_task_type] = {
+    cmd = cmd_util.clone(cmd),
+    order = order,
+  }
+end
+
+---@param workspace string
 ---@param task_type string
 ---@param cmd qck.Command
 ---@return nil
@@ -315,10 +510,116 @@ function storage.set_task_cmd(workspace, task_type, cmd)
 
   local ws = storage.ensure_workspace(workspace)
   if not ws.tasks[normalized_task_type] then
-    ws.tasks[normalized_task_type] = {}
+    ws.tasks[normalized_task_type] = {
+      order = next_task_order(ws.tasks),
+    }
   end
 
   ws.tasks[normalized_task_type].cmd = cmd_util.clone(cmd)
+end
+
+---@param workspace string
+---@param task_type string
+---@param delta integer
+---@return boolean, string|nil
+function storage.move_task_order(workspace, task_type, delta)
+  if not storage.ok then
+    return false, "storage is not loaded"
+  end
+
+  if type(workspace) ~= "string" or workspace == "" then
+    return false, "invalid workspace"
+  end
+
+  if type(task_type) ~= "string" then
+    return false, "invalid task"
+  end
+
+  local normalized_task_type = vim.trim(task_type)
+  if normalized_task_type == "" then
+    return false, "invalid task"
+  end
+
+  if delta ~= -1 and delta ~= 1 then
+    return false, "invalid direction"
+  end
+
+  local ws = storage.workspaces[workspace]
+  if type(ws) ~= "table" or type(ws.tasks) ~= "table" then
+    return false, "workspace has no tasks"
+  end
+
+  local entries = storage.get_workspace_task_entries(workspace)
+  local source_index = nil
+  for index, entry in ipairs(entries) do
+    if entry.name == normalized_task_type then
+      source_index = index
+      break
+    end
+  end
+
+  if not source_index then
+    return false, "task not found"
+  end
+
+  local target_index = source_index + delta
+  if target_index < 1 or target_index > #entries then
+    return false, "task is already at boundary"
+  end
+
+  local source = entries[source_index]
+  local target = entries[target_index]
+  local source_task = ws.tasks[source.name]
+  local target_task = ws.tasks[target.name]
+  if type(source_task) ~= "table" or type(target_task) ~= "table" then
+    return false, "task not found"
+  end
+
+  local source_order = source_task.order
+  local target_order = target_task.order
+  source_task.order = target_order
+  target_task.order = source_order
+
+  local ok_save, save_err = storage.save()
+  if not ok_save then
+    source_task.order = source_order
+    target_task.order = target_order
+    return false, save_err
+  end
+
+  return true, nil
+end
+
+---@param workspace string
+---@param task_type string
+---@return nil
+function storage.remove_task(workspace, task_type)
+  if not storage.ok then
+    return
+  end
+
+  if type(workspace) ~= "string" or workspace == "" then
+    return
+  end
+
+  if type(task_type) ~= "string" then
+    return
+  end
+
+  local normalized_task_type = vim.trim(task_type)
+  if normalized_task_type == "" then
+    return
+  end
+
+  local ws = storage.workspaces[workspace]
+  if type(ws) ~= "table" or type(ws.tasks) ~= "table" then
+    return
+  end
+
+  ws.tasks[normalized_task_type] = nil
+  if next(ws.tasks) == nil then
+    storage.workspaces[workspace] = nil
+  end
 end
 
 ---@param workspace string

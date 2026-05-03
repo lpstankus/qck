@@ -3,13 +3,20 @@ local M = {}
 local STORAGE_VERSION = "0.1.0"
 local DEFAULT_COLUMNS = vim.o.columns
 local DEFAULT_LINES = vim.o.lines
+local TEST_DATA_MARKER = "/tests/.tmp/"
 
 local function clear_qck_modules()
+  local names = {}
   for name in pairs(package.loaded) do
     if name == "qck" or name:match("^qck%.") then
-      package.loaded[name] = nil
+      names[#names + 1] = name
     end
   end
+
+  for _, name in ipairs(names) do
+    package.loaded[name] = nil
+  end
+
   package.loaded.snacks = nil
 end
 
@@ -31,6 +38,7 @@ end
 
 function M.write_storage(data)
   local path = vim.fn.stdpath("data") .. "/qck.json"
+  M.assert_truthy(path:find(TEST_DATA_MARKER, 1, true) ~= nil, "test storage must use isolated XDG_DATA_HOME")
   vim.fn.mkdir(vim.fn.fnamemodify(path, ":h"), "p")
   vim.fn.writefile({ vim.json.encode(data) }, path)
 end
@@ -38,7 +46,7 @@ end
 function M.write_blank_storage()
   M.write_storage({
     version = STORAGE_VERSION,
-    workspaces = {},
+    workspaces = vim.empty_dict(),
   })
 end
 
@@ -72,6 +80,7 @@ function M.load_qck(opts)
     ui_state = require("qck.ui.state"),
     storage = require("qck.tasks.storage"),
     task_form = require("qck.tasks.form"),
+    task_runner = require("qck.tasks.runner"),
     tabbar = require("qck.ui.tabbar"),
     layout = require("qck.ui.layout"),
     workspace = vim.fn.getcwd(),
@@ -91,7 +100,7 @@ function M.expected_layout(layout)
   )
   local expected_total_height = math.max(
     1,
-    math.min(vim.o.lines, vim.o.lines - (vertical_margin * 2 + border_footprint))
+    math.min(vim.o.lines, vim.o.lines - vim.o.cmdheight - (vertical_margin * 2 + border_footprint))
   )
 
   return {
@@ -157,7 +166,7 @@ function M.assert_window_layout(term_win, tab_win, expected, msg_prefix)
     msg_prefix .. ": right margin should match configured spacing"
   )
   M.assert_eq(
-    vim.o.lines - (math.floor(tonumber(tab_cfg.row) or 0) + expected.total_height + border_footprint),
+    vim.o.lines - vim.o.cmdheight - (math.floor(tonumber(tab_cfg.row) or 0) + expected.total_height + border_footprint),
     expected.vertical_margin,
     msg_prefix .. ": bottom margin should match configured spacing"
   )
@@ -227,10 +236,10 @@ function M.set_form_fields(buf, name_line, cmd_line)
   })
 end
 
-function M.assert_form_scaffold(buf)
+function M.assert_form_scaffold(buf, expected_description)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   M.assert_eq(#lines, 6, "task form should render six scaffold lines")
-  M.assert_eq(lines[1], "Please provide the name and command of the new task", "task form should render description")
+  M.assert_eq(lines[1], expected_description or "Please provide the name and command of the new task", "task form should render description")
   M.assert_truthy(vim.startswith(lines[3], "Name    | "), "task form should render name field prefix")
   M.assert_truthy(vim.startswith(lines[4], "Command | "), "task form should render command field prefix")
   M.assert_eq(lines[6], "<Tab>/<S-Tab> switch  <CR> save  <Esc> close", "task form should render help line")
