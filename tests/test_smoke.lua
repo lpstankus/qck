@@ -60,6 +60,8 @@ T["terminals"]["creates task terminals for distinct commands"] = scenarios.task_
 T["terminals"]["uses task order for K labels"] = scenarios.task_runner_uses_task_order_for_k_labels
 T["terminals"]["updates K labels after task reorder"] = scenarios.task_runner_updates_k_labels_after_reorder
 T["terminals"]["prevents manual K label reordering"] = scenarios.task_runner_prevents_manual_k_label_reordering
+T["terminals"]["reuses live task terminal after rename"] = scenarios.task_runner_reuses_live_task_terminal_after_rename
+T["terminals"]["keeps renamed live tab after rename collision"] = scenarios.task_runner_rename_collision_keeps_renamed_live_tab
 T["terminals"]["prunes invalid terminals and adopts live fallbacks"] = scenarios.terminal_invalidation_and_active_fallbacks
 
 return T

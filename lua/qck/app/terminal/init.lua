@@ -117,6 +117,29 @@ local function find_task_tab_by_key(key)
   return nil
 end
 
+---@param tab qck.UiTabRecord|nil
+---@param workspace string
+---@param name string
+---@return boolean
+local function update_task_tab_identity(tab, workspace, name)
+  local handle = tab and tab.terminal or nil
+  if not tab or type(handle) ~= "table" then
+    return false
+  end
+
+  handle.qck_task_key = task_identity_key(workspace, name)
+  handle.qck_task_workspace = workspace
+  handle.qck_task_name = name
+
+  local updated = true
+  local entry = storage.get_task_entry(workspace, name)
+  if entry and tab.category_display_id ~= entry.order then
+    local ok_update = select(1, ui_state.set_tab_display_id(tab.id, entry.order))
+    updated = ok_update or updated
+  end
+  return updated
+end
+
 ---@param tab qck.UiTabRecord
 ---@return qck.UiTabRecord|nil
 local function show_existing_task_tab(tab)
@@ -237,6 +260,41 @@ function terminal.refresh_task_display_ids(workspace)
     end
   end
 
+  if updated then
+    require("qck.ui.tabbar").render()
+  end
+end
+
+---@param workspace string
+---@param old_name string
+---@param new_name string
+---@return nil
+function terminal.refresh_renamed_task_identity(workspace, old_name, new_name)
+  if type(workspace) ~= "string" or workspace == "" or type(old_name) ~= "string" or type(new_name) ~= "string" then
+    return
+  end
+
+  local old_key = task_identity_key(workspace, old_name)
+  local new_key = task_identity_key(workspace, new_name)
+  if old_key == new_key then
+    terminal.refresh_task_display_ids(workspace)
+    return
+  end
+
+  local renamed_tab = find_task_tab_by_key(old_key)
+  local target_tab = find_task_tab_by_key(new_key)
+  local updated = false
+
+  if target_tab and (not renamed_tab or target_tab.id ~= renamed_tab.id) then
+    local ok_delete = select(1, ui.delete_tab(target_tab.id))
+    updated = ok_delete or updated
+  end
+
+  if renamed_tab then
+    updated = update_task_tab_identity(renamed_tab, workspace, new_name) or updated
+  end
+
+  terminal.refresh_task_display_ids(workspace)
   if updated then
     require("qck.ui.tabbar").render()
   end

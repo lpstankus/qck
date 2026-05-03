@@ -3,6 +3,7 @@ local autocmd = require("qck.shared.autocmd")
 local cmd_util = require("qck.shared.cmd")
 local notify = require("qck.shared.notify").notify
 local storage = require("qck.tasks.storage")
+local terminal = require("qck.app.terminal")
 
 local CREATE_TITLE = "QCK Create Task"
 local EDIT_TITLE = "QCK Edit Task"
@@ -292,6 +293,10 @@ function task_form.submit()
   end
 
   state.pending_overwrite_name = nil
+  if state.mode == "edit" and original_name and original_name ~= name then
+    terminal.refresh_renamed_task_identity(workspace, original_name, name)
+  end
+
   local updated = overwrite or state.mode == "edit"
   notify((updated and "updated task `%s` for current workspace" or "created task `%s` for current workspace"):format(name), vim.log.levels.INFO)
   task_form.close()

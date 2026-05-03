@@ -202,6 +202,7 @@ Additional tests should be placed under `tests/` and documented in this section.
 - `qck.run_task()` opens `tasks/runner.lua` floating UI for selecting current-workspace saved tasks in stored creation order; `qck.run_task(number)` directly runs the task at that 1-based selector position and warns/no-ops for invalid or out-of-range numbers. The selector is read-only, normal-mode-only, uses `j`/`k` navigation, `J`/`K` persisted task reordering, `<CR>` task-terminal spawn, and `<Esc>`/`q` close.
 - Task runner rows display compact workspace order prefixes (`1.`, `2.`, ...), while storage keeps the underlying creation-order metadata with each task entry.
 - Task-run terminal reuse is keyed by saved task identity (`workspace` + task name), not command value; two task names with the same command get separate live `K#` terminals.
+- Editing a task name refreshes any matching live task terminal's saved-task identity after storage save succeeds; when a rename overwrites another live task, the renamed terminal keeps the new identity and the overwritten target terminal is deleted as stale.
 - Task-run terminal `K#` labels use the saved task's current workspace order number, so live task terminals relabel when `J`/`K` reorders tasks in the runner.
 - Task-run terminal rows render in ascending `K#` label order, independent of spawn order; regular `T#` terminals keep manual tabbar ordering semantics.
 - Tabbar `J`/`K` manual reordering applies to regular `T#` terminals, not sorted task terminal `K#` rows.

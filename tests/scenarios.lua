@@ -27,6 +27,17 @@ local function tabbar_divider_label(tabbar_win)
   return string.rep("─", vim.api.nvim_win_get_width(tabbar_win))
 end
 
+local function task_tabs(ui_state)
+  local tabs = {}
+  for _, tab_id in ipairs(ui_state.traversal_ids()) do
+    local tab = ui_state.get_tab(tab_id)
+    if tab and tab.category_key == "task" then
+      tabs[#tabs + 1] = tab
+    end
+  end
+  return tabs
+end
+
 ---@param handle table|nil
 ---@return boolean
 local function handle_is_open(handle)
@@ -908,6 +919,79 @@ function scenarios.task_runner_prevents_manual_k_label_reordering()
   vim.api.nvim_win_set_cursor(tabbar_win, { 2, 0 })
   feed("K")
   helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "K1", "K2" }), "tabbar K should not manually reorder sorted K labels")
+end
+
+function scenarios.task_runner_reuses_live_task_terminal_after_rename()
+  local env = helpers.load_qck()
+  local qck, storage, task_form, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.task_form, env.ui_state, env.tabbar, env.workspace
+  local mock_snacks = require("mock_snacks")
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+
+  qck.run_task(1)
+  local original_tab_id = ui_state.resolve_active_tab()
+  local original_tab = original_tab_id and ui_state.get_tab(original_tab_id) or nil
+  local original_handle = original_tab and original_tab.terminal or nil
+
+  helpers.assert_truthy(original_handle ~= nil, "rename reuse setup should create a live task terminal")
+  helpers.assert_eq(original_handle.qck_task_name, "lint", "rename reuse setup should start with original task identity")
+
+  task_form.open_edit("lint", "echo lint")
+  local form_buf = vim.api.nvim_win_get_buf(task_form.get_winid())
+  helpers.set_form_fields(form_buf, "Name: test", "Command: echo lint")
+  task_form.submit()
+
+  qck.run_task(1)
+
+  local tabs = task_tabs(ui_state)
+  helpers.assert_eq(#mock_snacks.get_handles(), 1, "running renamed task should not create another terminal handle")
+  helpers.assert_eq(#tabs, 1, "running renamed task should keep a single live task tab")
+  helpers.assert_eq(tabs[1].id, original_tab_id, "running renamed task should reuse the original task tab")
+  helpers.assert_eq(tabs[1].terminal, original_handle, "running renamed task should reuse the original terminal handle")
+  helpers.assert_eq(original_handle.qck_task_name, "test", "renamed live task handle should update task name")
+  helpers.assert_eq(original_handle.qck_task_key, workspace .. "\n" .. "test", "renamed live task handle should update task key")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K1" }), "renamed live task should keep a single K1 row")
+end
+
+function scenarios.task_runner_rename_collision_keeps_renamed_live_tab()
+  local env = helpers.load_qck()
+  local qck, storage, task_form, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.task_form, env.ui_state, env.tabbar, env.workspace
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  storage.set_task_cmd(workspace, "test", "echo test")
+
+  qck.run_task(1)
+  local lint_tab_id = ui_state.resolve_active_tab()
+  local lint_tab = lint_tab_id and ui_state.get_tab(lint_tab_id) or nil
+  local lint_handle = lint_tab and lint_tab.terminal or nil
+
+  qck.run_task(2)
+  local test_tab_id = ui_state.resolve_active_tab()
+  local test_tab = test_tab_id and ui_state.get_tab(test_tab_id) or nil
+  local test_handle = test_tab and test_tab.terminal or nil
+
+  helpers.assert_truthy(lint_handle ~= nil and test_handle ~= nil, "rename collision setup should create both task terminals")
+  helpers.assert_truthy(lint_tab_id ~= test_tab_id, "rename collision setup should create distinct tabs")
+
+  task_form.open_edit("lint", "echo lint")
+  local form_buf = vim.api.nvim_win_get_buf(task_form.get_winid())
+  helpers.set_form_fields(form_buf, "Name: test", "Command: echo renamed")
+  task_form.submit()
+  helpers.assert_truthy(task_form.get_winid() ~= nil, "rename collision should require overwrite confirmation")
+  task_form.submit()
+
+  qck.run_task(1)
+
+  local tabs = task_tabs(ui_state)
+  helpers.assert_eq(#tabs, 1, "rename collision should keep only the renamed task tab")
+  helpers.assert_eq(tabs[1].id, lint_tab_id, "rename collision should preserve the tab being renamed")
+  helpers.assert_eq(tabs[1].terminal, lint_handle, "rename collision should preserve the renamed task handle")
+  helpers.assert_eq(lint_handle.qck_task_name, "test", "renamed collision survivor should own the target name")
+  helpers.assert_eq(lint_handle.qck_task_key, workspace .. "\n" .. "test", "renamed collision survivor should own the target key")
+  helpers.assert_truthy(not handle_is_open(test_handle), "rename collision should close the stale target task handle")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "K1" }), "rename collision should render only one K1 row")
 end
 
 function scenarios.task_runner_edits_selected_task()
