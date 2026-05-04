@@ -30,6 +30,7 @@
 
 ---@class qck.StorageState
 ---@field version string
+---@field agents table<string, qck.StorageAgentState>
 ---@field workspaces table<string, qck.StorageWorkspaceState>
 
 return {}

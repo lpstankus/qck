@@ -330,21 +330,23 @@ function scenarios.agent_form_sets_workspace_agent_command()
     local form_buf = vim.api.nvim_win_get_buf(form_win)
     helpers.assert_eq(vim.bo[form_buf].filetype, "qck-agent-form", "agent form should set filetype")
     local lines = vim.api.nvim_buf_get_lines(form_buf, 0, -1, false)
-    helpers.assert_eq(#lines, 5, "agent form should render command-only scaffold")
-    helpers.assert_eq(lines[1], "Please provide the command for the workspace agent", "agent form should render description")
-    helpers.assert_truthy(vim.startswith(lines[3], "Command | "), "agent form should render command field prefix")
+    helpers.assert_eq(#lines, 6, "agent form should render scope and command scaffold")
+    helpers.assert_eq(lines[1], "Please provide the command for the agent", "agent form should render description")
+    helpers.assert_eq(lines[3], "Local override [ ]", "agent form should default to global scope")
+    helpers.assert_truthy(vim.startswith(lines[4], "Command | "), "agent form should render command field prefix")
     helpers.assert_truthy(not table.concat(lines, "\n"):find("Name", 1, true), "agent form should not render a name field")
 
-    vim.api.nvim_buf_set_lines(form_buf, 2, 3, false, { "Command: " })
+    vim.api.nvim_buf_set_lines(form_buf, 3, 4, false, { "Command: " })
     agent_form.submit()
     helpers.assert_truthy(agent_form.get_winid() ~= nil, "empty command should keep agent form open")
     helpers.assert_eq(storage.get_agent_cmd(workspace), nil, "empty command should not persist an agent")
 
-    vim.api.nvim_buf_set_lines(form_buf, 2, 3, false, { "Command: echo agent" })
+    vim.api.nvim_buf_set_lines(form_buf, 3, 4, false, { "Command: echo agent" })
     agent_form.submit()
     helpers.assert_eq(agent_form.get_winid(), nil, "successful agent save should close form")
-    helpers.assert_eq(storage.get_agent_cmd(workspace), "echo agent", "agent command should persist")
-    helpers.assert_eq(storage.get_agent_cmd(workspace .. "-other"), nil, "agent command should be workspace-scoped")
+    helpers.assert_eq(storage.get_global_agent_cmd(), "echo agent", "checked agent form should persist the global command")
+    helpers.assert_eq(storage.get_agent_cmd(workspace), "echo agent", "agent command should resolve from global config")
+    helpers.assert_eq(storage.get_agent_cmd(workspace .. "-other"), "echo agent", "global agent command should apply to other workspaces")
     helpers.assert_truthy(#notifications >= 1, "agent save should notify")
 
     storage.set_agent_cmd(workspace, { "sh", "-c", "echo structured-agent" })
@@ -361,7 +363,25 @@ function scenarios.agent_form_sets_workspace_agent_command()
     qck.set_agent()
     form_win = agent_form.get_winid()
     form_buf = vim.api.nvim_win_get_buf(form_win)
-    vim.api.nvim_buf_set_lines(form_buf, 2, 3, false, { "Command: echo failed-agent" })
+    vim.api.nvim_win_set_cursor(form_win, { 3, 0 })
+    feed("<Space>")
+    lines = vim.api.nvim_buf_get_lines(form_buf, 0, -1, false)
+    helpers.assert_eq(lines[3], "Local override [x]", "<Space> should toggle the agent form to local scope")
+    vim.api.nvim_buf_set_lines(form_buf, 3, 4, false, { "Command: echo local-agent" })
+    agent_form.submit()
+    helpers.assert_eq(storage.get_global_agent_cmd(), "echo agent", "local agent save should not replace global command")
+    helpers.assert_eq(storage.get_local_agent_cmd(workspace), "echo local-agent", "unchecked agent form should persist a local override")
+    helpers.assert_eq(storage.get_agent_cmd(workspace), "echo local-agent", "local agent command should override global config")
+    helpers.assert_eq(storage.get_agent_cmd(workspace .. "-other"), "echo agent", "other workspaces should keep using global config")
+
+    qck.set_agent()
+    form_win = agent_form.get_winid()
+    form_buf = vim.api.nvim_win_get_buf(form_win)
+    vim.api.nvim_win_set_cursor(form_win, { 3, 0 })
+    feed("<Space>")
+    lines = vim.api.nvim_buf_get_lines(form_buf, 0, -1, false)
+    helpers.assert_eq(lines[4], "Command | echo local-agent", "local scope should prefill the existing local override")
+    vim.api.nvim_buf_set_lines(form_buf, 3, 4, false, { "Command: echo failed-agent" })
     local original_save = storage.save
     storage.save = function()
       return false, "forced failure"
@@ -370,8 +390,8 @@ function scenarios.agent_form_sets_workspace_agent_command()
     storage.save = original_save
     helpers.assert_truthy(agent_form.get_winid() ~= nil, "failed agent save should keep agent form open")
     helpers.assert_truthy(
-      vim.deep_equal(storage.get_agent_cmd(workspace), { "sh", "-c", "echo structured-agent" }),
-      "failed agent save should restore default workspace agent command"
+      vim.deep_equal(storage.get_local_agent_cmd(workspace), "echo local-agent"),
+      "failed local agent save should restore local override"
     )
     helpers.assert_truthy(
       vim.deep_equal(storage.get_workspace_agent_entries(workspace).secondary, { cmd = "echo secondary-agent" }),
@@ -383,7 +403,9 @@ function scenarios.agent_form_sets_workspace_agent_command()
     qck.set_agent()
     form_win = agent_form.get_winid()
     form_buf = vim.api.nvim_win_get_buf(form_win)
-    vim.api.nvim_buf_set_lines(form_buf, 2, 3, false, { "Command: echo first-agent" })
+    vim.api.nvim_win_set_cursor(form_win, { 3, 0 })
+    feed("<Space>")
+    vim.api.nvim_buf_set_lines(form_buf, 3, 4, false, { "Command: echo first-agent" })
     storage.save = function()
       return false, "forced failure"
     end
@@ -391,6 +413,20 @@ function scenarios.agent_form_sets_workspace_agent_command()
     storage.save = original_save
     helpers.assert_truthy(agent_form.get_winid() ~= nil, "failed first agent save should keep agent form open")
     helpers.assert_eq(storage.workspaces[workspace], nil, "failed first agent save should not leave an empty workspace")
+    agent_form.close()
+
+    storage.agents = vim.empty_dict()
+    qck.set_agent()
+    form_win = agent_form.get_winid()
+    form_buf = vim.api.nvim_win_get_buf(form_win)
+    vim.api.nvim_buf_set_lines(form_buf, 3, 4, false, { "Command: echo failed-global-agent" })
+    storage.save = function()
+      return false, "forced failure"
+    end
+    agent_form.submit()
+    storage.save = original_save
+    helpers.assert_truthy(agent_form.get_winid() ~= nil, "failed first global agent save should keep agent form open")
+    helpers.assert_eq(vim.json.encode({ agents = storage.agents }), '{"agents":{}}', "failed first global agent save should restore object-shaped agents")
     agent_form.close()
   end)
 
@@ -1054,9 +1090,9 @@ function scenarios.agent_terminal_runs_and_reuses_workspace_agent()
     helpers.assert_eq(ui_state.resolve_active_tab(), nil, "run_agent() without config should not create a tab")
     helpers.assert_truthy(#notifications >= 1, "run_agent() without config should warn")
 
-    storage.set_agent_cmd(workspace, "echo agent")
+    storage.set_global_agent_cmd("echo global-agent")
     helpers.assert_truthy(
-      not helpers.read_storage_text():find("echo agent", 1, true),
+      not helpers.read_storage_text():find("echo global-agent", 1, true),
       "agent runtime test setup should not persist test command"
     )
     qck.run_agent()
@@ -1073,8 +1109,8 @@ function scenarios.agent_terminal_runs_and_reuses_workspace_agent()
     helpers.assert_eq(vim.api.nvim_get_current_win(), ui_runtime.get_content_winid(), "agent terminal should be focused after run")
     helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "A1" }), "tabbar should render the agent label")
     helpers.assert_truthy(
-      vim.deep_equal(vim.api.nvim_buf_get_lines(agent_handle.buf, 0, -1, false), { "cmd: echo agent" }),
-      "agent terminal should run the saved command"
+      vim.deep_equal(vim.api.nvim_buf_get_lines(agent_handle.buf, 0, -1, false), { "cmd: echo global-agent" }),
+      "agent terminal should run the global fallback command"
     )
 
     qck.new()
@@ -1088,6 +1124,16 @@ function scenarios.agent_terminal_runs_and_reuses_workspace_agent()
     mock_snacks.finish_handle(agent_handle)
     vim.wait(20, function() return false end)
     helpers.assert_truthy(not handle_is_open(agent_handle), "finished agent terminal should auto-close")
+
+    storage.set_agent_cmd(workspace, "echo local-agent")
+    qck.run_agent()
+    local local_agent_tab_id = ui_state.resolve_active_tab()
+    local local_agent_tab = local_agent_tab_id and ui_state.get_tab(local_agent_tab_id) or nil
+    local local_agent_handle = local_agent_tab and local_agent_tab.terminal or nil
+    helpers.assert_truthy(
+      vim.deep_equal(vim.api.nvim_buf_get_lines(local_agent_handle.buf, 0, -1, false), { "cmd: echo local-agent" }),
+      "agent terminal should prefer a local override over the global command"
+    )
   end)
 
   vim.notify = original_notify
@@ -2508,15 +2554,22 @@ function scenarios.storage_agent_roundtrip()
   local storage, workspace = env.storage, env.workspace
 
   storage.set_task_cmd(workspace, "lint", "echo lint")
-  storage.set_agent_cmd(workspace, { "sh", "-c", "echo agent" })
+  storage.set_global_agent_cmd("echo global-agent")
+  storage.set_agent_cmd(workspace, { "sh", "-c", "echo local-agent" })
   helpers.assert_truthy(storage.save(), "storage should save task and agent state")
 
   helpers.assert_truthy(storage.load(), "storage should reload saved agent state")
   assert_cmd(storage.get_task_cmd(workspace, "lint"), "echo lint", "task command should survive agent storage changes")
+  assert_cmd(storage.get_global_agent_cmd(), "echo global-agent", "global agent command should round-trip through storage")
   assert_cmd(
     storage.get_agent_cmd(workspace),
-    { "sh", "-c", "echo agent" },
-    "agent command should round-trip through storage"
+    { "sh", "-c", "echo local-agent" },
+    "local agent command should override global command after storage round-trip"
+  )
+  assert_cmd(
+    storage.get_agent_cmd(workspace .. "-other"),
+    "echo global-agent",
+    "workspace without local override should resolve the global agent command"
   )
 
   helpers.write_storage({
@@ -2534,6 +2587,18 @@ function scenarios.storage_agent_roundtrip()
   })
   helpers.assert_truthy(storage.load(), "existing task-only storage should remain valid")
   helpers.assert_eq(storage.get_agent_cmd(workspace), nil, "task-only storage should have no agent command")
+
+  helpers.write_storage({
+    version = "0.1.0",
+    agents = {
+      default = {
+        cmd = "echo global-only",
+      },
+    },
+    workspaces = vim.empty_dict(),
+  })
+  helpers.assert_truthy(storage.load(), "global-only storage should load")
+  helpers.assert_eq(storage.get_agent_cmd(workspace), "echo global-only", "global-only storage should resolve for current workspace")
 
   helpers.write_storage({
     version = "0.1.0",
