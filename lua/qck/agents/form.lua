@@ -168,9 +168,11 @@ function agent_form.submit()
   sanitize_buffer()
   local normalized_cmd = command_for_submit(parse_command())
   if not normalized_cmd then
-    notify("agent command must not be empty", vim.log.levels.ERROR)
-    focus_command()
-    return
+    if state.is_global then
+      notify("agent command must not be empty", vim.log.levels.ERROR)
+      focus_command()
+      return
+    end
   end
 
   if storage.ok ~= true then
@@ -184,8 +186,10 @@ function agent_form.submit()
   local previous_entries = storage.get_workspace_agent_entries(workspace)
   if state.is_global then
     storage.set_global_agent_cmd(normalized_cmd)
-  else
+  elseif normalized_cmd then
     storage.set_agent_cmd(workspace, normalized_cmd)
+  else
+    storage.remove_agent_cmd(workspace)
   end
 
   local ok, err = storage.save()
@@ -205,7 +209,13 @@ function agent_form.submit()
     return
   end
 
-  notify(state.is_global and "updated global agent" or "updated local agent", vim.log.levels.INFO)
+  local message = "removed local agent override"
+  if state.is_global then
+    message = "updated global agent"
+  elseif normalized_cmd then
+    message = "updated local agent"
+  end
+  notify(message, vim.log.levels.INFO)
   agent_form.close()
 end
 

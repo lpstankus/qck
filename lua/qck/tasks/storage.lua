@@ -802,6 +802,28 @@ function storage.set_agent_cmd(workspace, cmd)
 end
 
 ---@param workspace string
+---@return nil
+function storage.remove_agent_cmd(workspace)
+  if not storage.ok then
+    return
+  end
+
+  if type(workspace) ~= "string" or workspace == "" then
+    return
+  end
+
+  local ws = storage.workspaces[workspace]
+  if type(ws) ~= "table" or type(ws.agents) ~= "table" then
+    return
+  end
+
+  ws.agents[DEFAULT_AGENT_KEY] = nil
+  if (type(ws.tasks) ~= "table" or next(ws.tasks) == nil) and next(ws.agents) == nil then
+    storage.workspaces[workspace] = nil
+  end
+end
+
+---@param workspace string
 ---@param task_type string
 ---@param delta integer
 ---@return boolean, string|nil

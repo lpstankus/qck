@@ -379,6 +379,19 @@ function scenarios.agent_form_sets_workspace_agent_command()
     form_buf = vim.api.nvim_win_get_buf(form_win)
     vim.api.nvim_win_set_cursor(form_win, { 3, 0 })
     feed("<Space>")
+    vim.api.nvim_buf_set_lines(form_buf, 3, 4, false, { "Command: " })
+    agent_form.submit()
+    helpers.assert_eq(agent_form.get_winid(), nil, "empty local agent submit should close form")
+    helpers.assert_eq(storage.get_local_agent_cmd(workspace), nil, "empty local agent submit should remove local override")
+    helpers.assert_eq(storage.get_agent_cmd(workspace), "echo agent", "removed local override should fall back to global command")
+    helpers.assert_eq(storage.get_agent_cmd(workspace .. "-other"), "echo agent", "other workspaces should keep using global config")
+
+    storage.set_agent_cmd(workspace, "echo local-agent")
+    qck.set_agent()
+    form_win = agent_form.get_winid()
+    form_buf = vim.api.nvim_win_get_buf(form_win)
+    vim.api.nvim_win_set_cursor(form_win, { 3, 0 })
+    feed("<Space>")
     lines = vim.api.nvim_buf_get_lines(form_buf, 0, -1, false)
     helpers.assert_eq(lines[4], "Command | echo local-agent", "local scope should prefill the existing local override")
     vim.api.nvim_buf_set_lines(form_buf, 3, 4, false, { "Command: echo failed-agent" })
@@ -396,6 +409,28 @@ function scenarios.agent_form_sets_workspace_agent_command()
     helpers.assert_truthy(
       vim.deep_equal(storage.get_workspace_agent_entries(workspace).secondary, { cmd = "echo secondary-agent" }),
       "failed agent save should restore non-default workspace agent entries"
+    )
+    agent_form.close()
+
+    qck.set_agent()
+    form_win = agent_form.get_winid()
+    form_buf = vim.api.nvim_win_get_buf(form_win)
+    vim.api.nvim_win_set_cursor(form_win, { 3, 0 })
+    feed("<Space>")
+    vim.api.nvim_buf_set_lines(form_buf, 3, 4, false, { "Command: " })
+    storage.save = function()
+      return false, "forced failure"
+    end
+    agent_form.submit()
+    storage.save = original_save
+    helpers.assert_truthy(agent_form.get_winid() ~= nil, "failed local agent removal should keep agent form open")
+    helpers.assert_truthy(
+      vim.deep_equal(storage.get_local_agent_cmd(workspace), "echo local-agent"),
+      "failed local agent removal should restore local override"
+    )
+    helpers.assert_truthy(
+      vim.deep_equal(storage.get_workspace_agent_entries(workspace).secondary, { cmd = "echo secondary-agent" }),
+      "failed local agent removal should restore non-default workspace agent entries"
     )
     agent_form.close()
 
