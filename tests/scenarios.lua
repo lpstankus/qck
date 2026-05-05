@@ -354,15 +354,26 @@ function scenarios.agent_form_sets_workspace_agent_command()
     qck.set_agent()
     form_win = agent_form.get_winid()
     form_buf = vim.api.nvim_win_get_buf(form_win)
+    lines = vim.api.nvim_buf_get_lines(form_buf, 0, -1, false)
+    helpers.assert_eq(lines[3], "Local override [x]", "agent form should start in local scope when an override exists")
+    helpers.assert_eq(
+      lines[4],
+      "Command | sh -c echo structured-agent",
+      "agent form should prefill the local override command"
+    )
     agent_form.submit()
     helpers.assert_truthy(
       vim.deep_equal(storage.get_agent_cmd(workspace), { "sh", "-c", "echo structured-agent" }),
       "unchanged structured agent command should preserve command list form"
     )
 
+    storage.remove_agent_cmd(workspace)
     qck.set_agent()
     form_win = agent_form.get_winid()
     form_buf = vim.api.nvim_win_get_buf(form_win)
+    lines = vim.api.nvim_buf_get_lines(form_buf, 0, -1, false)
+    helpers.assert_eq(lines[3], "Local override [ ]", "agent form should start in global scope without a local override")
+    helpers.assert_eq(lines[4], "Command | echo agent", "agent form should prefill the global command without a local override")
     vim.api.nvim_win_set_cursor(form_win, { 3, 0 })
     feed("<Space>")
     lines = vim.api.nvim_buf_get_lines(form_buf, 0, -1, false)
@@ -377,8 +388,8 @@ function scenarios.agent_form_sets_workspace_agent_command()
     qck.set_agent()
     form_win = agent_form.get_winid()
     form_buf = vim.api.nvim_win_get_buf(form_win)
-    vim.api.nvim_win_set_cursor(form_win, { 3, 0 })
-    feed("<Space>")
+    lines = vim.api.nvim_buf_get_lines(form_buf, 0, -1, false)
+    helpers.assert_eq(lines[3], "Local override [x]", "agent form should start in local scope before deleting override")
     vim.api.nvim_buf_set_lines(form_buf, 3, 4, false, { "Command: " })
     agent_form.submit()
     helpers.assert_eq(agent_form.get_winid(), nil, "empty local agent submit should close form")
@@ -390,9 +401,8 @@ function scenarios.agent_form_sets_workspace_agent_command()
     qck.set_agent()
     form_win = agent_form.get_winid()
     form_buf = vim.api.nvim_win_get_buf(form_win)
-    vim.api.nvim_win_set_cursor(form_win, { 3, 0 })
-    feed("<Space>")
     lines = vim.api.nvim_buf_get_lines(form_buf, 0, -1, false)
+    helpers.assert_eq(lines[3], "Local override [x]", "agent form should start in local scope for an existing override")
     helpers.assert_eq(lines[4], "Command | echo local-agent", "local scope should prefill the existing local override")
     vim.api.nvim_buf_set_lines(form_buf, 3, 4, false, { "Command: echo failed-agent" })
     local original_save = storage.save

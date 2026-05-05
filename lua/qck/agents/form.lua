@@ -281,14 +281,15 @@ function agent_form.open()
   state.winid = vim.api.nvim_open_win(state.bufnr, true, build_window_config())
 
   set_window_options(state.bufnr)
-  local cmd = storage.get_global_agent_cmd()
+  local local_cmd = storage.get_local_agent_cmd(current_workspace())
+  local cmd = local_cmd or storage.get_global_agent_cmd()
   state.original_cmd = cmd and cmd_util.clone(cmd) or nil
-  state.is_global = true
+  state.is_global = local_cmd == nil
   vim.api.nvim_buf_set_lines(state.bufnr, 0, -1, false, {
     DESCRIPTION,
     "",
     scope_line(),
-    CMD_PREFIX .. (cmd and (type(cmd) == "table" and table.concat(cmd, " ") or cmd) or ""),
+    CMD_PREFIX .. (cmd and command_to_string(cmd) or ""),
     "",
     HELP,
   })
