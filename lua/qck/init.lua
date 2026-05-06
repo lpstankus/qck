@@ -132,7 +132,7 @@ function qck.run_task(task_number)
   task_runner.open()
 end
 
----Open the agent command form for the current workspace.
+---Open the global agent command form.
 ---
 ---Parameters:
 ---  - None.

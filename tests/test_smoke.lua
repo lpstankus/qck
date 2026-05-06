@@ -15,7 +15,7 @@ T["task form"]["edits existing workspace task"] = scenarios.task_form_edit_exist
 T["task form"]["normalizes task order after overwrite rename"] = scenarios.task_form_overwrite_rename_normalizes_task_order
 
 T["agent form"] = new_set()
-T["agent form"]["sets workspace agent command"] = scenarios.agent_form_sets_workspace_agent_command
+T["agent form"]["edits global agent command"] = scenarios.agent_form_edits_global_agent_command
 
 T["task runner"] = new_set()
 T["task runner"]["selects workspace task"] = scenarios.task_runner_selects_workspace_task
