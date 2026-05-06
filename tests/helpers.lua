@@ -287,7 +287,7 @@ function M.assert_form_scaffold(buf, expected_description)
   M.assert_eq(lines[1], expected_description or "Please provide the name and command of the new task", "task form should render description")
   M.assert_truthy(vim.startswith(lines[3], "Name    | "), "task form should render name field prefix")
   M.assert_truthy(vim.startswith(lines[4], "Command | "), "task form should render command field prefix")
-  M.assert_eq(lines[6], "<Tab>/<S-Tab> switch  <CR> save  <Esc> close", "task form should render help line")
+  M.assert_eq(lines[6], "<CR> next/save  <S-CR> prev  <Esc> close", "task form should render help line")
 end
 
 return M

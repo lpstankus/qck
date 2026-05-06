@@ -33,8 +33,8 @@ local function in_insert_mode()
   return type(mode) == "string" and mode:sub(1, 1) == "i"
 end
 
-local function wrapped_field_idx(fields, idx)
-  return ((idx - 1) % #fields) + 1
+local function capped_field_idx(fields, idx)
+  return math.max(1, math.min(#fields, idx))
 end
 
 local function parse_field_value(state, field_def)
@@ -133,7 +133,7 @@ local function focus_field(state, field_idx)
 
   local was_insert = in_insert_mode()
   sanitize_buffer(state)
-  state.selected_field = wrapped_field_idx(state.fields, field_idx)
+  state.selected_field = capped_field_idx(state.fields, field_idx)
   local selected = state.fields[state.selected_field]
   vim.api.nvim_win_set_cursor(state.winid, { selected.line, #selected.prefix })
   if was_insert then
@@ -182,14 +182,15 @@ end
 
 local function apply_keymaps(controller, state)
   local map_opts = { buffer = state.bufnr, noremap = true, silent = true }
-  vim.keymap.set({ "n", "i" }, "<Tab>", function() focus_field(state, state.selected_field + 1) end, map_opts)
-  vim.keymap.set({ "n", "i" }, "<S-Tab>", function() focus_field(state, state.selected_field - 1) end, map_opts)
   vim.keymap.set({ "n", "i" }, "<CR>", function()
     if state.selected_field == #state.fields then
       controller.submit()
       return
     end
     focus_field(state, state.selected_field + 1)
+  end, map_opts)
+  vim.keymap.set({ "n", "i" }, "<S-CR>", function()
+    focus_field(state, state.selected_field - 1)
   end, map_opts)
   vim.keymap.set("n", "<Esc>", function() controller.close() end, map_opts)
 end

@@ -9,7 +9,7 @@ local CREATE_TITLE = "QCK Create Task"
 local EDIT_TITLE = "QCK Edit Task"
 local CREATE_DESCRIPTION = "Please provide the name and command of the new task"
 local EDIT_DESCRIPTION = "Please edit the name and command of the task"
-local HELP = "<Tab>/<S-Tab> switch  <CR> save  <Esc> close"
+local HELP = "<CR> next/save  <S-CR> prev  <Esc> close"
 local NAME_PREFIX = "Name    | "
 local CMD_PREFIX = "Command | "
 
