@@ -7,6 +7,7 @@ This is a Lua Neovim plugin. Runtime source lives under `lua/qck`.
 - `lua/qck/init.lua` exposes the public `require("qck")` API.
 - `lua/qck/app/` wires plugin setup and terminal integration.
 - `lua/qck/ui/` owns tab state, layout, shared form creation, rendering, and runtime UI behavior.
+- `lua/qck/ui/form.lua` owns shared text and selection field behavior for floating forms.
 - `lua/qck/tasks/` handles task form submission behavior, persistence, and task execution.
 - `lua/qck/agents/` handles global agent command configuration and local CWD overrides.
 - `lua/qck/shared/` contains small reusable helpers for commands, keymaps, notifications, autocmds, and shared type annotations.

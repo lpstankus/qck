@@ -7,7 +7,13 @@ local MIN_SEPARATOR_WIDTH = 2048
 ---@class qck.FormField
 ---@field key string
 ---@field prefix string
+---@field type? "text"|"selection"
 ---@field value? string
+---@field options? qck.FormSelectionOption[]
+
+---@class qck.FormSelectionOption
+---@field value string
+---@field label? string
 
 ---@class qck.FormOpenOpts
 ---@field title string
@@ -16,6 +22,7 @@ local MIN_SEPARATOR_WIDTH = 2048
 ---@field filetype string
 ---@field fields qck.FormField[]
 ---@field on_submit fun(values: table<string, string>, controller: qck.FormController): boolean?
+---@field on_change? fun(key: string, value: string, controller: qck.FormController)
 ---@field on_close? fun()
 
 ---@class qck.FormController
@@ -37,7 +44,49 @@ local function capped_field_idx(fields, idx)
   return math.max(1, math.min(#fields, idx))
 end
 
+local function normalize_field_type(field_def)
+  return field_def.type == "selection" and "selection" or "text"
+end
+
+local function normalize_selection_options(options)
+  local out = {}
+  for _, option in ipairs(options or {}) do
+    if type(option) == "string" then
+      out[#out + 1] = {
+        value = option,
+        label = option,
+      }
+    elseif type(option) == "table" and type(option.value) == "string" then
+      out[#out + 1] = {
+        value = option.value,
+        label = type(option.label) == "string" and option.label or option.value,
+      }
+    end
+  end
+  return out
+end
+
+local function selection_label(field_def)
+  for _, option in ipairs(field_def.options or {}) do
+    if option.value == field_def.value then
+      return option.label or option.value
+    end
+  end
+  return field_def.value or ""
+end
+
+local function display_value(field_def, value)
+  if field_def.type == "selection" then
+    return ("<%s>"):format(selection_label(field_def))
+  end
+  return value or ""
+end
+
 local function parse_field_value(state, field_def)
+  if field_def.type == "selection" then
+    return field_def.value or ""
+  end
+
   if not is_valid_buf(state.bufnr) then
     return ""
   end
@@ -72,7 +121,7 @@ local function separator_for(state, form_values)
   local bar_col = state.fields[1].prefix:find("|", 1, true) or #state.fields[1].prefix
   local max_width = 0
   for _, field_def in ipairs(state.fields) do
-    max_width = math.max(max_width, #field_def.prefix + #(form_values[field_def.key] or ""))
+    max_width = math.max(max_width, #field_def.prefix + #display_value(field_def, form_values[field_def.key]))
   end
 
   local separator = string.rep("-", math.max(MIN_SEPARATOR_WIDTH, max_width + 64))
@@ -116,7 +165,7 @@ local function sanitize_buffer(state)
     separator_for(state, form_values),
   }
   for _, field_def in ipairs(state.fields) do
-    lines[#lines + 1] = field_def.prefix .. (form_values[field_def.key] or "")
+    lines[#lines + 1] = field_def.prefix .. display_value(field_def, form_values[field_def.key])
   end
   lines[#lines + 1] = lines[2]
   lines[#lines + 1] = state.help
@@ -182,6 +231,13 @@ end
 
 local function apply_keymaps(controller, state)
   local map_opts = { buffer = state.bufnr, noremap = true, silent = true }
+  local has_selection = false
+  for _, field_def in ipairs(state.fields) do
+    if field_def.type == "selection" then
+      has_selection = true
+      break
+    end
+  end
   vim.keymap.set({ "n", "i" }, "<CR>", function()
     if state.selected_field == #state.fields then
       controller.submit()
@@ -192,6 +248,14 @@ local function apply_keymaps(controller, state)
   vim.keymap.set({ "n", "i" }, "<S-CR>", function()
     focus_field(state, state.selected_field - 1)
   end, map_opts)
+  if has_selection then
+    vim.keymap.set({ "n", "i" }, "<Tab>", function()
+      controller.cycle_selection(1)
+    end, map_opts)
+    vim.keymap.set({ "n", "i" }, "<S-Tab>", function()
+      controller.cycle_selection(-1)
+    end, map_opts)
+  end
   vim.keymap.set("n", "<Esc>", function() controller.close() end, map_opts)
 end
 
@@ -209,6 +273,7 @@ function form.create()
     filetype = "",
     fields = {},
     on_submit = nil,
+    on_change = nil,
     on_close = nil,
   }
   local controller = {}
@@ -231,6 +296,7 @@ function form.create()
     state.filetype = ""
     state.fields = {}
     state.on_submit = nil
+    state.on_change = nil
     state.on_close = nil
   end
 
@@ -249,6 +315,51 @@ function form.create()
     sanitize_buffer(state)
     if type(state.on_submit) == "function" and state.on_submit(values(state), controller) == true then
       controller.close()
+    end
+  end
+
+  ---@param key string
+  ---@param value string
+  function controller.set_field_value(key, value)
+    for _, field_def in ipairs(state.fields) do
+      if field_def.key == key then
+        field_def.value = value or ""
+        if is_valid_buf(state.bufnr) then
+          vim.api.nvim_buf_set_lines(
+            state.bufnr,
+            field_def.line - 1,
+            field_def.line,
+            false,
+            { field_def.prefix .. display_value(field_def, field_def.value) }
+          )
+          sanitize_buffer(state)
+        end
+        return
+      end
+    end
+  end
+
+  ---@param delta integer
+  function controller.cycle_selection(delta)
+    local field_def = state.fields[state.selected_field]
+    if type(field_def) ~= "table" or field_def.type ~= "selection" or #(field_def.options or {}) == 0 then
+      return
+    end
+
+    local option_count = #field_def.options
+    local selected_option = 1
+    for idx, option in ipairs(field_def.options) do
+      if option.value == field_def.value then
+        selected_option = idx
+        break
+      end
+    end
+
+    selected_option = ((selected_option - 1 + delta) % option_count) + 1
+    field_def.value = field_def.options[selected_option].value
+    sanitize_buffer(state)
+    if type(state.on_change) == "function" then
+      state.on_change(field_def.key, field_def.value, controller)
     end
   end
 
@@ -300,13 +411,17 @@ function form.create()
     state.help = opts.help
     state.filetype = opts.filetype
     state.on_submit = opts.on_submit
+    state.on_change = opts.on_change
     state.on_close = opts.on_close
     state.fields = {}
     for idx, field_def in ipairs(opts.fields) do
+      local field_type = normalize_field_type(field_def)
       state.fields[idx] = {
         key = field_def.key,
         prefix = field_def.prefix,
+        type = field_type,
         value = field_def.value or "",
+        options = field_type == "selection" and normalize_selection_options(field_def.options) or nil,
         line = idx + 2,
       }
     end
@@ -321,7 +436,7 @@ function form.create()
       "",
     }
     for _, field_def in ipairs(state.fields) do
-      lines[#lines + 1] = field_def.prefix .. field_def.value
+      lines[#lines + 1] = field_def.prefix .. display_value(field_def, field_def.value)
     end
     lines[#lines + 1] = ""
     lines[#lines + 1] = state.help
