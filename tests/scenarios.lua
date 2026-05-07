@@ -38,6 +38,17 @@ local function task_tabs(ui_state)
   return tabs
 end
 
+local function agent_tabs(ui_state)
+  local tabs = {}
+  for _, tab_id in ipairs(ui_state.traversal_ids()) do
+    local tab = ui_state.get_tab(tab_id)
+    if tab and tab.category_key == "agent" then
+      tabs[#tabs + 1] = tab
+    end
+  end
+  return tabs
+end
+
 ---@param handle table|nil
 ---@return boolean
 local function handle_is_open(handle)
@@ -1209,6 +1220,82 @@ function scenarios.agent_terminal_runs_and_reuses_workspace_agent()
   if not ok then
     error(err)
   end
+end
+
+function scenarios.agent_terminal_forces_new_and_reuses_current_agent()
+  local env = helpers.load_qck()
+  local qck, storage, ui, ui_state, workspace =
+    env.qck, env.storage, env.ui, env.ui_state, env.workspace
+
+  storage.set_agent_cmd(workspace, "echo agent")
+
+  qck.run_agent()
+  local first_agent_tab_id = ui_state.resolve_active_tab()
+  local first_agent_tab = first_agent_tab_id and ui_state.get_tab(first_agent_tab_id) or nil
+  local first_agent_handle = first_agent_tab and first_agent_tab.terminal or nil
+  helpers.assert_truthy(first_agent_tab_id ~= nil, "initial run_agent() should create A1")
+  helpers.assert_eq(first_agent_tab and first_agent_tab.category_display_id, 1, "initial run_agent() should label the agent A1")
+
+  qck.run_agent(true)
+  local second_agent_tab_id = ui_state.resolve_active_tab()
+  local second_agent_tab = second_agent_tab_id and ui_state.get_tab(second_agent_tab_id) or nil
+  local second_agent_handle = second_agent_tab and second_agent_tab.terminal or nil
+  helpers.assert_truthy(second_agent_tab_id ~= nil and second_agent_tab_id ~= first_agent_tab_id, "run_agent(true) should create A2")
+  helpers.assert_eq(second_agent_tab and second_agent_tab.category_display_id, 2, "forced run_agent() should use the next A label")
+  helpers.assert_eq(#agent_tabs(ui_state), 2, "forced run_agent() should keep both agent tabs registered")
+
+  qck.run_agent()
+  helpers.assert_eq(ui_state.resolve_active_tab(), second_agent_tab_id, "run_agent() should reuse the current forced agent")
+  helpers.assert_eq(#agent_tabs(ui_state), 2, "run_agent() should not create another A tab after a forced spawn")
+  helpers.assert_truthy(handle_is_open(second_agent_handle), "reused current agent should stay visible")
+
+  qck.run_agent(true)
+  local third_agent_tab_id = ui_state.resolve_active_tab()
+  helpers.assert_truthy(third_agent_tab_id ~= nil and third_agent_tab_id ~= second_agent_tab_id, "second forced run_agent() should create A3")
+  helpers.assert_eq(#agent_tabs(ui_state), 3, "second forced run_agent() should keep three agent tabs registered")
+  helpers.assert_truthy(select(1, ui.set_active_tab(second_agent_tab_id)), "selecting A2 should make it the current agent before deletion")
+  qck.toggle()
+  helpers.assert_truthy(select(1, ui.delete_tab(second_agent_tab_id)), "deleting hidden A2 should adopt the next live agent tab")
+  helpers.assert_eq(ui_state.resolve_active_tab(), third_agent_tab_id, "deleting hidden A2 should make A3 active")
+  qck.run_agent()
+  helpers.assert_eq(ui_state.resolve_active_tab(), third_agent_tab_id, "run_agent() should reuse the adopted current agent")
+  helpers.assert_eq(#agent_tabs(ui_state), 2, "run_agent() should not recreate A2 after deletion")
+
+  qck.run_agent(true)
+  local fourth_agent_tab_id = ui_state.resolve_active_tab()
+  helpers.assert_truthy(fourth_agent_tab_id ~= nil and fourth_agent_tab_id ~= third_agent_tab_id, "third forced run_agent() should create another agent")
+  helpers.assert_truthy(select(1, ui.set_active_tab(third_agent_tab_id)), "selecting A3 should make it the current agent before hidden deletion")
+  qck.new()
+  local active_regular_tab_id = ui_state.resolve_active_tab()
+  helpers.assert_truthy(active_regular_tab_id ~= nil, "test setup should create a regular tab while A3 remains the current agent")
+  helpers.assert_eq(ui_state.get_tab(active_regular_tab_id).category_key, "terminal", "test setup should make a terminal globally active")
+  helpers.assert_truthy(select(1, ui.delete_tab(third_agent_tab_id)), "deleting hidden current A3 should adopt another current agent")
+  qck.run_agent()
+  helpers.assert_eq(ui_state.resolve_active_tab(), fourth_agent_tab_id, "run_agent() should reuse adopted A4 after deleting hidden A3")
+  helpers.assert_eq(#agent_tabs(ui_state), 2, "run_agent() should keep the agent count stable after hidden current deletion")
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  qck.run_task(1)
+  local task_tab_id = ui_state.resolve_active_tab()
+  helpers.assert_truthy(task_tab_id ~= nil, "test setup should create a task tab before agent deletion")
+  helpers.assert_eq(ui_state.get_tab(task_tab_id).category_key, "task", "test setup should make a task globally active")
+  helpers.assert_truthy(select(1, ui.set_active_tab(fourth_agent_tab_id)), "selecting A4 should make it the current agent before mixed deletion")
+  helpers.assert_truthy(select(1, ui.set_active_tab(task_tab_id)), "reselecting the task should make another category globally active")
+  helpers.assert_truthy(select(1, ui.delete_tab(fourth_agent_tab_id)), "deleting hidden current A4 should adopt A1 despite earlier category tabs")
+  qck.run_agent()
+  helpers.assert_eq(ui_state.resolve_active_tab(), first_agent_tab_id, "run_agent() should reuse adopted A1 after deleting A4 with earlier task tabs")
+  helpers.assert_eq(#agent_tabs(ui_state), 1, "run_agent() should keep one live agent after mixed-category current deletion")
+
+  helpers.assert_truthy(select(1, ui.set_active_tab(first_agent_tab_id)), "selecting A1 should make it the current agent")
+  qck.new()
+  local regular_tab_id = ui_state.resolve_active_tab()
+  helpers.assert_truthy(regular_tab_id ~= nil, "test setup should create a regular terminal")
+  helpers.assert_eq(ui_state.get_tab(regular_tab_id).category_key, "terminal", "test setup should select a non-agent tab")
+
+  qck.run_agent()
+  helpers.assert_eq(ui_state.resolve_active_tab(), first_agent_tab_id, "run_agent() should reuse the selected current agent")
+  helpers.assert_eq(#agent_tabs(ui_state), 1, "run_agent() should keep the existing agent count after selecting A1")
+  helpers.assert_truthy(handle_is_open(first_agent_handle), "selected current agent should reopen")
 end
 
 function scenarios.agent_terminal_noop_completion_closes_windows()
@@ -2770,6 +2857,7 @@ function scenarios.ordered()
     { name = "terminals | updates R labels after task reorder", run = scenarios.task_runner_updates_r_labels_after_reorder },
     { name = "terminals | prevents manual R label reordering", run = scenarios.task_runner_prevents_manual_r_label_reordering },
     { name = "terminals | runs and reuses workspace agent terminal", run = scenarios.agent_terminal_runs_and_reuses_workspace_agent },
+    { name = "terminals | forces new agent terminal and reuses current agent", run = scenarios.agent_terminal_forces_new_and_reuses_current_agent },
     { name = "terminals | closes noop agent terminal and tabbar on completion", run = scenarios.agent_terminal_noop_completion_closes_windows },
     { name = "terminals | orders mixed agent tabs between task and regular terminals", run = scenarios.agent_terminal_orders_between_task_and_regular },
     { name = "terminals | reuses live task terminal after rename", run = scenarios.task_runner_reuses_live_task_terminal_after_rename },

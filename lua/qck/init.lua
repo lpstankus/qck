@@ -149,14 +149,17 @@ end
 ---Run the configured workspace agent command in an agent terminal.
 ---
 ---Parameters:
----  - None.
+---  - `force_new`: Optional boolean. When true, spawn a new agent terminal
+---    instead of reusing the current one.
 ---
 ---Example:
 ---```lua
 ---require("qck").run_agent()
+---require("qck").run_agent(true)
 ---```
+---@param force_new? boolean
 ---@return nil
-function qck.run_agent()
+function qck.run_agent(force_new)
   if storage.ok ~= true then
     notify(("workspace storage is unavailable: %s"):format(storage.last_error or "not loaded"), vim.log.levels.ERROR)
     return
@@ -172,6 +175,7 @@ function qck.run_agent()
   app_terminal.create_agent_and_attach({
     workspace = workspace,
     cmd = cmd,
+    force_new = force_new == true,
   })
 end
 

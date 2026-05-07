@@ -147,6 +147,24 @@ local function find_agent_tab_by_key(key)
   return nil
 end
 
+---@param key string
+---@return qck.UiTabRecord|nil
+local function find_current_agent_tab_by_key(key)
+  local tab_id = ui_state.get_active_category_tab_id(UI_AGENT_CATEGORY_KEY)
+  local tab = tab_id and ui_state.get_tab(tab_id) or nil
+  local handle = tab and tab.terminal or nil
+  if tab
+    and tab.category_key == UI_AGENT_CATEGORY_KEY
+    and type(handle) == "table"
+    and handle.qck_agent_key == key
+    and is_valid_handle(handle)
+  then
+    return tab
+  end
+
+  return nil
+end
+
 ---@param tab qck.UiTabRecord|nil
 ---@param workspace string
 ---@param name string
@@ -309,9 +327,16 @@ function terminal.create_agent_and_attach(agent)
   end
 
   local key = agent_identity_key(agent.workspace)
-  local existing = find_agent_tab_by_key(key)
-  if existing then
-    return show_existing_agent_tab(existing)
+  if agent.force_new ~= true then
+    local current = find_current_agent_tab_by_key(key)
+    if current then
+      return show_existing_agent_tab(current)
+    end
+
+    local existing = find_agent_tab_by_key(key)
+    if existing then
+      return show_existing_agent_tab(existing)
+    end
   end
 
   local tab = create_and_attach_command(agent.cmd, UI_AGENT_CATEGORY.key, true, false, true, nil, {
