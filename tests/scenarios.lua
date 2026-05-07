@@ -866,7 +866,7 @@ function scenarios.task_terminal_finish_preserves_mixed_tabbar()
   helpers.assert_truthy(not handle_is_open(base_handle), "base terminal should be hidden while task terminal is active")
   local tabbar_win = tabbar.get_winid()
   local divider = tabbar_divider_label(tabbar_win)
-  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "R1", divider, "T1" }), "tabbar should render a divider between task and regular terminals")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "T1", divider, "R1" }), "tabbar should render a divider between regular and task terminals")
 
   mock_snacks.finish_handle(task_handle)
   vim.wait(20, function() return false end)
@@ -876,17 +876,17 @@ function scenarios.task_terminal_finish_preserves_mixed_tabbar()
   helpers.assert_eq(ui_state.resolve_active_tab(), task_tab_id, "finished active task should stay active")
   tabbar_win = tabbar.get_winid()
   divider = tabbar_divider_label(tabbar_win)
-  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "R1", divider, "T1" }), "tabbar should keep divider between task and regular terminals after task finish")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "T1", divider, "R1" }), "tabbar should keep divider between regular and task terminals after task finish")
 end
 
-function scenarios.task_terminals_are_pinned_before_regular_terminals()
+function scenarios.regular_terminals_are_ordered_before_task_terminals()
   local env = helpers.load_qck()
   local qck, storage, ui_state, tabbar, workspace =
     env.qck, env.storage, env.ui_state, env.tabbar, env.workspace
 
   helpers.assert_truthy(
-    vim.deep_equal(ui_state.category_keys(), { "task", "agent", "terminal" }),
-    "plugin setup should register task, agent, and regular terminal categories in traversal order"
+    vim.deep_equal(ui_state.category_keys(), { "agent", "terminal", "task" }),
+    "plugin setup should register agent, regular terminal, and task categories in traversal order"
   )
 
   qck.open()
@@ -899,13 +899,13 @@ function scenarios.task_terminals_are_pinned_before_regular_terminals()
   local task_tab_id = ui_state.resolve_active_tab()
   helpers.assert_truthy(task_tab_id ~= nil and task_tab_id ~= terminal_tab_id, "task runner should create a separate task tab")
   helpers.assert_truthy(
-    vim.deep_equal(ui_state.traversal_ids(), { task_tab_id, terminal_tab_id }),
-    "ui traversal should pin task terminals before regular terminals"
+    vim.deep_equal(ui_state.traversal_ids(), { terminal_tab_id, task_tab_id }),
+    "ui traversal should order regular terminals before task terminals"
   )
   local tabbar_win = tabbar.get_winid()
   helpers.assert_truthy(
-    vim.deep_equal(tabbar_labels(tabbar_win), { "R1", tabbar_divider_label(tabbar_win), "T1" }),
-    "tabbar should render a divider between pinned task and regular terminals"
+    vim.deep_equal(tabbar_labels(tabbar_win), { "T1", tabbar_divider_label(tabbar_win), "R1" }),
+    "tabbar should render a divider between regular and task terminals"
   )
 end
 
@@ -923,18 +923,18 @@ function scenarios.tabbar_skips_kind_divider()
   local tabbar_win = tabbar.get_winid()
 
   helpers.assert_truthy(type(tabbar_win) == "number", "mixed tabbar scenario should show tabbar")
-  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "R1", tabbar_divider_label(tabbar_win), "T1" }), "tabbar should render a divider row")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "T1", tabbar_divider_label(tabbar_win), "R1" }), "tabbar should render a divider row")
 
   qck.switch_focus()
   helpers.assert_eq(vim.api.nvim_get_current_win(), tabbar_win, "switch_focus() should focus tabbar for divider navigation")
-  helpers.assert_eq(vim.api.nvim_win_get_cursor(tabbar_win)[1], 1, "tabbar cursor should start on active R row")
+  helpers.assert_eq(vim.api.nvim_win_get_cursor(tabbar_win)[1], 3, "tabbar cursor should start on active R row")
 
   feed("j")
-  helpers.assert_eq(vim.api.nvim_win_get_cursor(tabbar_win)[1], 3, "j should skip divider and land on T row")
+  helpers.assert_eq(vim.api.nvim_win_get_cursor(tabbar_win)[1], 1, "j should skip divider and land on T row")
   feed("k")
-  helpers.assert_eq(vim.api.nvim_win_get_cursor(tabbar_win)[1], 1, "k should skip divider and land on R row")
+  helpers.assert_eq(vim.api.nvim_win_get_cursor(tabbar_win)[1], 3, "k should skip divider and land on R row")
   feed("k")
-  helpers.assert_eq(vim.api.nvim_win_get_cursor(tabbar_win)[1], 3, "wrapped k should skip divider")
+  helpers.assert_eq(vim.api.nvim_win_get_cursor(tabbar_win)[1], 1, "wrapped k should skip divider")
 
   vim.api.nvim_win_set_cursor(tabbar_win, { 2, 0 })
   local active_before = ui_state.resolve_active_tab()
@@ -1023,7 +1023,7 @@ function scenarios.task_runner_reopens_hidden_matching_task_terminal()
   helpers.assert_truthy(handle_is_open(task_handle), "reused hidden task should be shown again")
   helpers.assert_truthy(not handle_is_open(terminal_handle), "regular terminal should be hidden after task reuse")
   local tabbar_win = tabbar.get_winid()
-  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "R1", tabbar_divider_label(tabbar_win), "T1" }), "tabbar should keep divider between pinned task and terminal rows")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "T1", tabbar_divider_label(tabbar_win), "R1" }), "tabbar should keep divider between regular and task terminal rows")
 end
 
 function scenarios.task_runner_spawns_distinct_task_terminals_for_distinct_commands()
@@ -1484,7 +1484,7 @@ function scenarios.agent_terminal_noop_completion_closes_windows()
   )
 end
 
-function scenarios.agent_terminal_orders_between_task_and_regular()
+function scenarios.agent_terminal_orders_before_regular_and_task_tabs()
   local env = helpers.load_qck()
   local qck, storage, ui, ui_state, tabbar, workspace =
     env.qck, env.storage, env.ui, env.ui_state, env.tabbar, env.workspace
@@ -1502,19 +1502,19 @@ function scenarios.agent_terminal_orders_between_task_and_regular()
   local task_tab_id = ui_state.resolve_active_tab()
 
   helpers.assert_truthy(
-    vim.deep_equal(ui_state.category_keys(), { "task", "agent", "terminal" }),
-    "plugin setup should register categories in R, A, T order"
+    vim.deep_equal(ui_state.category_keys(), { "agent", "terminal", "task" }),
+    "plugin setup should register categories in A, T, R order"
   )
   helpers.assert_truthy(
-    vim.deep_equal(ui_state.traversal_ids(), { task_tab_id, agent_tab_id, terminal_tab_id }),
-    "ui traversal should order R before A before T"
+    vim.deep_equal(ui_state.traversal_ids(), { agent_tab_id, terminal_tab_id, task_tab_id }),
+    "ui traversal should order A before T before R"
   )
 
   local tabbar_win = tabbar.get_winid()
   local divider = tabbar_divider_label(tabbar_win)
   helpers.assert_truthy(
-    vim.deep_equal(tabbar_labels(tabbar_win), { "R1", divider, "A1", divider, "T1" }),
-    "tabbar should render R, A, T groups with dividers"
+    vim.deep_equal(tabbar_labels(tabbar_win), { "A1", divider, "T1", divider, "R1" }),
+    "tabbar should render A, T, R groups with dividers"
   )
 
   local moved = select(1, ui.move_tab(agent_tab_id, -1))
@@ -2989,7 +2989,7 @@ function scenarios.ordered()
     { name = "terminals | preserves lifecycle watcher behavior and focus routing", run = scenarios.terminal_lifecycle_watchers_and_focus },
     { name = "terminals | keeps finished task terminal open", run = scenarios.task_terminal_finish_keeps_task_tab_open },
     { name = "terminals | preserves mixed terminal tabbar after task finish", run = scenarios.task_terminal_finish_preserves_mixed_tabbar },
-    { name = "terminals | pins task terminals before regular terminals", run = scenarios.task_terminals_are_pinned_before_regular_terminals },
+    { name = "terminals | orders regular terminals before task terminals", run = scenarios.regular_terminals_are_ordered_before_task_terminals },
     { name = "terminals | skips tabbar kind divider", run = scenarios.tabbar_skips_kind_divider },
     { name = "terminals | reuses existing task terminal", run = scenarios.task_runner_reuses_existing_task_terminal },
     { name = "terminals | reopens hidden matching task terminal", run = scenarios.task_runner_reopens_hidden_matching_task_terminal },
@@ -3001,7 +3001,7 @@ function scenarios.ordered()
     { name = "terminals | requests agent rerender when opened", run = scenarios.agent_terminal_requests_rerender_when_opened },
     { name = "terminals | forces new agent terminal and reuses current agent", run = scenarios.agent_terminal_forces_new_and_reuses_current_agent },
     { name = "terminals | closes noop agent terminal and tabbar on completion", run = scenarios.agent_terminal_noop_completion_closes_windows },
-    { name = "terminals | orders mixed agent tabs between task and regular terminals", run = scenarios.agent_terminal_orders_between_task_and_regular },
+    { name = "terminals | orders agent tabs before regular and task terminals", run = scenarios.agent_terminal_orders_before_regular_and_task_tabs },
     { name = "terminals | reuses live task terminal after rename", run = scenarios.task_runner_reuses_live_task_terminal_after_rename },
     { name = "terminals | keeps renamed live tab after rename collision", run = scenarios.task_runner_rename_collision_keeps_renamed_live_tab },
     { name = "terminals | prunes invalid terminals and adopts live fallbacks", run = scenarios.terminal_invalidation_and_active_fallbacks },

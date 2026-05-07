@@ -809,9 +809,9 @@ end
 
 ---@return nil
 function ui.setup()
-  state.register_category(UI_TASK_CATEGORY)
   state.register_category(UI_AGENT_CATEGORY)
   state.register_category(UI_TERMINAL_CATEGORY)
+  state.register_category(UI_TASK_CATEGORY)
 
   if initialized then
     return
