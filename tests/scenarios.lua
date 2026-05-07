@@ -1222,6 +1222,147 @@ function scenarios.agent_terminal_runs_and_reuses_workspace_agent()
   end
 end
 
+function scenarios.agent_terminal_requests_rerender_when_opened()
+  local env = helpers.load_qck()
+  local qck, storage, ui_state, workspace =
+    env.qck, env.storage, env.ui_state, env.workspace
+  local scheduled = {}
+  local redraws = {}
+  local resizes = {}
+  local forced_redraw_wins = {}
+  local original_schedule = vim.schedule
+  local original_chansend = vim.fn.chansend
+  local original_jobresize = vim.fn.jobresize
+  local original_redraw = vim.api.nvim__redraw
+  local original_win_call = vim.api.nvim_win_call
+
+  vim.schedule = function(cb)
+    scheduled[#scheduled + 1] = cb
+  end
+  vim.fn.chansend = function(chan, data)
+    error(("agent rerender should not write to terminal channel %s with %q"):format(tostring(chan), tostring(data)))
+  end
+  vim.fn.jobresize = function(chan, width, height)
+    resizes[#resizes + 1] = { chan = chan, width = width, height = height }
+    return 1
+  end
+  vim.api.nvim__redraw = function(opts)
+    redraws[#redraws + 1] = opts
+  end
+  vim.api.nvim_win_call = function(winid, cb)
+    forced_redraw_wins[#forced_redraw_wins + 1] = winid
+    return cb()
+  end
+
+  local function flush_scheduled()
+    local callbacks = scheduled
+    scheduled = {}
+    for _, cb in ipairs(callbacks) do
+      cb()
+    end
+  end
+
+  local ok, err = pcall(function()
+    storage.set_agent_cmd(workspace, "echo agent")
+    helpers.assert_truthy(
+      not helpers.read_storage_text():find("echo agent", 1, true),
+      "agent rerender test setup should not persist test command"
+    )
+
+    qck.run_agent()
+    local agent_tab_id = ui_state.resolve_active_tab()
+    local agent_tab = agent_tab_id and ui_state.get_tab(agent_tab_id) or nil
+    local agent_handle = agent_tab and agent_tab.terminal or nil
+    helpers.assert_truthy(agent_handle and type(agent_handle.buf) == "number", "run_agent() should create an agent buffer")
+    vim.b[agent_handle.buf].terminal_job_id = 41
+    flush_scheduled()
+
+    helpers.assert_eq(#resizes, 1, "opening a new agent terminal should resize the terminal pty")
+    helpers.assert_eq(resizes[1].chan, 41, "agent resize should target the terminal job channel")
+    helpers.assert_eq(resizes[1].width, vim.api.nvim_win_get_width(agent_handle.win), "agent resize should use visible terminal width")
+    helpers.assert_eq(resizes[1].height, vim.api.nvim_win_get_height(agent_handle.win), "agent resize should use visible terminal height")
+    helpers.assert_eq(#redraws, 1, "opening a new agent terminal should request one redraw")
+    helpers.assert_eq(redraws[1].buf, agent_handle.buf, "agent redraw should target the terminal buffer")
+    helpers.assert_eq(redraws[1].win, agent_handle.win, "agent redraw should target the terminal window")
+    helpers.assert_eq(redraws[1].valid, false, "agent redraw should force invalidation")
+    helpers.assert_eq(redraws[1].flush, true, "agent redraw should flush pending screen updates")
+    helpers.assert_eq(forced_redraw_wins[1], agent_handle.win, "agent rerender should run redraw! in the terminal window")
+
+    qck.new()
+    qck.run_agent()
+    flush_scheduled()
+
+    helpers.assert_eq(#resizes, 2, "reopening a live agent terminal should resize the terminal pty again")
+    helpers.assert_eq(resizes[2].chan, 41, "reopened agent resize should target the existing terminal job")
+    helpers.assert_eq(resizes[2].width, vim.api.nvim_win_get_width(agent_handle.win), "reopened agent resize should use visible terminal width")
+    helpers.assert_eq(resizes[2].height, vim.api.nvim_win_get_height(agent_handle.win), "reopened agent resize should use visible terminal height")
+    helpers.assert_eq(#redraws, 2, "reopening a live agent terminal should request another redraw")
+    helpers.assert_eq(redraws[2].buf, agent_handle.buf, "reopened agent redraw should target the existing terminal buffer")
+    helpers.assert_eq(redraws[2].win, agent_handle.win, "reopened agent redraw should target the existing terminal window")
+    helpers.assert_eq(forced_redraw_wins[2], agent_handle.win, "reopened agent rerender should run redraw! in the terminal window")
+
+    qck.toggle()
+    qck.toggle()
+    flush_scheduled()
+
+    helpers.assert_eq(#resizes, 3, "toggling an agent terminal visible should resize the terminal pty again")
+    helpers.assert_eq(resizes[3].chan, 41, "toggled agent resize should target the existing terminal job")
+    helpers.assert_eq(resizes[3].width, vim.api.nvim_win_get_width(agent_handle.win), "toggled agent resize should use visible terminal width")
+    helpers.assert_eq(resizes[3].height, vim.api.nvim_win_get_height(agent_handle.win), "toggled agent resize should use visible terminal height")
+    helpers.assert_eq(#redraws, 3, "toggling an agent terminal visible should request another redraw")
+    helpers.assert_eq(redraws[3].buf, agent_handle.buf, "toggled agent redraw should target the existing terminal buffer")
+    helpers.assert_eq(redraws[3].win, agent_handle.win, "toggled agent redraw should target the visible terminal window")
+    helpers.assert_eq(forced_redraw_wins[3], agent_handle.win, "toggled agent rerender should run redraw! in the terminal window")
+
+    qck.new()
+    flush_scheduled()
+    helpers.assert_eq(#resizes, 3, "opening a regular terminal should not resize an agent pty")
+    helpers.assert_eq(#redraws, 3, "opening a regular terminal should not request an agent redraw")
+
+    storage.set_task_cmd(workspace, "lint", "echo lint")
+    qck.run_task(1)
+    flush_scheduled()
+    helpers.assert_eq(#resizes, 3, "opening a task terminal should not resize an agent pty")
+    helpers.assert_eq(#redraws, 3, "opening a task terminal should not request an agent redraw")
+
+    qck.run_agent(true)
+    local forced_agent_tab_id = ui_state.resolve_active_tab()
+    local forced_agent_tab = forced_agent_tab_id and ui_state.get_tab(forced_agent_tab_id) or nil
+    local forced_agent_handle = forced_agent_tab and forced_agent_tab.terminal or nil
+    helpers.assert_truthy(
+      forced_agent_handle and type(forced_agent_handle.buf) == "number",
+      "forced run_agent() should create another agent buffer"
+    )
+    vim.b[forced_agent_handle.buf].terminal_job_id = 42
+    flush_scheduled()
+
+    helpers.assert_eq(#resizes, 4, "opening a forced agent terminal should resize its own pty")
+    helpers.assert_eq(resizes[4].chan, 42, "forced agent resize should target the forced agent terminal job")
+    helpers.assert_eq(resizes[4].width, vim.api.nvim_win_get_width(forced_agent_handle.win), "forced agent resize should use visible terminal width")
+    helpers.assert_eq(resizes[4].height, vim.api.nvim_win_get_height(forced_agent_handle.win), "forced agent resize should use visible terminal height")
+    helpers.assert_eq(redraws[4].buf, forced_agent_handle.buf, "forced agent redraw should target the forced agent buffer")
+    helpers.assert_eq(redraws[4].win, forced_agent_handle.win, "forced agent redraw should target the forced agent window")
+
+    helpers.assert_truthy(select(1, env.ui.set_active_tab(agent_tab_id)), "selecting the first agent tab should succeed")
+    flush_scheduled()
+    helpers.assert_eq(#resizes, 5, "switching back to an older agent tab should resize that pty")
+    helpers.assert_eq(resizes[5].chan, 41, "older agent resize should target the original terminal job")
+    helpers.assert_eq(resizes[5].width, vim.api.nvim_win_get_width(agent_handle.win), "older agent resize should use visible terminal width")
+    helpers.assert_eq(resizes[5].height, vim.api.nvim_win_get_height(agent_handle.win), "older agent resize should use visible terminal height")
+    helpers.assert_eq(redraws[5].buf, agent_handle.buf, "older agent redraw should target the original agent buffer")
+    helpers.assert_eq(redraws[5].win, agent_handle.win, "older agent redraw should target the original agent window")
+  end)
+
+  vim.schedule = original_schedule
+  vim.fn.chansend = original_chansend
+  vim.fn.jobresize = original_jobresize
+  vim.api.nvim__redraw = original_redraw
+  vim.api.nvim_win_call = original_win_call
+  if not ok then
+    error(err)
+  end
+end
+
 function scenarios.agent_terminal_forces_new_and_reuses_current_agent()
   local env = helpers.load_qck()
   local qck, storage, ui, ui_state, workspace =
@@ -2857,6 +2998,7 @@ function scenarios.ordered()
     { name = "terminals | updates R labels after task reorder", run = scenarios.task_runner_updates_r_labels_after_reorder },
     { name = "terminals | prevents manual R label reordering", run = scenarios.task_runner_prevents_manual_r_label_reordering },
     { name = "terminals | runs and reuses workspace agent terminal", run = scenarios.agent_terminal_runs_and_reuses_workspace_agent },
+    { name = "terminals | requests agent rerender when opened", run = scenarios.agent_terminal_requests_rerender_when_opened },
     { name = "terminals | forces new agent terminal and reuses current agent", run = scenarios.agent_terminal_forces_new_and_reuses_current_agent },
     { name = "terminals | closes noop agent terminal and tabbar on completion", run = scenarios.agent_terminal_noop_completion_closes_windows },
     { name = "terminals | orders mixed agent tabs between task and regular terminals", run = scenarios.agent_terminal_orders_between_task_and_regular },

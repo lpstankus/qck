@@ -4,6 +4,7 @@ local state = require("qck.ui.state")
 local tabbar = require("qck.ui.tabbar")
 local autocmd = require("qck.shared.autocmd")
 local keymaps = require("qck.shared.keymaps")
+local rerender = require("qck.app.terminal.rerender")
 local notify = require("qck.shared.notify").notify
 
 local ui = {}
@@ -733,6 +734,9 @@ show_tab = function(tab_id)
   apply_terminal_mappings(tab.terminal)
   tabbar.show_for_terminal(tab.terminal)
   ensure_visible_watchers(tab_id, tab.terminal)
+  if tab.category_key == UI_AGENT_CATEGORY.key then
+    rerender.request_agent(tab.terminal)
+  end
   return true
 end
 
