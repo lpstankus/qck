@@ -4,6 +4,12 @@ local STORAGE_VERSION = "0.1.0"
 local DEFAULT_COLUMNS = vim.o.columns
 local DEFAULT_LINES = vim.o.lines
 local TEST_DATA_MARKER = "/tests/.tmp/"
+local XDG_ENV_KEYS = {
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_STATE_HOME",
+  "XDG_CACHE_HOME",
+}
 
 local function clear_qck_modules()
   local names = {}
@@ -36,11 +42,40 @@ function M.assert_truthy(value, msg)
   end
 end
 
+function M.is_isolated_xdg()
+  for _, key in ipairs(XDG_ENV_KEYS) do
+    local value = vim.env[key]
+    if type(value) ~= "string" or value:find(TEST_DATA_MARKER, 1, true) == nil then
+      return false
+    end
+  end
+  return true
+end
+
+function M.assert_isolated_xdg()
+  for _, key in ipairs(XDG_ENV_KEYS) do
+    local value = vim.env[key]
+    M.assert_truthy(
+      type(value) == "string" and value:find(TEST_DATA_MARKER, 1, true) ~= nil,
+      "test " .. key .. " must use isolated tests/.tmp directory"
+    )
+  end
+end
+
 function M.write_storage(data)
+  M.assert_isolated_xdg()
   local path = vim.fn.stdpath("data") .. "/qck.json"
   M.assert_truthy(path:find(TEST_DATA_MARKER, 1, true) ~= nil, "test storage must use isolated XDG_DATA_HOME")
   vim.fn.mkdir(vim.fn.fnamemodify(path, ":h"), "p")
   vim.fn.writefile({ vim.json.encode(data) }, path)
+end
+
+function M.read_storage_text()
+  M.assert_isolated_xdg()
+  local path = vim.fn.stdpath("data") .. "/qck.json"
+  M.assert_truthy(path:find(TEST_DATA_MARKER, 1, true) ~= nil, "test storage must use isolated XDG_DATA_HOME")
+  local lines = vim.fn.filereadable(path) == 1 and vim.fn.readfile(path) or {}
+  return table.concat(lines, "\n")
 end
 
 function M.write_blank_storage()
@@ -66,8 +101,18 @@ function M.reset_environment()
 end
 
 function M.load_qck(opts)
-  local mock_snacks = require("mock_snacks")
-  mock_snacks.install()
+  M.assert_isolated_xdg()
+
+  if opts and opts.real_snacks == true then
+    package.loaded.snacks = nil
+    local snacks_path = vim.env.QCK_TEST_SNACKS_RTP
+    if type(snacks_path) == "string" and snacks_path ~= "" then
+      vim.opt.rtp:prepend(snacks_path)
+    end
+  else
+    local mock_snacks = require("mock_snacks")
+    mock_snacks.install()
+  end
 
   local qck = require("qck")
   if opts == nil or opts.setup ~= false then
@@ -242,7 +287,7 @@ function M.assert_form_scaffold(buf, expected_description)
   M.assert_eq(lines[1], expected_description or "Please provide the name and command of the new task", "task form should render description")
   M.assert_truthy(vim.startswith(lines[3], "Name    | "), "task form should render name field prefix")
   M.assert_truthy(vim.startswith(lines[4], "Command | "), "task form should render command field prefix")
-  M.assert_eq(lines[6], "<Tab>/<S-Tab> switch  <CR> save  <Esc> close", "task form should render help line")
+  M.assert_eq(lines[6], "<CR> next/save  <S-CR> prev  <Esc> close", "task form should render help line")
 end
 
 return M

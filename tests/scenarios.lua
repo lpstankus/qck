@@ -38,6 +38,17 @@ local function task_tabs(ui_state)
   return tabs
 end
 
+local function agent_tabs(ui_state)
+  local tabs = {}
+  for _, tab_id in ipairs(ui_state.traversal_ids()) do
+    local tab = ui_state.get_tab(tab_id)
+    if tab and tab.category_key == "agent" then
+      tabs[#tabs + 1] = tab
+    end
+  end
+  return tabs
+end
+
 ---@param handle table|nil
 ---@return boolean
 local function handle_is_open(handle)
@@ -133,9 +144,37 @@ function scenarios.task_form_create_and_overwrite()
     local form_buf = vim.api.nvim_win_get_buf(form_win)
     helpers.assert_eq(vim.bo[form_buf].filetype, "qck-task-form", "task form should set filetype")
     helpers.assert_form_scaffold(form_buf)
+    helpers.assert_truthy(buf_has_mapping(form_buf, "n", "<CR>"), "task form should map <CR>")
+    helpers.assert_truthy(buf_has_mapping(form_buf, "i", "<CR>"), "task form should map insert <CR>")
+    helpers.assert_truthy(buf_has_mapping(form_buf, "n", "<S-CR>"), "task form should map <S-CR>")
+    helpers.assert_truthy(buf_has_mapping(form_buf, "i", "<S-CR>"), "task form should map insert <S-CR>")
+    helpers.assert_truthy(not buf_has_mapping(form_buf, "n", "<Tab>"), "task form should not map <Tab>")
+    helpers.assert_truthy(not buf_has_mapping(form_buf, "i", "<Tab>"), "task form should not map insert <Tab>")
+    helpers.assert_truthy(not buf_has_mapping(form_buf, "n", "<S-Tab>"), "task form should not map <S-Tab>")
+    helpers.assert_truthy(not buf_has_mapping(form_buf, "i", "<S-Tab>"), "task form should not map insert <S-Tab>")
+
+    vim.cmd("stopinsert")
+    vim.api.nvim_win_set_cursor(form_win, { 3, #"Name    | " })
+    feed("<CR>")
+    helpers.assert_eq(vim.api.nvim_win_get_cursor(form_win)[1], 4, "<CR> should move forward to command")
+    feed("<S-CR>")
+    helpers.assert_eq(vim.api.nvim_win_get_cursor(form_win)[1], 3, "<S-CR> should move back to name")
+    feed("<S-CR>")
+    helpers.assert_eq(vim.api.nvim_win_get_cursor(form_win)[1], 3, "<S-CR> should stay on the first field")
+
+    vim.api.nvim_buf_set_lines(form_buf, 3, 4, false, { "Command: echo draft" })
+    vim.api.nvim_win_set_cursor(form_win, { 4, #"Command | " })
+    qck.new_task()
+    helpers.assert_eq(vim.api.nvim_win_get_cursor(form_win)[1], 4, "new_task() should preserve active field when focusing existing form")
+    helpers.assert_eq(
+      vim.api.nvim_buf_get_lines(form_buf, 3, 4, false)[1],
+      "Command | echo draft",
+      "new_task() should preserve command field text when focusing existing form"
+    )
 
     helpers.set_form_fields(form_buf, "Name: lint", "Command: echo lint")
-    task_form.submit()
+    vim.api.nvim_win_set_cursor(form_win, { 4, #"Command | " })
+    feed("<CR>")
     helpers.assert_eq(task_form.get_winid(), nil, "task form should close after successful create")
     helpers.assert_eq(storage.get_task_cmd(workspace, "lint"), "echo lint", "created task command should persist")
 
@@ -182,6 +221,29 @@ function scenarios.task_form_create_and_overwrite()
       nil,
       "task form should only persist to the current workspace"
     )
+
+    storage.set_agent_cmd(workspace, { "sh", "-c", "echo agent" })
+    storage.set_agent_entry(workspace, "secondary", { cmd = "echo secondary-agent" })
+    storage.set_task_cmd(workspace, "old", "echo old")
+    task_form.open_edit("old", "echo old")
+    form_buf = vim.api.nvim_win_get_buf(task_form.get_winid())
+    helpers.set_form_fields(form_buf, "Name: failed", "Command: echo failed")
+    local original_save = storage.save
+    storage.save = function()
+      return false, "forced failure"
+    end
+    task_form.submit()
+    storage.save = original_save
+    helpers.assert_truthy(task_form.get_winid() ~= nil, "failed task save should keep task form open")
+    helpers.assert_truthy(
+      vim.deep_equal(storage.get_agent_cmd(workspace), { "sh", "-c", "echo agent" }),
+      "failed task save should restore existing workspace agent command"
+    )
+    helpers.assert_truthy(
+      vim.deep_equal(storage.get_workspace_agent_entries(workspace).secondary, { cmd = "echo secondary-agent" }),
+      "failed task save should restore non-default workspace agent entries"
+    )
+    task_form.close()
   end)
 
   vim.notify = original_notify
@@ -277,6 +339,175 @@ function scenarios.task_form_edit_existing_task()
       vim.deep_equal(storage.get_task_cmd(workspace, "build"), { "sh", "-c", "echo build" }),
       "unchanged structured edit command should preserve command list form"
     )
+  end)
+
+  vim.notify = original_notify
+  if not ok then
+    error(err)
+  end
+end
+
+function scenarios.agent_form_edits_global_agent_command()
+  local env = helpers.load_qck()
+  local qck, storage, workspace = env.qck, env.storage, env.workspace
+  local agent_form = require("qck.agents.form")
+  local original_notify = vim.notify
+  local notifications = {}
+
+  vim.notify = function(msg, level)
+    notifications[#notifications + 1] = { msg = msg, level = level }
+  end
+
+  local ok, err = pcall(function()
+    storage.set_global_agent_cmd("echo global-agent")
+    qck.set_agent()
+    local form_win = agent_form.get_winid()
+    helpers.assert_truthy(type(form_win) == "number", "set_agent() should open agent form window")
+
+    qck.set_agent()
+    helpers.assert_eq(agent_form.get_winid(), form_win, "set_agent() should focus existing agent form window")
+
+    local form_buf = vim.api.nvim_win_get_buf(form_win)
+    helpers.assert_eq(vim.bo[form_buf].filetype, "qck-agent-form", "agent form should set filetype")
+    local lines = vim.api.nvim_buf_get_lines(form_buf, 0, -1, false)
+    helpers.assert_eq(#lines, 6, "agent form should render scope and command scaffold")
+    helpers.assert_eq(lines[1], "Please provide the command for the agent", "agent form should render description")
+    helpers.assert_eq(lines[3], "Scope   | <Global>", "agent form should render global scope by default")
+    helpers.assert_eq(lines[4], "Command | echo global-agent", "agent form should prefill global command")
+    helpers.assert_truthy(buf_has_mapping(form_buf, "n", "<Tab>"), "agent form should map selection <Tab>")
+    helpers.assert_truthy(buf_has_mapping(form_buf, "i", "<Tab>"), "agent form should map insert selection <Tab>")
+    helpers.assert_truthy(buf_has_mapping(form_buf, "n", "<S-Tab>"), "agent form should map selection <S-Tab>")
+    helpers.assert_truthy(buf_has_mapping(form_buf, "i", "<S-Tab>"), "agent form should map insert selection <S-Tab>")
+    helpers.assert_truthy(not table.concat(lines, "\n"):find("Local override", 1, true), "agent form should not render local override checkbox")
+
+    vim.cmd("stopinsert")
+    vim.api.nvim_win_set_cursor(form_win, { 3, #"Scope   | " })
+    feed("<CR>")
+    vim.api.nvim_buf_set_lines(form_buf, 3, 4, false, { "Command: echo dirty-draft" })
+    feed("<Tab>")
+    helpers.assert_eq(
+      vim.api.nvim_buf_get_lines(form_buf, 3, 4, false)[1],
+      "Command: echo dirty-draft",
+      "<Tab> on text fields should not cycle scope"
+    )
+
+    storage.set_agent_cmd(workspace, "echo local-agent")
+    feed("<S-CR>")
+    feed("<Tab>")
+    lines = vim.api.nvim_buf_get_lines(form_buf, 0, -1, false)
+    helpers.assert_eq(lines[3], "Scope   | <Local>", "<Tab> on selection field should cycle to local")
+    helpers.assert_eq(lines[4], "Command | echo local-agent", "cycling to local should reload local command")
+    feed("<S-Tab>")
+    lines = vim.api.nvim_buf_get_lines(form_buf, 0, -1, false)
+    helpers.assert_eq(lines[3], "Scope   | <Global>", "<S-Tab> on selection field should cycle to global")
+    helpers.assert_eq(lines[4], "Command | echo global-agent", "cycling to global should reload global command")
+
+    vim.api.nvim_win_set_cursor(form_win, { 4, #"Command | " })
+    vim.api.nvim_buf_set_lines(form_buf, 3, 4, false, { "Command: " })
+    agent_form.submit()
+    helpers.assert_truthy(agent_form.get_winid() ~= nil, "empty command should keep agent form open")
+    helpers.assert_eq(storage.get_global_agent_cmd(), "echo global-agent", "empty global command should not clear global agent")
+
+    vim.api.nvim_buf_set_lines(form_buf, 3, 4, false, { "Command: echo changed-global-agent" })
+    agent_form.submit()
+    helpers.assert_eq(agent_form.get_winid(), nil, "successful agent save should close form")
+    helpers.assert_eq(storage.get_global_agent_cmd(), "echo changed-global-agent", "agent form should update global command")
+    helpers.assert_eq(storage.get_local_agent_cmd(workspace), "echo local-agent", "global submit should leave local override untouched")
+    helpers.assert_eq(storage.get_agent_cmd(workspace .. "-other"), "echo changed-global-agent", "global agent command should apply to other workspaces")
+    helpers.assert_truthy(#notifications >= 1, "agent save should notify")
+
+    storage.set_agent_cmd(workspace, { "sh", "-c", "echo structured-agent" })
+    storage.set_agent_entry(workspace, "secondary", { cmd = "echo secondary-agent" })
+    storage.set_global_agent_cmd({ "sh", "-c", "echo global-agent" })
+    qck.set_agent()
+    form_win = agent_form.get_winid()
+    form_buf = vim.api.nvim_win_get_buf(form_win)
+    lines = vim.api.nvim_buf_get_lines(form_buf, 0, -1, false)
+    helpers.assert_eq(
+      lines[3],
+      "Scope   | <Local>",
+      "agent form should prefill local scope when a local override exists"
+    )
+    helpers.assert_eq(
+      lines[4],
+      "Command | sh -c echo structured-agent",
+      "agent form should prefill the local command when a local override exists"
+    )
+    agent_form.submit()
+    helpers.assert_truthy(
+      vim.deep_equal(storage.get_local_agent_cmd(workspace), { "sh", "-c", "echo structured-agent" }),
+      "unchanged structured local agent command should preserve command list form"
+    )
+
+    qck.set_agent()
+    form_win = agent_form.get_winid()
+    form_buf = vim.api.nvim_win_get_buf(form_win)
+    lines = vim.api.nvim_buf_get_lines(form_buf, 0, -1, false)
+    helpers.assert_eq(lines[3], "Scope   | <Local>", "agent form should keep using local command source")
+    helpers.assert_eq(lines[4], "Command | sh -c echo structured-agent", "agent form should render local command")
+    vim.api.nvim_buf_set_lines(form_buf, 3, 4, false, { "Command: echo changed-local-agent" })
+    agent_form.submit()
+    helpers.assert_eq(storage.get_local_agent_cmd(workspace), "echo changed-local-agent", "agent form should update local command")
+    helpers.assert_truthy(
+      vim.deep_equal(storage.get_global_agent_cmd(), { "sh", "-c", "echo global-agent" }),
+      "local submit should leave global storage untouched"
+    )
+
+    qck.set_agent()
+    form_win = agent_form.get_winid()
+    form_buf = vim.api.nvim_win_get_buf(form_win)
+    lines = vim.api.nvim_buf_get_lines(form_buf, 0, -1, false)
+    helpers.assert_eq(lines[3], "Scope   | <Local>", "agent form should open local before delete")
+    vim.api.nvim_buf_set_lines(form_buf, 3, 4, false, { "Command: " })
+    agent_form.submit()
+    helpers.assert_eq(agent_form.get_winid(), nil, "empty local agent submit should close form")
+    helpers.assert_eq(storage.get_local_agent_cmd(workspace), nil, "empty local agent submit should delete local override")
+    helpers.assert_truthy(
+      vim.deep_equal(storage.get_global_agent_cmd(), { "sh", "-c", "echo global-agent" }),
+      "empty local agent submit should not clear global command"
+    )
+
+    storage.set_agent_cmd(workspace, "echo local-agent")
+    storage.set_global_agent_cmd("echo global-agent")
+    qck.set_agent()
+    form_win = agent_form.get_winid()
+    form_buf = vim.api.nvim_win_get_buf(form_win)
+    lines = vim.api.nvim_buf_get_lines(form_buf, 0, -1, false)
+    helpers.assert_eq(lines[3], "Scope   | <Local>", "agent form should prefill local override before failed save")
+    vim.api.nvim_buf_set_lines(form_buf, 3, 4, false, { "Command: echo failed-agent" })
+    local original_save = storage.save
+    storage.save = function()
+      return false, "forced failure"
+    end
+    agent_form.submit()
+    storage.save = original_save
+    helpers.assert_truthy(agent_form.get_winid() ~= nil, "failed agent save should keep agent form open")
+    helpers.assert_eq(storage.get_local_agent_cmd(workspace), "echo local-agent", "failed local agent save should restore local command")
+    helpers.assert_truthy(
+      vim.deep_equal(storage.get_workspace_agent_entries(workspace).secondary, { cmd = "echo secondary-agent" }),
+      "failed agent save should restore non-default workspace agent entries"
+    )
+    agent_form.close()
+
+    storage.agents = vim.empty_dict()
+    qck.set_agent()
+    form_win = agent_form.get_winid()
+    form_buf = vim.api.nvim_win_get_buf(form_win)
+    lines = vim.api.nvim_buf_get_lines(form_buf, 0, -1, false)
+    if lines[3] == "Scope   | <Local>" then
+      vim.cmd("stopinsert")
+      vim.api.nvim_win_set_cursor(form_win, { 3, #"Scope   | " })
+      feed("<Tab>")
+    end
+    vim.api.nvim_buf_set_lines(form_buf, 3, 4, false, { "Command: echo failed-global-agent" })
+    storage.save = function()
+      return false, "forced failure"
+    end
+    agent_form.submit()
+    storage.save = original_save
+    helpers.assert_truthy(agent_form.get_winid() ~= nil, "failed first global agent save should keep agent form open")
+    helpers.assert_eq(vim.json.encode({ agents = storage.agents }), '{"agents":{}}', "failed first global agent save should restore object-shaped agents")
+    agent_form.close()
   end)
 
   vim.notify = original_notify
@@ -635,7 +866,7 @@ function scenarios.task_terminal_finish_preserves_mixed_tabbar()
   helpers.assert_truthy(not handle_is_open(base_handle), "base terminal should be hidden while task terminal is active")
   local tabbar_win = tabbar.get_winid()
   local divider = tabbar_divider_label(tabbar_win)
-  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "R1", divider, "T1" }), "tabbar should render a divider between task and regular terminals")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "T1", divider, "R1" }), "tabbar should render a divider between regular and task terminals")
 
   mock_snacks.finish_handle(task_handle)
   vim.wait(20, function() return false end)
@@ -645,17 +876,17 @@ function scenarios.task_terminal_finish_preserves_mixed_tabbar()
   helpers.assert_eq(ui_state.resolve_active_tab(), task_tab_id, "finished active task should stay active")
   tabbar_win = tabbar.get_winid()
   divider = tabbar_divider_label(tabbar_win)
-  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "R1", divider, "T1" }), "tabbar should keep divider between task and regular terminals after task finish")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "T1", divider, "R1" }), "tabbar should keep divider between regular and task terminals after task finish")
 end
 
-function scenarios.task_terminals_are_pinned_before_regular_terminals()
+function scenarios.regular_terminals_are_ordered_before_task_terminals()
   local env = helpers.load_qck()
   local qck, storage, ui_state, tabbar, workspace =
     env.qck, env.storage, env.ui_state, env.tabbar, env.workspace
 
   helpers.assert_truthy(
-    vim.deep_equal(ui_state.category_keys(), { "task", "terminal" }),
-    "plugin setup should register task category before regular terminal category"
+    vim.deep_equal(ui_state.category_keys(), { "agent", "terminal", "task" }),
+    "plugin setup should register agent, regular terminal, and task categories in traversal order"
   )
 
   qck.open()
@@ -668,13 +899,13 @@ function scenarios.task_terminals_are_pinned_before_regular_terminals()
   local task_tab_id = ui_state.resolve_active_tab()
   helpers.assert_truthy(task_tab_id ~= nil and task_tab_id ~= terminal_tab_id, "task runner should create a separate task tab")
   helpers.assert_truthy(
-    vim.deep_equal(ui_state.traversal_ids(), { task_tab_id, terminal_tab_id }),
-    "ui traversal should pin task terminals before regular terminals"
+    vim.deep_equal(ui_state.traversal_ids(), { terminal_tab_id, task_tab_id }),
+    "ui traversal should order regular terminals before task terminals"
   )
   local tabbar_win = tabbar.get_winid()
   helpers.assert_truthy(
-    vim.deep_equal(tabbar_labels(tabbar_win), { "R1", tabbar_divider_label(tabbar_win), "T1" }),
-    "tabbar should render a divider between pinned task and regular terminals"
+    vim.deep_equal(tabbar_labels(tabbar_win), { "T1", tabbar_divider_label(tabbar_win), "R1" }),
+    "tabbar should render a divider between regular and task terminals"
   )
 end
 
@@ -692,18 +923,18 @@ function scenarios.tabbar_skips_kind_divider()
   local tabbar_win = tabbar.get_winid()
 
   helpers.assert_truthy(type(tabbar_win) == "number", "mixed tabbar scenario should show tabbar")
-  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "R1", tabbar_divider_label(tabbar_win), "T1" }), "tabbar should render a divider row")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "T1", tabbar_divider_label(tabbar_win), "R1" }), "tabbar should render a divider row")
 
   qck.switch_focus()
   helpers.assert_eq(vim.api.nvim_get_current_win(), tabbar_win, "switch_focus() should focus tabbar for divider navigation")
-  helpers.assert_eq(vim.api.nvim_win_get_cursor(tabbar_win)[1], 1, "tabbar cursor should start on active R row")
+  helpers.assert_eq(vim.api.nvim_win_get_cursor(tabbar_win)[1], 3, "tabbar cursor should start on active R row")
 
   feed("j")
-  helpers.assert_eq(vim.api.nvim_win_get_cursor(tabbar_win)[1], 3, "j should skip divider and land on T row")
+  helpers.assert_eq(vim.api.nvim_win_get_cursor(tabbar_win)[1], 1, "j should skip divider and land on T row")
   feed("k")
-  helpers.assert_eq(vim.api.nvim_win_get_cursor(tabbar_win)[1], 1, "k should skip divider and land on R row")
+  helpers.assert_eq(vim.api.nvim_win_get_cursor(tabbar_win)[1], 3, "k should skip divider and land on R row")
   feed("k")
-  helpers.assert_eq(vim.api.nvim_win_get_cursor(tabbar_win)[1], 3, "wrapped k should skip divider")
+  helpers.assert_eq(vim.api.nvim_win_get_cursor(tabbar_win)[1], 1, "wrapped k should skip divider")
 
   vim.api.nvim_win_set_cursor(tabbar_win, { 2, 0 })
   local active_before = ui_state.resolve_active_tab()
@@ -792,7 +1023,7 @@ function scenarios.task_runner_reopens_hidden_matching_task_terminal()
   helpers.assert_truthy(handle_is_open(task_handle), "reused hidden task should be shown again")
   helpers.assert_truthy(not handle_is_open(terminal_handle), "regular terminal should be hidden after task reuse")
   local tabbar_win = tabbar.get_winid()
-  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "R1", tabbar_divider_label(tabbar_win), "T1" }), "tabbar should keep divider between pinned task and terminal rows")
+  helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "T1", tabbar_divider_label(tabbar_win), "R1" }), "tabbar should keep divider between regular and task terminal rows")
 end
 
 function scenarios.task_runner_spawns_distinct_task_terminals_for_distinct_commands()
@@ -919,6 +1150,384 @@ function scenarios.task_runner_prevents_manual_r_label_reordering()
   vim.api.nvim_win_set_cursor(tabbar_win, { 2, 0 })
   feed("K")
   helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar_win), { "R1", "R2" }), "tabbar K should not manually reorder sorted R labels")
+end
+
+function scenarios.agent_terminal_runs_and_reuses_workspace_agent()
+  local env = helpers.load_qck()
+  local qck, storage, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.ui_state, env.tabbar, env.workspace
+  local ui_runtime = require("qck.ui.runtime")
+  local mock_snacks = require("mock_snacks")
+  local notifications = {}
+  local original_notify = vim.notify
+
+  vim.notify = function(msg, level)
+    notifications[#notifications + 1] = { msg = msg, level = level }
+  end
+
+  local ok, err = pcall(function()
+    qck.run_agent()
+    helpers.assert_eq(ui_state.resolve_active_tab(), nil, "run_agent() without config should not create a tab")
+    helpers.assert_truthy(#notifications >= 1, "run_agent() without config should warn")
+
+    storage.set_global_agent_cmd("echo global-agent")
+    helpers.assert_truthy(
+      not helpers.read_storage_text():find("echo global-agent", 1, true),
+      "agent runtime test setup should not persist test command"
+    )
+    qck.run_agent()
+
+    local agent_tab_id = ui_state.resolve_active_tab()
+    local agent_tab = agent_tab_id and ui_state.get_tab(agent_tab_id) or nil
+    local agent_handle = agent_tab and agent_tab.terminal or nil
+    helpers.assert_truthy(agent_tab_id ~= nil, "run_agent() should create an active agent tab")
+    helpers.assert_eq(agent_tab and agent_tab.category_key, "agent", "run_agent() should attach to the agent category")
+    helpers.assert_eq(agent_tab and agent_tab.category_label, "A", "agent terminals should use A labels")
+    helpers.assert_eq(agent_tab and agent_tab.category_display_id, 1, "first agent terminal should be A1")
+    helpers.assert_truthy(handle_is_open(agent_handle), "agent terminal should be visible")
+    helpers.assert_eq(agent_handle.auto_close, true, "agent terminal should auto-close on command finish")
+    helpers.assert_eq(vim.api.nvim_get_current_win(), ui_runtime.get_content_winid(), "agent terminal should be focused after run")
+    helpers.assert_truthy(vim.deep_equal(tabbar_labels(tabbar.get_winid()), { "A1" }), "tabbar should render the agent label")
+    helpers.assert_truthy(
+      vim.deep_equal(vim.api.nvim_buf_get_lines(agent_handle.buf, 0, -1, false), { "cmd: echo global-agent" }),
+      "agent terminal should run the global fallback command"
+    )
+
+    qck.new()
+    helpers.assert_eq(#ui_state.traversal_ids(), 2, "hiding the live agent should keep the agent tab registered")
+
+    qck.run_agent()
+    helpers.assert_eq(ui_state.resolve_active_tab(), agent_tab_id, "second run_agent() should reuse the live agent tab")
+    helpers.assert_eq(#ui_state.traversal_ids(), 2, "second run_agent() should not spawn another A tab")
+    helpers.assert_truthy(handle_is_open(agent_handle), "reused agent terminal should remain visible")
+
+    mock_snacks.finish_handle(agent_handle)
+    vim.wait(20, function() return false end)
+    helpers.assert_truthy(not handle_is_open(agent_handle), "finished agent terminal should auto-close")
+
+    storage.set_agent_cmd(workspace, "echo local-agent")
+    qck.run_agent()
+    local local_agent_tab_id = ui_state.resolve_active_tab()
+    local local_agent_tab = local_agent_tab_id and ui_state.get_tab(local_agent_tab_id) or nil
+    local local_agent_handle = local_agent_tab and local_agent_tab.terminal or nil
+    helpers.assert_truthy(
+      vim.deep_equal(vim.api.nvim_buf_get_lines(local_agent_handle.buf, 0, -1, false), { "cmd: echo local-agent" }),
+      "agent terminal should prefer a local override over the global command"
+    )
+  end)
+
+  vim.notify = original_notify
+  if not ok then
+    error(err)
+  end
+end
+
+function scenarios.agent_terminal_requests_rerender_when_opened()
+  local env = helpers.load_qck()
+  local qck, storage, ui_state, workspace =
+    env.qck, env.storage, env.ui_state, env.workspace
+  local scheduled = {}
+  local redraws = {}
+  local resizes = {}
+  local forced_redraw_wins = {}
+  local original_schedule = vim.schedule
+  local original_chansend = vim.fn.chansend
+  local original_jobresize = vim.fn.jobresize
+  local original_redraw = vim.api.nvim__redraw
+  local original_win_call = vim.api.nvim_win_call
+
+  vim.schedule = function(cb)
+    scheduled[#scheduled + 1] = cb
+  end
+  vim.fn.chansend = function(chan, data)
+    error(("agent rerender should not write to terminal channel %s with %q"):format(tostring(chan), tostring(data)))
+  end
+  vim.fn.jobresize = function(chan, width, height)
+    resizes[#resizes + 1] = { chan = chan, width = width, height = height }
+    return 1
+  end
+  vim.api.nvim__redraw = function(opts)
+    redraws[#redraws + 1] = opts
+  end
+  vim.api.nvim_win_call = function(winid, cb)
+    forced_redraw_wins[#forced_redraw_wins + 1] = winid
+    return cb()
+  end
+
+  local function flush_scheduled()
+    local callbacks = scheduled
+    scheduled = {}
+    for _, cb in ipairs(callbacks) do
+      cb()
+    end
+  end
+
+  local ok, err = pcall(function()
+    storage.set_agent_cmd(workspace, "echo agent")
+    helpers.assert_truthy(
+      not helpers.read_storage_text():find("echo agent", 1, true),
+      "agent rerender test setup should not persist test command"
+    )
+
+    qck.run_agent()
+    local agent_tab_id = ui_state.resolve_active_tab()
+    local agent_tab = agent_tab_id and ui_state.get_tab(agent_tab_id) or nil
+    local agent_handle = agent_tab and agent_tab.terminal or nil
+    helpers.assert_truthy(agent_handle and type(agent_handle.buf) == "number", "run_agent() should create an agent buffer")
+    vim.b[agent_handle.buf].terminal_job_id = 41
+    flush_scheduled()
+
+    helpers.assert_eq(#resizes, 1, "opening a new agent terminal should resize the terminal pty")
+    helpers.assert_eq(resizes[1].chan, 41, "agent resize should target the terminal job channel")
+    helpers.assert_eq(resizes[1].width, vim.api.nvim_win_get_width(agent_handle.win), "agent resize should use visible terminal width")
+    helpers.assert_eq(resizes[1].height, vim.api.nvim_win_get_height(agent_handle.win), "agent resize should use visible terminal height")
+    helpers.assert_eq(#redraws, 1, "opening a new agent terminal should request one redraw")
+    helpers.assert_eq(redraws[1].buf, agent_handle.buf, "agent redraw should target the terminal buffer")
+    helpers.assert_eq(redraws[1].win, agent_handle.win, "agent redraw should target the terminal window")
+    helpers.assert_eq(redraws[1].valid, false, "agent redraw should force invalidation")
+    helpers.assert_eq(redraws[1].flush, true, "agent redraw should flush pending screen updates")
+    helpers.assert_eq(forced_redraw_wins[1], agent_handle.win, "agent rerender should run redraw! in the terminal window")
+
+    qck.new()
+    qck.run_agent()
+    flush_scheduled()
+
+    helpers.assert_eq(#resizes, 2, "reopening a live agent terminal should resize the terminal pty again")
+    helpers.assert_eq(resizes[2].chan, 41, "reopened agent resize should target the existing terminal job")
+    helpers.assert_eq(resizes[2].width, vim.api.nvim_win_get_width(agent_handle.win), "reopened agent resize should use visible terminal width")
+    helpers.assert_eq(resizes[2].height, vim.api.nvim_win_get_height(agent_handle.win), "reopened agent resize should use visible terminal height")
+    helpers.assert_eq(#redraws, 2, "reopening a live agent terminal should request another redraw")
+    helpers.assert_eq(redraws[2].buf, agent_handle.buf, "reopened agent redraw should target the existing terminal buffer")
+    helpers.assert_eq(redraws[2].win, agent_handle.win, "reopened agent redraw should target the existing terminal window")
+    helpers.assert_eq(forced_redraw_wins[2], agent_handle.win, "reopened agent rerender should run redraw! in the terminal window")
+
+    qck.toggle()
+    qck.toggle()
+    flush_scheduled()
+
+    helpers.assert_eq(#resizes, 3, "toggling an agent terminal visible should resize the terminal pty again")
+    helpers.assert_eq(resizes[3].chan, 41, "toggled agent resize should target the existing terminal job")
+    helpers.assert_eq(resizes[3].width, vim.api.nvim_win_get_width(agent_handle.win), "toggled agent resize should use visible terminal width")
+    helpers.assert_eq(resizes[3].height, vim.api.nvim_win_get_height(agent_handle.win), "toggled agent resize should use visible terminal height")
+    helpers.assert_eq(#redraws, 3, "toggling an agent terminal visible should request another redraw")
+    helpers.assert_eq(redraws[3].buf, agent_handle.buf, "toggled agent redraw should target the existing terminal buffer")
+    helpers.assert_eq(redraws[3].win, agent_handle.win, "toggled agent redraw should target the visible terminal window")
+    helpers.assert_eq(forced_redraw_wins[3], agent_handle.win, "toggled agent rerender should run redraw! in the terminal window")
+
+    qck.new()
+    flush_scheduled()
+    helpers.assert_eq(#resizes, 3, "opening a regular terminal should not resize an agent pty")
+    helpers.assert_eq(#redraws, 3, "opening a regular terminal should not request an agent redraw")
+
+    storage.set_task_cmd(workspace, "lint", "echo lint")
+    qck.run_task(1)
+    flush_scheduled()
+    helpers.assert_eq(#resizes, 3, "opening a task terminal should not resize an agent pty")
+    helpers.assert_eq(#redraws, 3, "opening a task terminal should not request an agent redraw")
+
+    qck.run_agent(true)
+    local forced_agent_tab_id = ui_state.resolve_active_tab()
+    local forced_agent_tab = forced_agent_tab_id and ui_state.get_tab(forced_agent_tab_id) or nil
+    local forced_agent_handle = forced_agent_tab and forced_agent_tab.terminal or nil
+    helpers.assert_truthy(
+      forced_agent_handle and type(forced_agent_handle.buf) == "number",
+      "forced run_agent() should create another agent buffer"
+    )
+    vim.b[forced_agent_handle.buf].terminal_job_id = 42
+    flush_scheduled()
+
+    helpers.assert_eq(#resizes, 4, "opening a forced agent terminal should resize its own pty")
+    helpers.assert_eq(resizes[4].chan, 42, "forced agent resize should target the forced agent terminal job")
+    helpers.assert_eq(resizes[4].width, vim.api.nvim_win_get_width(forced_agent_handle.win), "forced agent resize should use visible terminal width")
+    helpers.assert_eq(resizes[4].height, vim.api.nvim_win_get_height(forced_agent_handle.win), "forced agent resize should use visible terminal height")
+    helpers.assert_eq(redraws[4].buf, forced_agent_handle.buf, "forced agent redraw should target the forced agent buffer")
+    helpers.assert_eq(redraws[4].win, forced_agent_handle.win, "forced agent redraw should target the forced agent window")
+
+    helpers.assert_truthy(select(1, env.ui.set_active_tab(agent_tab_id)), "selecting the first agent tab should succeed")
+    flush_scheduled()
+    helpers.assert_eq(#resizes, 5, "switching back to an older agent tab should resize that pty")
+    helpers.assert_eq(resizes[5].chan, 41, "older agent resize should target the original terminal job")
+    helpers.assert_eq(resizes[5].width, vim.api.nvim_win_get_width(agent_handle.win), "older agent resize should use visible terminal width")
+    helpers.assert_eq(resizes[5].height, vim.api.nvim_win_get_height(agent_handle.win), "older agent resize should use visible terminal height")
+    helpers.assert_eq(redraws[5].buf, agent_handle.buf, "older agent redraw should target the original agent buffer")
+    helpers.assert_eq(redraws[5].win, agent_handle.win, "older agent redraw should target the original agent window")
+  end)
+
+  vim.schedule = original_schedule
+  vim.fn.chansend = original_chansend
+  vim.fn.jobresize = original_jobresize
+  vim.api.nvim__redraw = original_redraw
+  vim.api.nvim_win_call = original_win_call
+  if not ok then
+    error(err)
+  end
+end
+
+function scenarios.agent_terminal_forces_new_and_reuses_current_agent()
+  local env = helpers.load_qck()
+  local qck, storage, ui, ui_state, workspace =
+    env.qck, env.storage, env.ui, env.ui_state, env.workspace
+
+  storage.set_agent_cmd(workspace, "echo agent")
+
+  qck.run_agent()
+  local first_agent_tab_id = ui_state.resolve_active_tab()
+  local first_agent_tab = first_agent_tab_id and ui_state.get_tab(first_agent_tab_id) or nil
+  local first_agent_handle = first_agent_tab and first_agent_tab.terminal or nil
+  helpers.assert_truthy(first_agent_tab_id ~= nil, "initial run_agent() should create A1")
+  helpers.assert_eq(first_agent_tab and first_agent_tab.category_display_id, 1, "initial run_agent() should label the agent A1")
+
+  qck.run_agent(true)
+  local second_agent_tab_id = ui_state.resolve_active_tab()
+  local second_agent_tab = second_agent_tab_id and ui_state.get_tab(second_agent_tab_id) or nil
+  local second_agent_handle = second_agent_tab and second_agent_tab.terminal or nil
+  helpers.assert_truthy(second_agent_tab_id ~= nil and second_agent_tab_id ~= first_agent_tab_id, "run_agent(true) should create A2")
+  helpers.assert_eq(second_agent_tab and second_agent_tab.category_display_id, 2, "forced run_agent() should use the next A label")
+  helpers.assert_eq(#agent_tabs(ui_state), 2, "forced run_agent() should keep both agent tabs registered")
+
+  qck.run_agent()
+  helpers.assert_eq(ui_state.resolve_active_tab(), second_agent_tab_id, "run_agent() should reuse the current forced agent")
+  helpers.assert_eq(#agent_tabs(ui_state), 2, "run_agent() should not create another A tab after a forced spawn")
+  helpers.assert_truthy(handle_is_open(second_agent_handle), "reused current agent should stay visible")
+
+  qck.run_agent(true)
+  local third_agent_tab_id = ui_state.resolve_active_tab()
+  helpers.assert_truthy(third_agent_tab_id ~= nil and third_agent_tab_id ~= second_agent_tab_id, "second forced run_agent() should create A3")
+  helpers.assert_eq(#agent_tabs(ui_state), 3, "second forced run_agent() should keep three agent tabs registered")
+  helpers.assert_truthy(select(1, ui.set_active_tab(second_agent_tab_id)), "selecting A2 should make it the current agent before deletion")
+  qck.toggle()
+  helpers.assert_truthy(select(1, ui.delete_tab(second_agent_tab_id)), "deleting hidden A2 should adopt the next live agent tab")
+  helpers.assert_eq(ui_state.resolve_active_tab(), third_agent_tab_id, "deleting hidden A2 should make A3 active")
+  qck.run_agent()
+  helpers.assert_eq(ui_state.resolve_active_tab(), third_agent_tab_id, "run_agent() should reuse the adopted current agent")
+  helpers.assert_eq(#agent_tabs(ui_state), 2, "run_agent() should not recreate A2 after deletion")
+
+  qck.run_agent(true)
+  local fourth_agent_tab_id = ui_state.resolve_active_tab()
+  helpers.assert_truthy(fourth_agent_tab_id ~= nil and fourth_agent_tab_id ~= third_agent_tab_id, "third forced run_agent() should create another agent")
+  helpers.assert_truthy(select(1, ui.set_active_tab(third_agent_tab_id)), "selecting A3 should make it the current agent before hidden deletion")
+  qck.new()
+  local active_regular_tab_id = ui_state.resolve_active_tab()
+  helpers.assert_truthy(active_regular_tab_id ~= nil, "test setup should create a regular tab while A3 remains the current agent")
+  helpers.assert_eq(ui_state.get_tab(active_regular_tab_id).category_key, "terminal", "test setup should make a terminal globally active")
+  helpers.assert_truthy(select(1, ui.delete_tab(third_agent_tab_id)), "deleting hidden current A3 should adopt another current agent")
+  qck.run_agent()
+  helpers.assert_eq(ui_state.resolve_active_tab(), fourth_agent_tab_id, "run_agent() should reuse adopted A4 after deleting hidden A3")
+  helpers.assert_eq(#agent_tabs(ui_state), 2, "run_agent() should keep the agent count stable after hidden current deletion")
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  qck.run_task(1)
+  local task_tab_id = ui_state.resolve_active_tab()
+  helpers.assert_truthy(task_tab_id ~= nil, "test setup should create a task tab before agent deletion")
+  helpers.assert_eq(ui_state.get_tab(task_tab_id).category_key, "task", "test setup should make a task globally active")
+  helpers.assert_truthy(select(1, ui.set_active_tab(fourth_agent_tab_id)), "selecting A4 should make it the current agent before mixed deletion")
+  helpers.assert_truthy(select(1, ui.set_active_tab(task_tab_id)), "reselecting the task should make another category globally active")
+  helpers.assert_truthy(select(1, ui.delete_tab(fourth_agent_tab_id)), "deleting hidden current A4 should adopt A1 despite earlier category tabs")
+  qck.run_agent()
+  helpers.assert_eq(ui_state.resolve_active_tab(), first_agent_tab_id, "run_agent() should reuse adopted A1 after deleting A4 with earlier task tabs")
+  helpers.assert_eq(#agent_tabs(ui_state), 1, "run_agent() should keep one live agent after mixed-category current deletion")
+
+  helpers.assert_truthy(select(1, ui.set_active_tab(first_agent_tab_id)), "selecting A1 should make it the current agent")
+  qck.new()
+  local regular_tab_id = ui_state.resolve_active_tab()
+  helpers.assert_truthy(regular_tab_id ~= nil, "test setup should create a regular terminal")
+  helpers.assert_eq(ui_state.get_tab(regular_tab_id).category_key, "terminal", "test setup should select a non-agent tab")
+
+  qck.run_agent()
+  helpers.assert_eq(ui_state.resolve_active_tab(), first_agent_tab_id, "run_agent() should reuse the selected current agent")
+  helpers.assert_eq(#agent_tabs(ui_state), 1, "run_agent() should keep the existing agent count after selecting A1")
+  helpers.assert_truthy(handle_is_open(first_agent_handle), "selected current agent should reopen")
+end
+
+function scenarios.agent_terminal_noop_completion_closes_windows()
+  local snacks_rtp = vim.env.QCK_TEST_SNACKS_RTP
+  if type(snacks_rtp) ~= "string" or snacks_rtp == "" or vim.fn.isdirectory(snacks_rtp) ~= 1 then
+    return
+  end
+  if not helpers.is_isolated_xdg() then
+    return
+  end
+  vim.env.QCK_TEST_SNACKS_RTP = snacks_rtp
+
+  local env = helpers.load_qck({ real_snacks = true })
+  local qck, storage, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.ui_state, env.tabbar, env.workspace
+
+  storage.set_agent_cmd(workspace, "true")
+  helpers.assert_truthy(
+    not helpers.read_storage_text():find('"true"', 1, true),
+    "noop agent setup should not persist test command before run"
+  )
+  qck.run_agent()
+
+  local agent_tab_id = ui_state.resolve_active_tab()
+  local agent_tab = agent_tab_id and ui_state.get_tab(agent_tab_id) or nil
+  local agent_handle = agent_tab and agent_tab.terminal or nil
+  local terminal_win = agent_handle and agent_handle.win or nil
+  local tabbar_win = tabbar.get_winid()
+
+  helpers.assert_truthy(type(terminal_win) == "number", "noop agent terminal should create a terminal window")
+  helpers.assert_truthy(vim.api.nvim_win_is_valid(terminal_win), "noop agent terminal window should start valid")
+  helpers.assert_truthy(type(tabbar_win) == "number", "noop agent terminal should create a tabbar window")
+  helpers.assert_truthy(vim.api.nvim_win_is_valid(tabbar_win), "noop agent tabbar window should start valid")
+
+  vim.wait(1000, function()
+    return not vim.api.nvim_win_is_valid(terminal_win)
+  end)
+
+  helpers.assert_truthy(not vim.api.nvim_win_is_valid(terminal_win), "noop agent completion should close terminal window")
+  helpers.assert_truthy(not vim.api.nvim_win_is_valid(tabbar_win), "noop agent completion should close tabbar window")
+  helpers.assert_eq(ui_state.resolve_active_tab(), nil, "noop agent completion should remove the agent tab")
+  helpers.assert_truthy(
+    not helpers.read_storage_text():find('"true"', 1, true),
+    "noop agent completion test should not persist test command"
+  )
+end
+
+function scenarios.agent_terminal_orders_before_regular_and_task_tabs()
+  local env = helpers.load_qck()
+  local qck, storage, ui, ui_state, tabbar, workspace =
+    env.qck, env.storage, env.ui, env.ui_state, env.tabbar, env.workspace
+
+  qck.open()
+  local terminal_tab_id = ui_state.resolve_active_tab()
+
+  storage.set_agent_cmd(workspace, "echo agent")
+  qck.run_agent()
+  local agent_tab_id = ui_state.resolve_active_tab()
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  qck.run_task()
+  feed("<CR>")
+  local task_tab_id = ui_state.resolve_active_tab()
+
+  helpers.assert_truthy(
+    vim.deep_equal(ui_state.category_keys(), { "agent", "terminal", "task" }),
+    "plugin setup should register categories in A, T, R order"
+  )
+  helpers.assert_truthy(
+    vim.deep_equal(ui_state.traversal_ids(), { agent_tab_id, terminal_tab_id, task_tab_id }),
+    "ui traversal should order A before T before R"
+  )
+
+  local tabbar_win = tabbar.get_winid()
+  local divider = tabbar_divider_label(tabbar_win)
+  helpers.assert_truthy(
+    vim.deep_equal(tabbar_labels(tabbar_win), { "A1", divider, "T1", divider, "R1" }),
+    "tabbar should render A, T, R groups with dividers"
+  )
+
+  local moved = select(1, ui.move_tab(agent_tab_id, -1))
+  helpers.assert_eq(moved, false, "single live A tab should no-op at category boundary")
+
+  storage.set_agent_cmd(workspace .. "-other", "echo other-agent")
+  local other_tab = require("qck.app.terminal").create_agent_and_attach({
+    workspace = workspace .. "-other",
+    cmd = "echo other-agent",
+  })
+  local other_agent_tab_id = other_tab and other_tab.id or nil
+  helpers.assert_truthy(other_agent_tab_id ~= nil, "test setup should create a second movable agent tab")
+  helpers.assert_truthy(select(1, ui.move_tab(other_agent_tab_id, -1)), "agent category should allow manual A row movement")
 end
 
 function scenarios.task_runner_reuses_live_task_terminal_after_rename()
@@ -2237,11 +2846,123 @@ function scenarios.invalid_storage_repair()
   helpers.assert_truthy(ok_after_repair, "clear_storage() should restore valid storage state")
 end
 
+function scenarios.storage_agent_roundtrip()
+  local env = helpers.load_qck()
+  local storage, workspace = env.storage, env.workspace
+
+  storage.set_task_cmd(workspace, "lint", "echo lint")
+  storage.set_global_agent_cmd("echo global-agent")
+  storage.set_agent_cmd(workspace, { "sh", "-c", "echo local-agent" })
+  helpers.assert_truthy(storage.save(), "storage should save task and agent state")
+
+  helpers.assert_truthy(storage.load(), "storage should reload saved agent state")
+  assert_cmd(storage.get_task_cmd(workspace, "lint"), "echo lint", "task command should survive agent storage changes")
+  assert_cmd(storage.get_global_agent_cmd(), "echo global-agent", "global agent command should round-trip through storage")
+  assert_cmd(
+    storage.get_agent_cmd(workspace),
+    { "sh", "-c", "echo local-agent" },
+    "local agent command should override global command after storage round-trip"
+  )
+  assert_cmd(
+    storage.get_agent_cmd(workspace .. "-other"),
+    "echo global-agent",
+    "workspace without local override should resolve the global agent command"
+  )
+
+  helpers.write_storage({
+    version = "0.1.0",
+    workspaces = {
+      [workspace] = {
+        tasks = {
+          build = {
+            cmd = "echo build",
+            order = 1,
+          },
+        },
+      },
+    },
+  })
+  helpers.assert_truthy(storage.load(), "existing task-only storage should remain valid")
+  helpers.assert_eq(storage.get_agent_cmd(workspace), nil, "task-only storage should have no agent command")
+
+  helpers.write_storage({
+    version = "0.1.0",
+    agents = {
+      default = {
+        cmd = "echo global-only",
+      },
+    },
+    workspaces = vim.empty_dict(),
+  })
+  helpers.assert_truthy(storage.load(), "global-only storage should load")
+  helpers.assert_eq(storage.get_agent_cmd(workspace), "echo global-only", "global-only storage should resolve for current workspace")
+
+  helpers.write_storage({
+    version = "0.1.0",
+    workspaces = {
+      [workspace] = {
+        tasks = vim.empty_dict(),
+        agents = {
+          default = {
+            cmd = "",
+          },
+        },
+      },
+    },
+  })
+  helpers.assert_eq(storage.load(), false, "invalid agent command should fail storage load")
+end
+
+function scenarios.storage_neutral_scenarios_preserve_storage()
+  local storage_mutating_scenarios = {
+    ["task form | creates and overwrites workspace task"] = true,
+    ["task form | edits existing workspace task"] = true,
+    ["task form | normalizes task order after overwrite rename"] = true,
+    ["agent form | edits global agent command"] = true,
+    ["task runner | reorders workspace tasks"] = true,
+    ["storage | persists workspace task commands across load/save"] = true,
+    ["storage | stores task creation order numbers"] = true,
+    ["storage | moves task order numbers"] = true,
+    ["storage | persists across module reload"] = true,
+    ["storage | creates missing data dir on save"] = true,
+    ["storage | writes empty object maps"] = true,
+    ["storage | persists workspace agent command"] = true,
+    ["storage | clears workspace data for current workspace"] = true,
+    ["storage | fails invalid load and repairs storage through clear_storage"] = true,
+    ["terminals | updates R labels after task reorder"] = true,
+    ["terminals | reuses live task terminal after rename"] = true,
+    ["terminals | keeps renamed live tab after rename collision"] = true,
+    ["storage | keeps runtime scenarios storage-neutral"] = true,
+  }
+  local changed = {}
+
+  for _, scenario in ipairs(scenarios.ordered()) do
+    if not storage_mutating_scenarios[scenario.name] then
+      helpers.reset_environment()
+      local before = helpers.read_storage_text()
+      local ok, err = xpcall(scenario.run, debug.traceback)
+      local after = helpers.read_storage_text()
+
+      if not ok then
+        error(("storage-neutral scenario failed before storage comparison: %s\n%s"):format(scenario.name, err))
+      end
+
+      if before ~= after then
+        changed[#changed + 1] = scenario.name
+      end
+    end
+  end
+
+  helpers.reset_environment()
+  helpers.assert_eq(#changed, 0, "storage-neutral scenarios changed qck storage: " .. table.concat(changed, ", "))
+end
+
 function scenarios.ordered()
   return {
     { name = "task form | creates and overwrites workspace task", run = scenarios.task_form_create_and_overwrite },
     { name = "task form | edits existing workspace task", run = scenarios.task_form_edit_existing_task },
     { name = "task form | normalizes task order after overwrite rename", run = scenarios.task_form_overwrite_rename_normalizes_task_order },
+    { name = "agent form | edits global agent command", run = scenarios.agent_form_edits_global_agent_command },
     { name = "task runner | selects workspace task", run = scenarios.task_runner_selects_workspace_task },
     { name = "task runner | runs numbered task directly", run = scenarios.task_runner_runs_numbered_task },
     { name = "task runner | rejects invalid task numbers", run = scenarios.task_runner_rejects_invalid_task_numbers },
@@ -2256,16 +2977,19 @@ function scenarios.ordered()
     { name = "storage | persists across module reload", run = scenarios.storage_persists_across_module_reload },
     { name = "storage | creates missing data dir on save", run = scenarios.storage_save_creates_missing_data_dir },
     { name = "storage | writes empty object maps", run = scenarios.storage_empty_state_writes_object_maps },
+    { name = "storage | persists workspace agent command", run = scenarios.storage_agent_roundtrip },
+    { name = "storage | keeps runtime scenarios storage-neutral", run = scenarios.storage_neutral_scenarios_preserve_storage },
     { name = "ui state | registers categories and traverses tabs", run = scenarios.ui_state_registration_and_traversal },
     { name = "ui runtime | tracks windows, handles, and layout scaffolding", run = scenarios.ui_runtime_and_layout_scaffolding },
     { name = "ui tabbar | renders from ui-owned traversal and active state", run = scenarios.ui_tabbar_renders_from_ui_state },
     { name = "ui tabbar | keeps manually reordered T labels", run = scenarios.ui_tabbar_keeps_manually_reordered_t_labels },
     { name = "ui init | manages internal ui orchestration and rollback", run = scenarios.ui_init_orchestration_contract },
+    { name = "ui init | handles mouse tabbar selection without insert-mode regressions", run = scenarios.ui_mouse_tabbar_selection_contract },
     { name = "terminals | manages generic terminals with shared layout", run = scenarios.terminals_and_layout },
     { name = "terminals | preserves lifecycle watcher behavior and focus routing", run = scenarios.terminal_lifecycle_watchers_and_focus },
     { name = "terminals | keeps finished task terminal open", run = scenarios.task_terminal_finish_keeps_task_tab_open },
     { name = "terminals | preserves mixed terminal tabbar after task finish", run = scenarios.task_terminal_finish_preserves_mixed_tabbar },
-    { name = "terminals | pins task terminals before regular terminals", run = scenarios.task_terminals_are_pinned_before_regular_terminals },
+    { name = "terminals | orders regular terminals before task terminals", run = scenarios.regular_terminals_are_ordered_before_task_terminals },
     { name = "terminals | skips tabbar kind divider", run = scenarios.tabbar_skips_kind_divider },
     { name = "terminals | reuses existing task terminal", run = scenarios.task_runner_reuses_existing_task_terminal },
     { name = "terminals | reopens hidden matching task terminal", run = scenarios.task_runner_reopens_hidden_matching_task_terminal },
@@ -2273,6 +2997,13 @@ function scenarios.ordered()
     { name = "terminals | uses task order for R labels", run = scenarios.task_runner_uses_task_order_for_r_labels },
     { name = "terminals | updates R labels after task reorder", run = scenarios.task_runner_updates_r_labels_after_reorder },
     { name = "terminals | prevents manual R label reordering", run = scenarios.task_runner_prevents_manual_r_label_reordering },
+    { name = "terminals | runs and reuses workspace agent terminal", run = scenarios.agent_terminal_runs_and_reuses_workspace_agent },
+    { name = "terminals | requests agent rerender when opened", run = scenarios.agent_terminal_requests_rerender_when_opened },
+    { name = "terminals | forces new agent terminal and reuses current agent", run = scenarios.agent_terminal_forces_new_and_reuses_current_agent },
+    { name = "terminals | closes noop agent terminal and tabbar on completion", run = scenarios.agent_terminal_noop_completion_closes_windows },
+    { name = "terminals | orders agent tabs before regular and task terminals", run = scenarios.agent_terminal_orders_before_regular_and_task_tabs },
+    { name = "terminals | reuses live task terminal after rename", run = scenarios.task_runner_reuses_live_task_terminal_after_rename },
+    { name = "terminals | keeps renamed live tab after rename collision", run = scenarios.task_runner_rename_collision_keeps_renamed_live_tab },
     { name = "terminals | prunes invalid terminals and adopts live fallbacks", run = scenarios.terminal_invalidation_and_active_fallbacks },
     { name = "storage | clears workspace data for current workspace", run = scenarios.clear_storage },
     { name = "storage | fails invalid load and repairs storage through clear_storage", run = scenarios.invalid_storage_repair },

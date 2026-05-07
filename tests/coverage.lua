@@ -1,5 +1,4 @@
 local root = vim.fn.getcwd()
-vim.env.XDG_DATA_HOME = root .. "/tests/.tmp/coverage-data"
 local coverage_dir = root .. "/tests/.coverage"
 
 vim.fn.mkdir(coverage_dir, "p")
@@ -17,6 +16,9 @@ package.path = table.concat({
   root .. "/tests/?.lua",
   package.path,
 }, ";")
+
+require("bootstrap").setup_xdg("coverage")
+vim.env.QCK_TEST_SNACKS_RTP = nil
 
 require("luacov")
 

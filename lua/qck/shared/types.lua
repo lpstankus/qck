@@ -21,11 +21,16 @@
 ---@field cmd qck.Command
 ---@field order integer
 
+---@class qck.StorageAgentState
+---@field cmd qck.Command
+
 ---@class qck.StorageWorkspaceState
 ---@field tasks table<string, qck.StorageTaskState>
+---@field agents table<string, qck.StorageAgentState>
 
 ---@class qck.StorageState
 ---@field version string
+---@field agents table<string, qck.StorageAgentState>
 ---@field workspaces table<string, qck.StorageWorkspaceState>
 
 return {}

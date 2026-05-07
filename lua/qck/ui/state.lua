@@ -10,6 +10,7 @@ local category_order = {}
 local tabs = {}
 local terminal_to_tab = setmetatable({}, { __mode = "k" })
 local active_tab_id = nil
+local category_active_tab_ids = {}
 local next_tab_id = 1
 
 ---@param values integer[]
@@ -169,6 +170,7 @@ function state.reset()
   tabs = {}
   terminal_to_tab = setmetatable({}, { __mode = "k" })
   active_tab_id = nil
+  category_active_tab_ids = {}
   next_tab_id = 1
 end
 
@@ -287,8 +289,22 @@ function state.set_active_tab(tab_id)
     return false, "tab is not registered"
   end
 
+  local tab = tabs[tab_id]
   active_tab_id = tab_id
+  category_active_tab_ids[tab.category_key] = tab_id
   return true
+end
+
+---@param category_key qck.UiCategoryKey
+---@return qck.UiTabId|nil
+function state.get_active_category_tab_id(category_key)
+  local tab_id = category_active_tab_ids[category_key]
+  if is_live_tab_id(tab_id) then
+    return tab_id
+  end
+
+  category_active_tab_ids[category_key] = nil
+  return nil
 end
 
 ---@param category_key qck.UiCategoryKey
@@ -377,6 +393,28 @@ function state.delete_tab(tab_id)
     next_active = ordered[index + 1] or ordered[index - 1]
   end
 
+  local category_index = nil
+  for i, candidate in ipairs(category.tab_ids) do
+    if candidate == tab_id then
+      category_index = i
+      break
+    end
+  end
+
+  local next_category_active = nil
+  if category_index then
+    for candidate_index = category_index + 1, #category.tab_ids do
+      next_category_active = category.tab_ids[candidate_index]
+      break
+    end
+    if not next_category_active then
+      for candidate_index = category_index - 1, 1, -1 do
+        next_category_active = category.tab_ids[candidate_index]
+        break
+      end
+    end
+  end
+
   for i, candidate in ipairs(category.tab_ids) do
     if candidate == tab_id then
       table.remove(category.tab_ids, i)
@@ -386,9 +424,16 @@ function state.delete_tab(tab_id)
 
   tabs[tab_id] = nil
   terminal_to_tab[tab.terminal] = nil
+  if category_active_tab_ids[tab.category_key] == tab_id then
+    category_active_tab_ids[tab.category_key] = next_category_active
+  end
 
   if active_tab_id == tab_id then
     active_tab_id = next_active
+    local next_tab = tabs[next_active]
+    if next_tab then
+      category_active_tab_ids[next_tab.category_key] = next_active
+    end
   else
     state.resolve_active_tab()
   end

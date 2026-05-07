@@ -2,6 +2,7 @@
 local qck = {}
 require("qck.shared.types")
 local ui = require("qck.ui")
+local agent_form = require("qck.agents.form")
 local task_form = require("qck.tasks.form")
 local task_runner = require("qck.tasks.runner")
 local storage = require("qck.tasks.storage")
@@ -129,6 +130,53 @@ function qck.run_task(task_number)
   end
 
   task_runner.open()
+end
+
+---Open the global agent command form.
+---
+---Parameters:
+---  - None.
+---
+---Example:
+---```lua
+---require("qck").set_agent()
+---```
+---@return nil
+function qck.set_agent()
+  agent_form.open()
+end
+
+---Run the configured workspace agent command in an agent terminal.
+---
+---Parameters:
+---  - `force_new`: Optional boolean. When true, spawn a new agent terminal
+---    instead of reusing the current one.
+---
+---Example:
+---```lua
+---require("qck").run_agent()
+---require("qck").run_agent(true)
+---```
+---@param force_new? boolean
+---@return nil
+function qck.run_agent(force_new)
+  if storage.ok ~= true then
+    notify(("workspace storage is unavailable: %s"):format(storage.last_error or "not loaded"), vim.log.levels.ERROR)
+    return
+  end
+
+  local workspace = vim.fn.getcwd()
+  local cmd = storage.get_agent_cmd(workspace)
+  if not cmd then
+    notify("no agent configured for current workspace", vim.log.levels.WARN)
+    return
+  end
+
+  app_terminal.create_agent_and_attach({
+    workspace = workspace,
+    cmd = cmd,
+    force_new = force_new == true,
+  })
 end
 
 ---Show the active qck terminal, creating a new one when none exist.
