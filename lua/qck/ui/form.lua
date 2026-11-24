@@ -3,6 +3,7 @@ local autocmd = require("qck.shared.autocmd")
 local form = {}
 
 local MIN_SEPARATOR_WIDTH = 2048
+local MINIMAL_TEXTAREA_HEIGHT = 5
 
 ---@class qck.FormField
 ---@field key string
@@ -20,6 +21,7 @@ local MIN_SEPARATOR_WIDTH = 2048
 ---@field description string
 ---@field help string
 ---@field filetype string
+---@field minimal? boolean
 ---@field fields qck.FormField[]
 ---@field on_submit fun(values: table<string, string>, controller: qck.FormController): boolean?
 ---@field on_change? fun(key: string, value: string, controller: qck.FormController)
@@ -91,7 +93,12 @@ local function parse_field_value(state, field_def)
     return ""
   end
 
+  if state.minimal == true then
+    return table.concat(vim.api.nvim_buf_get_lines(state.bufnr, 0, -1, false), "\n")
+  end
+
   local line = vim.api.nvim_buf_get_lines(state.bufnr, field_def.line - 1, field_def.line, false)[1] or ""
+
   if vim.startswith(line, field_def.prefix) then
     return line:sub(#field_def.prefix + 1)
   end
@@ -138,6 +145,13 @@ local function clamp_cursor_to_field(state)
   local col = cursor[2]
   local target_idx = state.selected_field
 
+  if state.minimal == true then
+    local line_count = math.max(1, vim.api.nvim_buf_line_count(state.bufnr))
+    line = math.max(1, math.min(line, line_count))
+    vim.api.nvim_win_set_cursor(state.winid, { line, math.max(0, col) })
+    return
+  end
+
   for idx, field_def in ipairs(state.fields) do
     if line == field_def.line then
       target_idx = idx
@@ -147,8 +161,9 @@ local function clamp_cursor_to_field(state)
 
   state.selected_field = target_idx
   local selected = state.fields[state.selected_field]
-  if col < #selected.prefix then
-    col = #selected.prefix
+  local min_col = state.minimal == true and 0 or #selected.prefix
+  if col < min_col then
+    col = min_col
   end
   vim.api.nvim_win_set_cursor(state.winid, { selected.line, col })
 end
@@ -160,15 +175,30 @@ local function sanitize_buffer(state)
 
   state.is_sanitizing = true
   local form_values = values(state)
-  local lines = {
-    state.description,
-    separator_for(state, form_values),
-  }
-  for _, field_def in ipairs(state.fields) do
-    lines[#lines + 1] = field_def.prefix .. display_value(field_def, form_values[field_def.key])
+  local lines = {}
+  if state.minimal == true then
+    local value_lines = vim.split(
+      display_value(state.fields[1], form_values[state.fields[1].key]),
+      "\n",
+      { plain = true, trimempty = false }
+    )
+    for _, line in ipairs(value_lines) do
+      lines[#lines + 1] = line
+    end
+    while #lines < MINIMAL_TEXTAREA_HEIGHT do
+      lines[#lines + 1] = ""
+    end
+  else
+    lines = {
+      state.description,
+      separator_for(state, form_values),
+    }
+    for _, field_def in ipairs(state.fields) do
+      lines[#lines + 1] = field_def.prefix .. display_value(field_def, form_values[field_def.key])
+    end
+    lines[#lines + 1] = lines[2]
+    lines[#lines + 1] = state.help
   end
-  lines[#lines + 1] = lines[2]
-  lines[#lines + 1] = state.help
 
   vim.api.nvim_buf_set_lines(state.bufnr, 0, -1, false, lines)
   clamp_cursor_to_field(state)
@@ -184,7 +214,7 @@ local function focus_field(state, field_idx)
   sanitize_buffer(state)
   state.selected_field = capped_field_idx(state.fields, field_idx)
   local selected = state.fields[state.selected_field]
-  vim.api.nvim_win_set_cursor(state.winid, { selected.line, #selected.prefix })
+  vim.api.nvim_win_set_cursor(state.winid, { selected.line, state.minimal == true and 0 or #selected.prefix })
   if was_insert then
     vim.cmd("startinsert!")
   end
@@ -192,23 +222,24 @@ end
 
 local function build_window_config(state)
   local width = math.max(50, math.floor(vim.o.columns * 0.5))
-  local height = #state.fields + 4
+  local height = state.minimal == true and MINIMAL_TEXTAREA_HEIGHT or #state.fields + 4
   local row = math.max(0, math.floor((vim.o.lines - height) / 2) - 1)
   local col = math.max(0, math.floor((vim.o.columns - width) / 2))
 
-  return {
+  local config = {
     relative = "editor",
     row = row,
     col = col,
     width = width,
     height = height,
     style = "minimal",
-    border = "single",
     focusable = true,
     noautocmd = true,
-    title = state.title,
-    title_pos = "center",
   }
+  config.border = "single"
+  config.title = state.title
+  config.title_pos = "center"
+  return config
 end
 
 local function set_window_options(state)
@@ -245,9 +276,17 @@ local function apply_keymaps(controller, state)
     end
     focus_field(state, state.selected_field + 1)
   end, map_opts)
-  vim.keymap.set({ "n", "i" }, "<S-CR>", function()
-    focus_field(state, state.selected_field - 1)
-  end, map_opts)
+  if state.minimal == true then
+    vim.keymap.set("n", "<S-CR>", function()
+      local cursor = vim.api.nvim_win_get_cursor(state.winid)
+      vim.api.nvim_buf_set_lines(state.bufnr, cursor[1], cursor[1], false, { "" })
+      vim.api.nvim_win_set_cursor(state.winid, { cursor[1] + 1, 0 })
+    end, map_opts)
+  else
+    vim.keymap.set({ "n", "i" }, "<S-CR>", function()
+      focus_field(state, state.selected_field - 1)
+    end, map_opts)
+  end
   if has_selection then
     vim.keymap.set({ "n", "i" }, "<Tab>", function()
       controller.cycle_selection(1)
@@ -271,6 +310,7 @@ function form.create()
     description = "",
     help = "",
     filetype = "",
+    minimal = false,
     fields = {},
     on_submit = nil,
     on_change = nil,
@@ -294,6 +334,7 @@ function form.create()
     state.description = ""
     state.help = ""
     state.filetype = ""
+    state.minimal = false
     state.fields = {}
     state.on_submit = nil
     state.on_change = nil
@@ -410,6 +451,7 @@ function form.create()
     state.description = opts.description
     state.help = opts.help
     state.filetype = opts.filetype
+    state.minimal = opts.minimal == true
     state.on_submit = opts.on_submit
     state.on_change = opts.on_change
     state.on_close = opts.on_close
@@ -422,7 +464,7 @@ function form.create()
         type = field_type,
         value = field_def.value or "",
         options = field_type == "selection" and normalize_selection_options(field_def.options) or nil,
-        line = idx + 2,
+        line = state.minimal == true and idx or idx + 2,
       }
     end
 
@@ -431,15 +473,30 @@ function form.create()
     state.selected_field = 1
 
     set_window_options(state)
-    local lines = {
-      state.description,
-      "",
-    }
-    for _, field_def in ipairs(state.fields) do
-      lines[#lines + 1] = field_def.prefix .. display_value(field_def, field_def.value)
+    local lines = {}
+    if state.minimal == true then
+      local value_lines = vim.split(
+        display_value(state.fields[1], state.fields[1].value),
+        "\n",
+        { plain = true, trimempty = false }
+      )
+      for _, line in ipairs(value_lines) do
+        lines[#lines + 1] = line
+      end
+      while #lines < MINIMAL_TEXTAREA_HEIGHT do
+        lines[#lines + 1] = ""
+      end
+    else
+      lines = {
+        state.description,
+        "",
+      }
+      for _, field_def in ipairs(state.fields) do
+        lines[#lines + 1] = field_def.prefix .. display_value(field_def, field_def.value)
+      end
+      lines[#lines + 1] = ""
+      lines[#lines + 1] = state.help
     end
-    lines[#lines + 1] = ""
-    lines[#lines + 1] = state.help
     vim.api.nvim_buf_set_lines(state.bufnr, 0, -1, false, lines)
     sanitize_buffer(state)
     apply_keymaps(controller, state)

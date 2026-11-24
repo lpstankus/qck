@@ -3,6 +3,7 @@ local qck = {}
 require("qck.shared.types")
 local ui = require("qck.ui")
 local agent_form = require("qck.agents.form")
+local agent_quick_fix = require("qck.agents.quick_fix")
 local task_form = require("qck.tasks.form")
 local task_runner = require("qck.tasks.runner")
 local storage = require("qck.tasks.storage")
@@ -177,6 +178,20 @@ function qck.run_agent(force_new)
     cmd = cmd,
     force_new = force_new == true,
   })
+end
+
+---Open a prompt that spawns a fresh agent terminal for a file quick fix.
+---
+---Parameters:
+---  - None.
+---
+---Example:
+---```lua
+---require("qck").quick_fix_agent()
+---```
+---@return nil
+function qck.quick_fix_agent()
+  agent_quick_fix.open()
 end
 
 ---Show the active qck terminal, creating a new one when none exist.

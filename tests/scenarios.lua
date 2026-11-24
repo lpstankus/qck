@@ -516,6 +516,145 @@ function scenarios.agent_form_edits_global_agent_command()
   end
 end
 
+function scenarios.quick_fix_agent_opens_prompt_form()
+  local env = helpers.load_qck()
+  local qck = env.qck
+  local quick_fix = require("qck.agents.quick_fix")
+
+  qck.quick_fix_agent()
+  local form_win = quick_fix.get_winid()
+  helpers.assert_truthy(type(form_win) == "number", "quick_fix_agent() should open a quick-fix form window")
+
+  qck.quick_fix_agent()
+  helpers.assert_eq(quick_fix.get_winid(), form_win, "quick_fix_agent() should focus the existing quick-fix form")
+
+  local form_buf = vim.api.nvim_win_get_buf(form_win)
+  helpers.assert_eq(vim.bo[form_buf].filetype, "qck-agent-quick-fix-form", "quick-fix form should set filetype")
+  local form_config = vim.api.nvim_win_get_config(form_win)
+  helpers.assert_truthy(form_config.border ~= "none", "minimal quick-fix form should keep standard form borders")
+  helpers.assert_eq(window_title(form_win), "QCK Agent Quick Fix", "minimal quick-fix form should keep the form title")
+  local lines = vim.api.nvim_buf_get_lines(form_buf, 0, -1, false)
+  helpers.assert_eq(#lines, 5, "quick-fix form should render a five-line message input")
+  helpers.assert_truthy(
+    vim.deep_equal(lines, { "", "", "", "", "" }),
+    "quick-fix form should not render labels or help text"
+  )
+
+  vim.cmd("stopinsert")
+  vim.api.nvim_win_set_cursor(form_win, { 1, 0 })
+  vim.api.nvim_buf_set_lines(form_buf, 0, 1, false, { "first line" })
+  feed("<S-CR>")
+  lines = vim.api.nvim_buf_get_lines(form_buf, 0, -1, false)
+  helpers.assert_truthy(
+    vim.deep_equal(lines, { "first line", "", "", "", "", "" }),
+    "normal-mode <S-CR> should add a new line to the minimal message input"
+  )
+end
+
+function scenarios.quick_fix_agent_spawns_new_agent_for_cursor_reference()
+  local env = helpers.load_qck()
+  local qck, storage, ui_state, workspace = env.qck, env.storage, env.ui_state, env.workspace
+  local quick_fix = require("qck.agents.quick_fix")
+  local mock_snacks = require("mock_snacks")
+  local file = workspace .. "/lua/example.lua"
+
+  storage.set_agent_cmd(workspace, "codex exec")
+  vim.api.nvim_buf_set_name(0, file)
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "one", "two", "three" })
+  vim.api.nvim_win_set_cursor(0, { 2, 0 })
+
+  qck.quick_fix_agent()
+  local form_buf = vim.api.nvim_win_get_buf(quick_fix.get_winid())
+  vim.api.nvim_buf_set_lines(form_buf, 0, 1, false, { "fix this bug" })
+  quick_fix.submit()
+
+  local first_agent_tab_id = ui_state.resolve_active_tab()
+  local first_agent_tab = first_agent_tab_id and ui_state.get_tab(first_agent_tab_id) or nil
+  local first_agent_handle = first_agent_tab and first_agent_tab.terminal or nil
+  helpers.assert_truthy(first_agent_tab_id ~= nil, "quick-fix submit should spawn an agent tab")
+  helpers.assert_eq(first_agent_tab and first_agent_tab.category_key, "agent", "quick-fix submit should use agent terminals")
+  helpers.assert_truthy(
+    vim.deep_equal(vim.api.nvim_buf_get_lines(first_agent_handle.buf, 0, -1, false), {
+      ('cmd: codex exec "%s:L2 fix this bug"'):format(file),
+    }),
+    "quick-fix submit should run the agent with a cursor file reference and message"
+  )
+
+  vim.api.nvim_set_current_buf(vim.fn.bufnr(file))
+  vim.api.nvim_win_set_cursor(0, { 2, 0 })
+  qck.quick_fix_agent()
+  form_buf = vim.api.nvim_win_get_buf(quick_fix.get_winid())
+  vim.api.nvim_buf_set_lines(form_buf, 0, 1, false, { "fix another bug" })
+  quick_fix.submit()
+
+  helpers.assert_eq(#mock_snacks.get_handles(), 2, "quick-fix submit should always spawn a new agent terminal")
+  helpers.assert_eq(#agent_tabs(ui_state), 2, "quick-fix submit should keep both agent tabs registered")
+  helpers.assert_truthy(ui_state.resolve_active_tab() ~= first_agent_tab_id, "second quick-fix submit should select the new agent")
+end
+
+function scenarios.quick_fix_agent_uses_visual_selection_reference()
+  local env = helpers.load_qck()
+  local qck, storage, ui_state, workspace = env.qck, env.storage, env.ui_state, env.workspace
+  local quick_fix = require("qck.agents.quick_fix")
+  local file = workspace .. "/lua/visual.lua"
+
+  storage.set_agent_cmd(workspace, { "codex", "exec" })
+  vim.api.nvim_buf_set_name(0, file)
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "one", "two", "three", "four" })
+  vim.api.nvim_win_set_cursor(0, { 4, 0 })
+  feed("Vk")
+
+  qck.quick_fix_agent()
+  local form_buf = vim.api.nvim_win_get_buf(quick_fix.get_winid())
+  vim.api.nvim_buf_set_lines(form_buf, 0, 2, false, { "fix selection", "with context" })
+  quick_fix.submit()
+
+  local agent_tab_id = ui_state.resolve_active_tab()
+  local agent_tab = agent_tab_id and ui_state.get_tab(agent_tab_id) or nil
+  local agent_handle = agent_tab and agent_tab.terminal or nil
+  helpers.assert_truthy(
+    vim.deep_equal(agent_handle.cmd, { "codex", "exec", ("%s:L3-L4 fix selection\nwith context"):format(file) }),
+    "quick-fix submit should append a multiline visual selection prompt to list commands"
+  )
+end
+
+function scenarios.quick_fix_agent_validates_message_and_file()
+  local env = helpers.load_qck()
+  local qck, storage, ui_state, workspace = env.qck, env.storage, env.ui_state, env.workspace
+  local quick_fix = require("qck.agents.quick_fix")
+  local notifications = {}
+  local original_notify = vim.notify
+
+  vim.notify = function(msg, level)
+    notifications[#notifications + 1] = { msg = msg, level = level }
+  end
+
+  local ok, err = pcall(function()
+    storage.set_agent_cmd(workspace, "codex exec")
+    qck.quick_fix_agent()
+    local form_buf = vim.api.nvim_win_get_buf(quick_fix.get_winid())
+    vim.api.nvim_buf_set_lines(form_buf, 0, 1, false, { "" })
+    quick_fix.submit()
+    helpers.assert_truthy(quick_fix.get_winid() ~= nil, "empty quick-fix message should keep the form open")
+    helpers.assert_eq(ui_state.resolve_active_tab(), nil, "empty quick-fix message should not spawn an agent")
+
+    quick_fix.close()
+    vim.api.nvim_buf_set_name(0, "")
+    qck.quick_fix_agent()
+    form_buf = vim.api.nvim_win_get_buf(quick_fix.get_winid())
+    vim.api.nvim_buf_set_lines(form_buf, 0, 1, false, { "fix unnamed" })
+    quick_fix.submit()
+    helpers.assert_truthy(quick_fix.get_winid() ~= nil, "unnamed buffers should keep the quick-fix form open")
+    helpers.assert_eq(ui_state.resolve_active_tab(), nil, "unnamed buffers should not spawn an agent")
+    helpers.assert_truthy(#notifications >= 2, "quick-fix validation failures should notify")
+  end)
+
+  vim.notify = original_notify
+  if not ok then
+    error(err)
+  end
+end
+
 function scenarios.task_runner_selects_workspace_task()
   local env = helpers.load_qck()
   local qck, storage, task_runner, ui_state, tabbar, workspace =

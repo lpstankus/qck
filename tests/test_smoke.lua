@@ -16,6 +16,8 @@ T["task form"]["normalizes task order after overwrite rename"] = scenarios.task_
 
 T["agent form"] = new_set()
 T["agent form"]["edits global agent command"] = scenarios.agent_form_edits_global_agent_command
+T["agent form"]["opens quick-fix prompt"] = scenarios.quick_fix_agent_opens_prompt_form
+T["agent form"]["validates quick-fix prompt"] = scenarios.quick_fix_agent_validates_message_and_file
 
 T["task runner"] = new_set()
 T["task runner"]["selects workspace task"] = scenarios.task_runner_selects_workspace_task
@@ -71,6 +73,8 @@ T["terminals"]["requests agent rerender when opened"] = scenarios.agent_terminal
 T["terminals"]["forces new agent terminal and reuses current agent"] = scenarios.agent_terminal_forces_new_and_reuses_current_agent
 T["terminals"]["closes noop agent terminal and tabbar on completion"] = scenarios.agent_terminal_noop_completion_closes_windows
 T["terminals"]["orders agent tabs before regular and task terminals"] = scenarios.agent_terminal_orders_before_regular_and_task_tabs
+T["terminals"]["spawns quick-fix agent for cursor reference"] = scenarios.quick_fix_agent_spawns_new_agent_for_cursor_reference
+T["terminals"]["spawns quick-fix agent for visual selection"] = scenarios.quick_fix_agent_uses_visual_selection_reference
 T["terminals"]["reuses live task terminal after rename"] = scenarios.task_runner_reuses_live_task_terminal_after_rename
 T["terminals"]["keeps renamed live tab after rename collision"] = scenarios.task_runner_rename_collision_keeps_renamed_live_tab
 T["terminals"]["prunes invalid terminals and adopts live fallbacks"] = scenarios.terminal_invalidation_and_active_fallbacks

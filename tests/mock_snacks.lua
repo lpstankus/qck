@@ -31,9 +31,9 @@ local function create_handle(id, cmd, opts)
   local buf = vim.api.nvim_create_buf(false, true)
   local lines = {}
   if type(cmd) == "string" then
-    lines[1] = "cmd: " .. cmd
+    lines = vim.split("cmd: " .. cmd, "\n", { plain = true, trimempty = false })
   elseif type(cmd) == "table" then
-    lines[1] = "cmd: " .. table.concat(cmd, " ")
+    lines = vim.split("cmd: " .. table.concat(cmd, " "), "\n", { plain = true, trimempty = false })
   else
     lines[1] = "cmd:"
   end
@@ -49,6 +49,7 @@ local function create_handle(id, cmd, opts)
   local handle = {
     buf = buf,
     win = open_win(),
+    cmd = cmd,
     auto_close = not (type(opts) == "table" and opts.auto_close == false),
     _on_close = win_opts and win_opts.on_close or nil,
     _autocmd_ids = {},

@@ -9,7 +9,7 @@ This is a Lua Neovim plugin. Runtime source lives under `lua/qck`.
 - `lua/qck/ui/` owns tab state, layout, shared form creation, rendering, and runtime UI behavior.
 - `lua/qck/ui/form.lua` owns shared text and selection field behavior for floating forms.
 - `lua/qck/tasks/` handles task form submission behavior, persistence, and task execution.
-- `lua/qck/agents/` handles global agent command configuration and local CWD overrides.
+- `lua/qck/agents/` handles global agent command configuration, local CWD overrides, and quick-fix agent prompts.
 - `lua/qck/shared/` contains small reusable helpers for commands, keymaps, notifications, autocmds, and shared type annotations.
 - `tests/` contains the headless Neovim test harness, smoke scenarios, helpers, and vendored `mini.nvim`/LuaCov code.
 
@@ -32,7 +32,7 @@ Runs coverage scenarios and generates the LuaCov report using `tests/.coverage`.
 
 ## Coding Style & Naming Conventions
 
-Use idiomatic Lua with two-space indentation, local modules, and explicit `require("qck...")` dependencies near the top of each file. Public APIs use simple function names such as `open`, `close`, `run_task`, and `set_agent`. Keep type comments in LuaLS style (`---@param`, `---@return`, `---@class`) when adding or changing module contracts.
+Use idiomatic Lua with two-space indentation, local modules, and explicit `require("qck...")` dependencies near the top of each file. Public APIs use simple function names such as `open`, `close`, `run_task`, `set_agent`, and `quick_fix_agent`. Keep type comments in LuaLS style (`---@param`, `---@return`, `---@class`) when adding or changing module contracts.
 
 Prefer small module-level helper functions over object-like APIs. Keep user-facing labels, category keys, and persisted storage names stable unless the change is intentional and covered by tests.
 
